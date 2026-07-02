@@ -11,3 +11,13 @@ class TelegramConnectWorkspaceThrottle(SimpleRateThrottle):
             'scope': self.scope,
             'ident': str(request.user.workspace_id),
         }
+
+
+class TelegramWebhookThrottle(SimpleRateThrottle):
+    scope = 'telegram_webhook'
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            'scope': self.scope,
+            'ident': self.get_ident(request),
+        }

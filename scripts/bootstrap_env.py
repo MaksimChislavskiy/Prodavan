@@ -41,6 +41,7 @@ def main():
         'INTEGRATION_ENCRYPTION_KEY_ID': 'v1',
         'TELEGRAM_API_BASE_URL': 'https://api.telegram.org',
         'TELEGRAM_REQUEST_TIMEOUT': '10',
+        'TELEGRAM_WEBHOOK_BASE_URL': '',
         'AUTH_REFRESH_COOKIE_NAME': 'refresh',
         'AUTH_COOKIE_SECURE': 'False',
         'AUTH_COOKIE_SAMESITE': 'Lax',

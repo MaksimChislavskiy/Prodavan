@@ -5,6 +5,7 @@ from .models import (
     WorkspaceAuditLog,
     WorkspaceIdempotencyRecord,
     WorkspaceIntegration,
+    TelegramWebhookLog,
 )
 
 
@@ -23,7 +24,18 @@ class WorkspaceIntegrationAdmin(admin.ModelAdmin):
     )
     list_filter = ('type', 'status', 'health_status')
     search_fields = ('workspace__name', 'bot_username')
-    exclude = ('config',)
+    exclude = ('config', 'webhook_secret_config')
+
+
+@admin.register(TelegramWebhookLog)
+class TelegramWebhookLogAdmin(admin.ModelAdmin):
+    list_display = ('workspace', 'update_id', 'processed', 'received_at')
+    list_filter = ('processed',)
+    search_fields = ('workspace__name', 'update_id')
+    readonly_fields = (
+        'workspace', 'update_id', 'payload', 'received_at',
+        'processed', 'processing_error',
+    )
 
 
 @admin.register(WorkspaceAuditLog)

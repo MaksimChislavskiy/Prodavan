@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from rest_framework import serializers
 
-from .models import Workspace, WorkspaceIntegration
+from .models import TelegramWebhookLog, Workspace, WorkspaceIntegration
 
 
 def _nullable_trimmed(value):
@@ -159,11 +159,30 @@ class CompanySettingsSerializer(serializers.Serializer):
 
 
 class WorkspaceIntegrationSerializer(serializers.ModelSerializer):
+    webhook_configured = serializers.SerializerMethodField()
+
+    def get_webhook_configured(self, instance):
+        return bool(
+            instance.webhook_secret_hash
+            and instance.webhook_secret_config
+            and instance.status == 'connected'
+        )
+
     class Meta:
         model = WorkspaceIntegration
         fields = (
             'type', 'status', 'health_status', 'bot_username',
-            'connected_at', 'last_check_at',
+            'connected_at', 'last_check_at', 'last_error',
+            'webhook_configured',
+        )
+
+
+class TelegramWebhookLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TelegramWebhookLog
+        fields = (
+            'id', 'update_id', 'payload', 'received_at', 'processed',
+            'processing_error',
         )
 
 

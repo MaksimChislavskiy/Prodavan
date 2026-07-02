@@ -76,6 +76,19 @@ class WorkspaceIntegration(TimestampMixin):
         blank=True,
     )
     config = models.JSONField(default=dict, blank=True)
+    credential_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+    )
+    webhook_secret_config = models.JSONField(default=dict, blank=True)
+    webhook_secret_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+    )
     bot_username = models.CharField(max_length=255, blank=True, default='')
     connected_at = models.DateTimeField(null=True, blank=True)
     last_check_at = models.DateTimeField(null=True, blank=True, db_index=True)
@@ -90,6 +103,46 @@ class WorkspaceIntegration(TimestampMixin):
             models.UniqueConstraint(
                 fields=('workspace', 'type'),
                 name='unique_workspace_integration_type',
+            ),
+            models.UniqueConstraint(
+                fields=('credential_fingerprint',),
+                condition=(
+                    models.Q(type=IntegrationType.TELEGRAM)
+                    & ~models.Q(credential_fingerprint='')
+                ),
+                name='unique_telegram_credential_fingerprint',
+            ),
+            models.UniqueConstraint(
+                fields=('webhook_secret_hash',),
+                condition=(
+                    models.Q(type=IntegrationType.TELEGRAM)
+                    & ~models.Q(webhook_secret_hash='')
+                ),
+                name='unique_telegram_webhook_secret_hash',
+            ),
+        ]
+
+
+class TelegramWebhookLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name='telegram_webhook_logs',
+    )
+    update_id = models.BigIntegerField()
+    payload = models.JSONField()
+    received_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    processed = models.BooleanField(default=False, db_index=True)
+    processing_error = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'telegram_webhook_log'
+        ordering = ('-received_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('workspace', 'update_id'),
+                name='unique_telegram_update_per_workspace',
             ),
         ]
 

@@ -28,6 +28,7 @@ TELEGRAM_API_BASE_URL = env(
     'https://api.telegram.org',
 ).rstrip('/')
 TELEGRAM_REQUEST_TIMEOUT = env_int('TELEGRAM_REQUEST_TIMEOUT', 10)
+TELEGRAM_WEBHOOK_BASE_URL = env('TELEGRAM_WEBHOOK_BASE_URL', '').rstrip('/')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', False)
@@ -147,6 +148,7 @@ REST_FRAMEWORK = {
         'password_reset_request': '5/hour',
         'password_reset_confirm': '20/hour',
         'telegram_connect': '10/min',
+        'telegram_webhook': '100/sec',
     },
 }
 
