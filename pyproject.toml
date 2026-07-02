@@ -1,0 +1,17 @@
+[project]
+name = "prodavan"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography>=47.0.0",
+    "dj-rest-auth>=7.0.2",
+    "django>=4.2.30",
+    "django-allauth>=65.14.3",
+    "djangorestframework>=3.16.1",
+    "djangorestframework-simplejwt>=5.5.1",
+    "pillow>=11.3.0",
+    "requests>=2.32.5",
+    "rest-framework-simplejwt>=0.0.2",
+]
