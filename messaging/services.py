@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from .models import Chat, ChatAuditAction, ChatAuditLog, Message, MessageSenderType
+from .realtime import broadcast_workspace_event
 
 
 CURSOR_SALT = 'prodavan.messaging.cursor.v1'
@@ -144,6 +145,14 @@ def mark_chat_read(*, workspace, user, chat_id, audit_context=None):
                 chat_id=chat.id,
                 details={'read_count': updated},
                 context=audit_context,
+            )
+            payload = {
+                'event': 'message_read',
+                'chat_id': str(chat.id),
+                'read_at': now.isoformat(),
+            }
+            transaction.on_commit(
+                lambda: broadcast_workspace_event(workspace.id, payload),
             )
 
 

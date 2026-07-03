@@ -7,6 +7,8 @@ from contacts.services import create_contact
 from workspaces.models import TelegramWebhookLog
 
 from .models import Chat, ChatAuditAction, Message, MessageSenderType
+from .realtime import broadcast_workspace_event
+from .serializers import MessageSerializer
 from .services import write_chat_audit
 
 
@@ -127,7 +129,8 @@ def process_telegram_webhook_log(log_id):
             contact=contact,
             is_deleted=False,
         ).first()
-        if chat is None:
+        chat_created = chat is None
+        if chat_created:
             chat = Chat.objects.create(
                 workspace=webhook_log.workspace,
                 contact=contact,
@@ -156,6 +159,7 @@ def process_telegram_webhook_log(log_id):
             unread_count=F('unread_count') + 1,
             updated_at=now,
         )
+        chat.refresh_from_db()
         webhook_log.processed = True
         webhook_log.processing_error = ''
         webhook_log.save(update_fields=('processed', 'processing_error'))
@@ -165,6 +169,39 @@ def process_telegram_webhook_log(log_id):
             chat_id=chat.id,
             message_id=incoming.id,
             details={'update_id': webhook_log.update_id},
+        )
+        if chat_created:
+            chat_payload = {
+                'event': 'chat_created',
+                'chat': {
+                    'id': str(chat.id),
+                    'contact': {
+                        'id': str(contact.id),
+                        'name': contact.name,
+                        'company': contact.company,
+                        'is_deleted': contact.is_deleted,
+                    },
+                    'last_message': chat.last_message,
+                    'last_message_at': chat.last_message_at.isoformat(),
+                    'unread_count': chat.unread_count,
+                },
+            }
+            transaction.on_commit(
+                lambda: broadcast_workspace_event(
+                    webhook_log.workspace_id,
+                    chat_payload,
+                ),
+            )
+        message_payload = {
+            'event': 'message_new',
+            'chat_id': str(chat.id),
+            'message': dict(MessageSerializer(incoming).data),
+        }
+        transaction.on_commit(
+            lambda: broadcast_workspace_event(
+                webhook_log.workspace_id,
+                message_payload,
+            ),
         )
     return True
 

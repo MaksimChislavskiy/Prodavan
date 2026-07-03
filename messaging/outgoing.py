@@ -22,6 +22,8 @@ from .models import (
     MessageSenderType,
     MessageStatus,
 )
+from .realtime import broadcast_workspace_event
+from .serializers import MessageSerializer
 from .services import ChatServiceError, write_chat_audit
 
 
@@ -144,6 +146,14 @@ def enqueue_outgoing_message(
             details={'status': MessageStatus.SENT, 'sent_by_ai': False},
             context=audit_context,
         )
+        payload = {
+            'event': 'message_new',
+            'chat_id': str(chat.id),
+            'message': dict(MessageSerializer(message).data),
+        }
+        transaction.on_commit(
+            lambda: broadcast_workspace_event(workspace.id, payload),
+        )
     return message, False
 
 
@@ -222,6 +232,18 @@ def process_outgoing_message(message_id, *, client=None, now=None):
                     'last_delivery_error', 'updated_at',
                 ),
             )
+            payload = {
+                'event': 'message_status_updated',
+                'chat_id': str(message.chat_id),
+                'message_id': str(message.id),
+                'status': MessageStatus.DELIVERED,
+            }
+            transaction.on_commit(
+                lambda: broadcast_workspace_event(
+                    message.chat.workspace_id,
+                    payload,
+                ),
+            )
             return True
 
         message.last_delivery_error = delivery_error[:2000]
@@ -236,6 +258,19 @@ def process_outgoing_message(message_id, *, client=None, now=None):
                 'last_delivery_error', 'updated_at',
             ),
         )
+        if message.status == MessageStatus.FAILED:
+            payload = {
+                'event': 'message_status_updated',
+                'chat_id': str(message.chat_id),
+                'message_id': str(message.id),
+                'status': MessageStatus.FAILED,
+            }
+            transaction.on_commit(
+                lambda: broadcast_workspace_event(
+                    message.chat.workspace_id,
+                    payload,
+                ),
+            )
     return True
 
 

@@ -29,6 +29,7 @@ TELEGRAM_API_BASE_URL = env(
 ).rstrip('/')
 TELEGRAM_REQUEST_TIMEOUT = env_int('TELEGRAM_REQUEST_TIMEOUT', 10)
 TELEGRAM_WEBHOOK_BASE_URL = env('TELEGRAM_WEBHOOK_BASE_URL', '').rstrip('/')
+CHANNEL_REDIS_URL = env('CHANNEL_REDIS_URL', '')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', False)
@@ -37,6 +38,7 @@ ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', ('localhost', '127.0.0.1'))
 
 # Application definition
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -50,6 +52,7 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
+    'channels',
     'users',
     'workspaces',
     'contacts',
@@ -86,6 +89,22 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
+
+if CHANNEL_REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [CHANNEL_REDIS_URL]},
+        },
+    }
+else:
+    # Только для локальной разработки и тестов. В production задайте Redis.
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
 
 # Database
 DATABASES = {

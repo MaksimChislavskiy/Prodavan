@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -137,6 +137,16 @@ class MessagingTests(TestCase):
                 message_identifier=message.id,
             ).exists(),
         )
+
+    @patch('messaging.telegram.broadcast_workspace_event')
+    def test_incoming_message_schedules_realtime_events(self, broadcast):
+        webhook_log = self._webhook_log()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            process_telegram_webhook_log(webhook_log.id)
+
+        events = [call.args[1]['event'] for call in broadcast.call_args_list]
+        self.assertEqual(events, ['chat_created', 'message_new'])
 
     def test_processed_webhook_is_idempotent(self):
         webhook_log = self._webhook_log()
@@ -323,6 +333,19 @@ class MessagingTests(TestCase):
         self.assertEqual(conflict.data['error'], 'idempotency_conflict')
         self.assertEqual(Message.objects.count(), 1)
         self.assertEqual(MessageIdempotencyRecord.objects.count(), 1)
+
+    @patch('messaging.outgoing.broadcast_workspace_event')
+    def test_outgoing_message_schedules_realtime_event(self, broadcast):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._enqueue(chat)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        payload = broadcast.call_args.args[1]
+        self.assertEqual(payload['event'], 'message_new')
+        self.assertEqual(payload['message']['status'], MessageStatus.SENT)
 
     def test_outgoing_delivery_marks_message_delivered(self):
         self._connect_telegram()
