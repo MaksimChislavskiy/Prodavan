@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import heroImage1 from './assets/landing/hero-1.png'
 import heroImage2 from './assets/landing/hero-2.png'
 import heroImage3 from './assets/landing/hero-3.png'
@@ -7,29 +8,25 @@ import heroImage6 from './assets/landing/hero-6.png'
 import logoFull from './assets/brand/logo-full.svg'
 import './App.css'
 
+type Page = 'home' | 'how'
+
 const imageCards = [
   {
-    // title: 'Автоматизация процессов',
     image: heroImage1,
   },
   {
-    // title: 'AI для продаж',
     image: heroImage4,
   },
   {
-    // title: 'Сделки и аналитика',
     image: heroImage2,
   },
   {
-    // title: 'Команда и стратегия',
     image: heroImage3,
   },
   {
-    // title: 'Интеграции',
     image: heroImage5,
   },
   {
-    // title: 'Социальные каналы',
     image: heroImage6,
   },
 ]
@@ -39,17 +36,95 @@ const imageColumns = [
   imageCards.slice(3, 6),
 ]
 
+const workCards = [
+  {
+    title: 'Обучение',
+    text: 'Загрузите данные и дайте ИИ мозги вашей компании',
+  },
+  {
+    title: 'Продажи',
+    text: 'Бот общается, квалифицирует и дожимает 24/7',
+  },
+  {
+    title: 'Контроль',
+    text: 'Получайте готовые отчеты и подключайтесь только для важных сделок',
+  },
+]
+
+const testimonials = [
+  {
+    text: '«Бот ловит клиентов ночью, а я сплю. Утром уже готовые сделки.»',
+    name: 'Елена Орлова',
+    role: 'Владелица салона мебели',
+    source: 'VKontakte',
+  },
+  {
+    text: '«За месяц выручка выросла на 40%. Менеджер один, а работает как трое.»',
+    name: 'Мария Сидорова',
+    role: 'Директор интернет магазина',
+    source: 'VKontakte',
+  },
+]
+
 function App() {
+    const getPageFromPath = (): Page => {
+      return window.location.pathname === '/how-it-works' ? 'how' : 'home'
+    }
+
+    const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
+
+    useEffect(() => {
+      const handlePopState = () => {
+        setCurrentPage(getPageFromPath())
+        window.scrollTo(0, 0)
+      }
+
+      window.addEventListener('popstate', handlePopState)
+
+      return () => {
+        window.removeEventListener('popstate', handlePopState)
+      }
+    }, [])
+
+    const openHomePage = () => {
+      window.history.pushState(null, '', '/')
+      setCurrentPage('home')
+      window.scrollTo(0, 0)
+    }
+
+    const openHowPage = () => {
+      window.history.pushState(null, '', '/how-it-works')
+      setCurrentPage('how')
+      window.scrollTo(0, 0)
+    }
+
   return (
     <div className="appShell">
       <main className="landingPage">
         <header className="siteHeader">
-          <a className="brand" href="/" aria-label="Продаван">
+          <a
+            className="brand"
+            href="/"
+            aria-label="Продаван"
+            onClick={(event) => {
+              event.preventDefault()
+              openHomePage()
+            }}
+          >
             <img className="brandLogoImage" src={logoFull} alt="Продаван" />
           </a>
 
           <nav className="mainNav" aria-label="Основная навигация">
-            <a href="#how-it-works">Как это работает</a>
+            <a
+              href="/how-it-works"
+              onClick={(event) => {
+                event.preventDefault()
+                openHowPage()
+              }}
+            >
+              Как это работает
+            </a>
+
             <a href="#pricing">Тарифы</a>
           </nav>
 
@@ -64,47 +139,33 @@ function App() {
           </div>
         </header>
 
-        <section className="heroSection">
-          <div className="heroContent">
-            <h1>
-              Сложные процессы — простыми словами CRM с AI, которая понимает вас
-            </h1>
-
-            <p>
-              Внедрение за один день, поддержка AI на каждом этапе и интерфейс,
-              в котором не нужно учиться работать
-            </p>
-
-            <button className="trialButton" type="button">
-              Бесплатно 14 дней
-            </button>
-          </div>
-
-          <div className="imageCollage" aria-label="Иллюстрации возможностей CRM">
-            {imageColumns.map((column, columnIndex) => (
-              <div className="imageColumn" key={`column-${columnIndex}`}>
-                {column.map((card, cardIndex) => {
-                  const tileNumber = columnIndex * 3 + cardIndex + 1
-
-                  return (
-                    <div className={`imageTile tile${tileNumber}`} key={`tile-${tileNumber}`}>
-                      <img src={card.image} alt="" />
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
-          </div>
-        </section>
+        {currentPage === 'home' ? <HomePage /> : <HowItWorksPage />}
 
         <footer className="siteFooter">
           <div className="footerTop">
-            <a className="footerBrand" href="/" aria-label="Продаван">
+            <a
+              className="footerBrand"
+              href="/"
+              aria-label="Продаван"
+              onClick={(event) => {
+                event.preventDefault()
+                openHomePage()
+              }}
+            >
               <img className="brandLogoImage" src={logoFull} alt="Продаван" />
             </a>
 
             <nav className="footerNav" aria-label="Навигация в подвале">
-              <a href="#how-it-works">Как это работает</a>
+              <a
+                href="/how-it-works"
+                onClick={(event) => {
+                  event.preventDefault()
+                  openHowPage()
+                }}
+              >
+                Как это работает
+              </a>
+
               <a href="#pricing">Тарифы</a>
             </nav>
 
@@ -125,6 +186,148 @@ function App() {
         </footer>
       </main>
     </div>
+  )
+}
+
+function HomePage() {
+  return (
+    <section className="heroSection">
+      <div className="heroContent">
+        <h1>
+          Сложные процессы — простыми словами CRM с AI, которая понимает вас
+        </h1>
+
+        <p>
+          Внедрение за один день, поддержка AI на каждом этапе и интерфейс,
+          в котором не нужно учиться работать
+        </p>
+
+        <button className="trialButton" type="button">
+          Бесплатно 14 дней
+        </button>
+      </div>
+
+      <div className="imageCollage" aria-label="Иллюстрации возможностей CRM">
+        {imageColumns.map((column, columnIndex) => (
+          <div className="imageColumn" key={`column-${columnIndex}`}>
+            {column.map((card, cardIndex) => {
+              const tileNumber = columnIndex * 3 + cardIndex + 1
+
+              return (
+                <div className={`imageTile tile${tileNumber}`} key={`tile-${tileNumber}`}>
+                  <img src={card.image} alt="" />
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function HowItWorksPage() {
+  return (
+    <>
+      <section className="howSection" id="how-it-works">
+        <div className="howIntro">
+          <h2>Как это работает</h2>
+          <p>
+            Ваш отдел продаж на автопилоте: пока вы отдыхаете, ИИ закрывает сделки
+          </p>
+        </div>
+
+        <div className="workFlow">
+          <h3>
+            Путь от первой заявки до закрытого чека: ИИ делает работу, вы получаете результат
+          </h3>
+
+          <div className="workCards">
+            {workCards.map((card) => (
+              <article className="workCard" key={card.title}>
+                <div className="workCardImage" aria-hidden="true" />
+
+                <div className="workCardContent">
+                  <h4>{card.title}</h4>
+                  <p>{card.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="videoBlock">
+          <div className="videoPlaceholder">
+            <span>Видео</span>
+          </div>
+
+          <p>
+            Посмотрите, как Продаван экономит 4 часа вашего времени каждый день
+          </p>
+        </div>
+      </section>
+
+      <section className="testimonialsSection">
+        <div className="testimonialsIntro">
+          <h2>Что говорят люди</h2>
+          <p>Те, кто уже начал продавать по-новому</p>
+        </div>
+
+        <div className="testimonialCards">
+          {testimonials.map((testimonial) => (
+            <article className="testimonialCard" key={testimonial.name}>
+              <div className="stars" aria-label="5 из 5">
+                ★★★★★
+              </div>
+
+              <p className="testimonialText">{testimonial.text}</p>
+
+              <div className="testimonialAuthor">
+                <div className="authorAvatar" aria-hidden="true" />
+
+                <div>
+                  <h3>{testimonial.name}</h3>
+                  <p>{testimonial.role}</p>
+                </div>
+
+                <span>{testimonial.source}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="sliderControls" aria-label="Навигация по отзывам">
+          <span className="sliderDots">● ○ ○ ○</span>
+
+          <div className="sliderButtons">
+            <button type="button" aria-label="Предыдущий отзыв">
+              ←
+            </button>
+            <button type="button" aria-label="Следующий отзыв">
+              →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="ctaSection">
+        <div className="ctaContent">
+          <h2>Начните продавать сейчас</h2>
+
+          <p>
+            Попробуйте бесплатно прямо сейчас — автоматизируйте продажи за 5 минут!
+          </p>
+
+          <button className="trialButton" type="button">
+            Бесплатно 14 дней
+          </button>
+        </div>
+
+        <div className="ctaImagePlaceholder" aria-hidden="true">
+          Изображение
+        </div>
+      </section>
+    </>
   )
 }
 
