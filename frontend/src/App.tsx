@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import RegisterModal from './RegisterModal'
 import heroImage1 from './assets/landing/hero-1.png'
 import heroImage2 from './assets/landing/hero-2.png'
 import heroImage3 from './assets/landing/hero-3.png'
@@ -183,6 +184,7 @@ function App() {
   }
 
   const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false)
 
   useEffect(() => {
     const handlePopState = () => {
@@ -213,6 +215,10 @@ function App() {
     window.history.pushState(null, '', '/pricing')
     setCurrentPage('pricing')
     window.scrollTo(0, 0)
+  }
+
+  const openRegisterModal = () => {
+    setIsRegisterModalOpen(true)
   }
 
   return (
@@ -258,15 +264,15 @@ function App() {
               Войти
             </button>
 
-            <button className="registerButton" type="button">
+            <button className="registerButton" type="button" onClick={openRegisterModal}>
               Зарегистрироваться
             </button>
           </div>
         </header>
 
-        {currentPage === 'home' && <HomePage />}
-        {currentPage === 'how' && <HowItWorksPage />}
-        {currentPage === 'pricing' && <PricingPage />}
+        {currentPage === 'home' && <HomePage onOpenRegister={openRegisterModal} />}
+        {currentPage === 'how' && <HowItWorksPage onOpenRegister={openRegisterModal} />}
+        {currentPage === 'pricing' && <PricingPage onOpenRegister={openRegisterModal} />}
 
         <footer className="siteFooter">
           <div className="footerTop">
@@ -320,11 +326,22 @@ function App() {
           </div>
         </footer>
       </main>
+
+      {isRegisterModalOpen && (
+        <RegisterModal
+          onClose={() => setIsRegisterModalOpen(false)}
+          onOpenLogin={() => setIsRegisterModalOpen(false)}
+        />
+      )}
     </div>
   )
 }
 
-function HomePage() {
+type RegisterTriggerProps = {
+  onOpenRegister: () => void
+}
+
+function HomePage({ onOpenRegister }: RegisterTriggerProps) {
   return (
     <section className="heroSection">
       <div className="heroContent">
@@ -337,7 +354,7 @@ function HomePage() {
           в котором не нужно учиться работать
         </p>
 
-        <button className="trialButton" type="button">
+        <button className="trialButton" type="button" onClick={onOpenRegister}>
           Бесплатно 14 дней
         </button>
       </div>
@@ -361,7 +378,7 @@ function HomePage() {
   )
 }
 
-function HowItWorksPage() {
+function HowItWorksPage({ onOpenRegister }: RegisterTriggerProps) {
   return (
     <>
       <section className="howSection" id="how-it-works">
@@ -451,7 +468,7 @@ function HowItWorksPage() {
             Попробуйте бесплатно прямо сейчас — автоматизируйте продажи за 5 минут!
           </p>
 
-          <button className="trialButton" type="button">
+          <button className="trialButton" type="button" onClick={onOpenRegister}>
             Бесплатно 14 дней
           </button>
         </div>
@@ -462,7 +479,7 @@ function HowItWorksPage() {
   )
 }
 
-function PricingPage() {
+function PricingPage({ onOpenRegister }: RegisterTriggerProps) {
   return (
     <main className="pricingSection">
       <section className="pricingIntro">
@@ -489,7 +506,7 @@ function PricingPage() {
               </ul>
             </div>
 
-            <button className="pricingBuyButton" type="button">
+            <button className="pricingBuyButton" type="button" onClick={onOpenRegister}>
               Купить
             </button>
           </article>
