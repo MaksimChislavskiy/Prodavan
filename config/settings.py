@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'users',
     'workspaces',
     'contacts',
+    'messaging',
 ]
 
 MIDDLEWARE = [

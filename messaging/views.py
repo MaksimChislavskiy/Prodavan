@@ -1,3 +1,130 @@
-from django.shortcuts import render
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-# Create your views here.
+from .models import Chat
+from .serializers import ChatSerializer, MessageSerializer
+from .services import (
+    ChatServiceError,
+    delete_chat,
+    get_chat,
+    get_messages_page,
+    mark_chat_read,
+    request_audit_context,
+)
+
+
+def _positive_int(value, *, default, maximum):
+    if value is None:
+        return default
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if 1 <= value <= maximum else None
+
+
+def _query_error(field, message):
+    return Response(
+        {'message': 'Validation failed', 'errors': {field: message}},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+class ChatsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        page = _positive_int(
+            request.query_params.get('page'),
+            default=1,
+            maximum=2_147_483_647,
+        )
+        limit = _positive_int(
+            request.query_params.get('limit'),
+            default=20,
+            maximum=100,
+        )
+        if page is None:
+            return _query_error('page', 'Некорректный номер страницы.')
+        if limit is None:
+            return _query_error('limit', 'Значение должно быть от 1 до 100.')
+        queryset = Chat.objects.select_related('contact').filter(
+            workspace=request.user.workspace,
+            is_deleted=False,
+        ).order_by('-last_message_at', '-id')
+        total = queryset.count()
+        offset = (page - 1) * limit
+        return Response(
+            {
+                'chats': ChatSerializer(
+                    queryset[offset:offset + limit],
+                    many=True,
+                ).data,
+                'page': page,
+                'limit': limit,
+                'total': total,
+            },
+        )
+
+
+class ChatMessagesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, chat_id):
+        limit = _positive_int(
+            request.query_params.get('limit'),
+            default=50,
+            maximum=100,
+        )
+        if limit is None:
+            return _query_error('limit', 'Значение должно быть от 1 до 100.')
+        try:
+            chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
+            messages, next_cursor, has_more = get_messages_page(
+                chat=chat,
+                limit=limit,
+                cursor=request.query_params.get('cursor'),
+            )
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(
+            {
+                'messages': MessageSerializer(messages, many=True).data,
+                'next_cursor': next_cursor,
+                'has_more': has_more,
+            },
+        )
+
+
+class ChatReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, chat_id):
+        try:
+            mark_chat_read(
+                workspace=request.user.workspace,
+                user=request.user,
+                chat_id=chat_id,
+                audit_context=request_audit_context(request),
+            )
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChatDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, chat_id):
+        try:
+            delete_chat(
+                workspace=request.user.workspace,
+                user=request.user,
+                chat_id=chat_id,
+                audit_context=request_audit_context(request),
+            )
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(status=status.HTTP_204_NO_CONTENT)
