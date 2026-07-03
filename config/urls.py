@@ -14,6 +14,7 @@ from workspaces.telegram_views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
+    path('api/', include('contacts.urls')),
     path('api/profile', ProfileView.as_view(), name='profile'),
     path('api/profile/avatar', AvatarView.as_view(), name='profile-avatar'),
     path(
