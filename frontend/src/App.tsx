@@ -13,7 +13,7 @@ import ctaImage from './assets/how-it-works/cta-image.png'
 import logoFull from './assets/brand/logo-full.svg'
 import './App.css'
 
-type Page = 'home' | 'how'
+type Page = 'home' | 'how' | 'pricing'
 
 const imageCards = [
   {
@@ -74,9 +74,112 @@ const testimonials = [
   },
 ]
 
+const pricingPlans = [
+  {
+    name: 'БАЗОВЫЙ',
+    price: 'Бесплатно',
+    billing: '',
+    features: [
+      'До 10 сделок в месяц',
+      'Лиды до 10 записей',
+      'Чаты в одном окне',
+    ],
+  },
+  {
+    name: 'ПРОДАВАН.AI',
+    price: '1490 ₽',
+    billing: 'Выгодно: 17.000 ₽ / год',
+    features: [
+      'Неограниченные сделки',
+      'Лиды до 500 записей',
+      'AI-ассистент 24/7',
+      'Интеграции включены',
+      'Облачное хранилище для файлов до 5 ГБ',
+      'Чаты в одном окне',
+    ],
+  },
+  {
+    name: 'ПРОДАВАН.БИЗНЕС',
+    price: '3999 ₽',
+    billing: 'Выгодно: 40.000 ₽ / год',
+    features: [
+      'Неограниченные сделки',
+      'Неограниченные лиды',
+      'AI-ассистент 24/7',
+      'Интеграции включены',
+      'Облачное хранилище для файлов до 15 ГБ',
+      'Чаты в одном окне',
+    ],
+  },
+]
+
+const pricingComparisonSections = [
+  {
+    title: 'Основной функционал',
+    rows: [
+      ['Сделки в месяц', '10', 'Без лимита', 'Без лимита'],
+      ['Управление контактами', '✓', '✓', '✓'],
+      ['Единое окно чатов', '✓', '✓', '✓'],
+      ['Лиды', '50', '500', 'Без лимита'],
+      ['Облачное хранилище для файлов', '', 'до 5 ГБ', 'до 15 ГБ'],
+      ['Экспорт данных', '', '', '✓'],
+    ],
+  },
+  {
+    title: 'Искусственный интеллект',
+    rows: [
+      ['AI-ассистент в чатах', 'Нет', 'Да', 'Да'],
+      ['Обучение бота на ваших данных', '', '✓', '✓'],
+      ['Автоматическая обработка запросов', '', '✓', '✓'],
+      ['Запись встречи и задач', '', '', '✓'],
+    ],
+  },
+  {
+    title: 'Интеграции и платежи',
+    rows: [
+      ['Доступные интеграции', '3', 'Все', 'Все'],
+      ['Платежные шлюзы', '✓', '✓', '✓'],
+      ['Рассылки и сегменты', '✓', '✓', '✓'],
+      ['Мессенджеры и соцсети', '✓', '✓', '✓'],
+      ['Бухгалтерские системы', '', '✓', '✓'],
+    ],
+  },
+]
+
+const pricingQuestions = [
+  {
+    question: 'Как изменить тариф?',
+    answer:
+      'Можно в любой момент. Повышение начинает работать сразу, понижение — со следующего периода.',
+  },
+  {
+    question: 'Что если тариф не подойдет?',
+    answer:
+      'У вас есть 14 дней на тестовый доступ ко всем функциям. Если не понравится, платить ничего не нужно.',
+  },
+  {
+    question: 'Можно ли отменить подписку?',
+    answer:
+      'Да. Отмена доступна в любой день. Доступ сохранится до конца оплаченного периода.',
+  },
+  {
+    question: 'Включены ли интеграции в цену?',
+    answer:
+      'В ПРОДАВАН.AI и ПРОДАВАН.БИЗНЕС основные интеграции включены. В бесплатном тарифе — только базовые.',
+  },
+]
+
 function App() {
   const getPageFromPath = (): Page => {
-    return window.location.pathname === '/how-it-works' ? 'how' : 'home'
+    if (window.location.pathname === '/how-it-works') {
+      return 'how'
+    }
+
+    if (window.location.pathname === '/pricing') {
+      return 'pricing'
+    }
+
+    return 'home'
   }
 
   const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
@@ -103,6 +206,12 @@ function App() {
   const openHowPage = () => {
     window.history.pushState(null, '', '/how-it-works')
     setCurrentPage('how')
+    window.scrollTo(0, 0)
+  }
+
+  const openPricingPage = () => {
+    window.history.pushState(null, '', '/pricing')
+    setCurrentPage('pricing')
     window.scrollTo(0, 0)
   }
 
@@ -133,7 +242,15 @@ function App() {
               Как это работает
             </a>
 
-            <a href="#pricing">Тарифы</a>
+            <a
+              href="/pricing"
+              onClick={(event) => {
+                event.preventDefault()
+                openPricingPage()
+              }}
+            >
+              Тарифы
+            </a>
           </nav>
 
           <div className="headerActions">
@@ -147,7 +264,9 @@ function App() {
           </div>
         </header>
 
-        {currentPage === 'home' ? <HomePage /> : <HowItWorksPage />}
+        {currentPage === 'home' && <HomePage />}
+        {currentPage === 'how' && <HowItWorksPage />}
+        {currentPage === 'pricing' && <PricingPage />}
 
         <footer className="siteFooter">
           <div className="footerTop">
@@ -174,7 +293,15 @@ function App() {
                 Как это работает
               </a>
 
-              <a href="#pricing">Тарифы</a>
+              <a
+                href="/pricing"
+                onClick={(event) => {
+                  event.preventDefault()
+                  openPricingPage()
+                }}
+              >
+                Тарифы
+              </a>
             </nav>
 
             <div className="footerContacts">
@@ -332,6 +459,90 @@ function HowItWorksPage() {
         <img className="ctaImage" src={ctaImage} alt="" />
       </section>
     </>
+  )
+}
+
+function PricingPage() {
+  return (
+    <main className="pricingSection">
+      <section className="pricingIntro">
+        <h2>Тарифы</h2>
+        <p>Гибкие решения для любого проекта</p>
+      </section>
+
+      <section className="pricingCards">
+        {pricingPlans.map((plan) => (
+          <article className="pricingCard" key={plan.name}>
+            <div className="pricingCardContent">
+              <h3>{plan.name}</h3>
+              <p className="pricingPrice">{plan.price}</p>
+              {plan.billing && <p className="pricingBilling">{plan.billing}</p>}
+
+              <div className="pricingDivider" />
+
+              <p className="pricingIncludedTitle">Включено:</p>
+
+              <ul className="pricingFeatures">
+                {plan.features.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
+            </div>
+
+            <button className="pricingBuyButton" type="button">
+              Купить
+            </button>
+          </article>
+        ))}
+      </section>
+
+      <section className="pricingCompareSection">
+        <div className="pricingCompareIntro">
+          <h2>Что входит</h2>
+          <p>Сравните все возможности и выберите свой путь</p>
+        </div>
+
+        <div className="pricingCompareTable">
+          <div className="pricingCompareHeader">
+            <span />
+            <span>БАЗОВЫЙ</span>
+            <span>ПРОДАВАН.AI</span>
+            <span>ПРОДАВАН.БИЗНЕС</span>
+          </div>
+
+          {pricingComparisonSections.map((section) => (
+            <div className="pricingCompareGroup" key={section.title}>
+              <h3>{section.title}</h3>
+
+              {section.rows.map(([label, base, ai, business]) => (
+                <div className="pricingCompareRow" key={label}>
+                  <span>{label}</span>
+                  <span>{base}</span>
+                  <span>{ai}</span>
+                  <span>{business}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="pricingQuestionsSection">
+        <div className="pricingQuestionsIntro">
+          <h2>Вопросы</h2>
+          <p>Ответы на то, что волнует всех</p>
+        </div>
+
+        <div className="pricingQuestionCards">
+          {pricingQuestions.map((item) => (
+            <article className="pricingQuestionCard" key={item.question}>
+              <h3>{item.question}</h3>
+              <p>{item.answer}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
   )
 }
 
