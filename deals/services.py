@@ -307,6 +307,8 @@ def move_deal(*, workspace, user, deal_id, stage_id, submitted_version, idempote
 
 
 def delete_deal(*, workspace, user, deal_id):
+    from tasks.services import detach_tasks_for_deals
+
     with transaction.atomic():
         deal = Deal.objects.select_for_update().filter(
             id=deal_id,
@@ -320,6 +322,10 @@ def delete_deal(*, workspace, user, deal_id):
         deal.deleted_at = timezone.now()
         deal.version += 1
         deal.save(update_fields=('is_deleted', 'deleted_at', 'version', 'updated_at'))
+        detach_tasks_for_deals(
+            workspace=workspace,
+            deal_ids=[deal.id],
+        )
         correlation_id = uuid.uuid4()
         DealHistory.objects.create(
             workspace=workspace,

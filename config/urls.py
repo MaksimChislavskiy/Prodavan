@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/auth/', include('users.urls')),
     path('api/', include('contacts.urls')),
     path('api/', include('deals.urls')),
+    path('api/', include('tasks.urls')),
     path('api/', include('messaging.urls')),
     path('api/', include('ai_assistant.urls')),
     path('api/profile', ProfileView.as_view(), name='profile'),

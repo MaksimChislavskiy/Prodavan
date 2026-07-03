@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     'workspaces',
     'contacts',
     'deals.apps.DealsConfig',
+    'tasks.apps.TasksConfig',
     'messaging',
     'ai_assistant',
 ]
