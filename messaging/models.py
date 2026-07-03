@@ -84,6 +84,15 @@ class Message(TimestampMixin):
     read_at = models.DateTimeField(null=True, blank=True, db_index=True)
     sent_by_ai = models.BooleanField(default=False)
     source_update_id = models.BigIntegerField(null=True, blank=True)
+    telegram_message_id = models.BigIntegerField(null=True, blank=True)
+    delivery_attempts = models.PositiveSmallIntegerField(default=0)
+    next_delivery_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    last_delivery_error = models.TextField(blank=True, default='')
     is_deleted = models.BooleanField(default=False, db_index=True)
 
     class Meta:
@@ -111,6 +120,43 @@ class Message(TimestampMixin):
             models.Index(
                 fields=('chat', 'read_at'),
                 name='messages_chat_read_idx',
+            ),
+        ]
+
+
+class MessageIdempotencyRecord(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='message_idempotency_records',
+    )
+    chat = models.ForeignKey(
+        Chat,
+        on_delete=models.CASCADE,
+        related_name='idempotency_records',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='message_idempotency_records',
+    )
+    key = models.CharField(max_length=255)
+    request_hash = models.CharField(max_length=64)
+    message = models.OneToOneField(
+        Message,
+        on_delete=models.CASCADE,
+        related_name='idempotency_record',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = 'message_idempotency_records'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('workspace', 'key'),
+                name='unique_message_idempotency_key',
             ),
         ]
 

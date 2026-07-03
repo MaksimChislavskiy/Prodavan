@@ -31,3 +31,17 @@ class MessageSerializer(serializers.ModelSerializer):
             'id', 'chat_id', 'sender_type', 'sender_id', 'text', 'status',
             'read_at', 'sent_by_ai', 'created_at',
         )
+
+
+class OutgoingMessageSerializer(serializers.Serializer):
+    text = serializers.CharField(
+        min_length=1,
+        max_length=4096,
+        trim_whitespace=True,
+    )
+
+    def validate_text(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Сообщение не может быть пустым.')
+        return value

@@ -1,3 +1,6 @@
+from unittest.mock import Mock
+
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -6,14 +9,24 @@ from rest_framework.test import APIClient
 from contacts.models import Contact
 from users.models import User
 from workspaces.models import TelegramWebhookLog
+from workspaces.crypto import encrypt_integration_secret
+from workspaces.models import (
+    IntegrationStatus,
+    IntegrationType,
+    WorkspaceIntegration,
+)
+from workspaces.telegram import TelegramApiUnavailable, TelegramMessageRejected
 
 from .models import (
     Chat,
     ChatAuditAction,
     ChatAuditLog,
     Message,
+    MessageIdempotencyRecord,
     MessageSenderType,
+    MessageStatus,
 )
+from .outgoing import process_outgoing_message
 from .telegram import process_telegram_webhook_log
 
 
@@ -24,6 +37,7 @@ class MessagingTests(TestCase):
     login_url = '/api/auth/login'
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = User.objects.create_user(
             email='owner@example.com',
@@ -74,6 +88,28 @@ class MessagingTests(TestCase):
             contact=contact,
         )
         return contact, chat
+
+    def _connect_telegram(self):
+        token = '123456789:AAExample_bot_token-with-safe_chars'
+        return WorkspaceIntegration.objects.create(
+            workspace=self.user.workspace,
+            type=IntegrationType.TELEGRAM,
+            status=IntegrationStatus.CONNECTED,
+            config=encrypt_integration_secret(
+                secret=token,
+                workspace_id=self.user.workspace_id,
+                integration_type=IntegrationType.TELEGRAM,
+            ),
+        )
+
+    def _enqueue(self, chat, text='Добрый день', key='message-key'):
+        return self.client.post(
+            f'/api/chats/{chat.id}/messages',
+            {'text': text},
+            format='json',
+            HTTP_IDEMPOTENCY_KEY=key,
+            **self._auth(),
+        )
 
     def test_webhook_processing_creates_contact_chat_and_message(self):
         webhook_log = self._webhook_log()
@@ -256,3 +292,118 @@ class MessagingTests(TestCase):
         response = APIClient().get('/api/chats')
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_outgoing_message_requires_idempotency_key(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+
+        response = self.client.post(
+            f'/api/chats/{chat.id}/messages',
+            {'text': 'Добрый день'},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error'], 'missing_idempotency_key')
+
+    def test_outgoing_message_is_queued_and_idempotent(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+
+        created = self._enqueue(chat)
+        replayed = self._enqueue(chat)
+        conflict = self._enqueue(chat, text='Другой текст')
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(created.data['status'], MessageStatus.SENT)
+        self.assertEqual(replayed.status_code, status.HTTP_200_OK)
+        self.assertEqual(replayed.data['id'], created.data['id'])
+        self.assertEqual(conflict.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(conflict.data['error'], 'idempotency_conflict')
+        self.assertEqual(Message.objects.count(), 1)
+        self.assertEqual(MessageIdempotencyRecord.objects.count(), 1)
+
+    def test_outgoing_delivery_marks_message_delivered(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+        response = self._enqueue(chat)
+        client = Mock()
+        client.send_message.return_value = {'message_id': 987}
+
+        processed = process_outgoing_message(response.data['id'], client=client)
+
+        self.assertTrue(processed)
+        message = Message.objects.get(id=response.data['id'])
+        self.assertEqual(message.status, MessageStatus.DELIVERED)
+        self.assertEqual(message.telegram_message_id, 987)
+        self.assertEqual(message.delivery_attempts, 1)
+        self.assertIsNotNone(message.delivered_at)
+        client.send_message.assert_called_once()
+
+    def test_temporary_delivery_error_retries_three_times(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+        response = self._enqueue(chat)
+        client = Mock()
+        client.send_message.side_effect = TelegramApiUnavailable('offline')
+        message_id = response.data['id']
+
+        process_outgoing_message(message_id, client=client)
+        message = Message.objects.get(id=message_id)
+        self.assertEqual(message.status, MessageStatus.SENT)
+        self.assertEqual(message.delivery_attempts, 1)
+
+        process_outgoing_message(
+            message_id,
+            client=client,
+            now=message.next_delivery_attempt_at,
+        )
+        message.refresh_from_db()
+        self.assertEqual(message.status, MessageStatus.SENT)
+        self.assertEqual(message.delivery_attempts, 2)
+
+        process_outgoing_message(
+            message_id,
+            client=client,
+            now=message.next_delivery_attempt_at,
+        )
+        message.refresh_from_db()
+        self.assertEqual(message.status, MessageStatus.FAILED)
+        self.assertEqual(message.delivery_attempts, 3)
+        self.assertIsNone(message.next_delivery_attempt_at)
+
+    def test_permanent_delivery_error_fails_without_retry(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+        response = self._enqueue(chat)
+        client = Mock()
+        client.send_message.side_effect = TelegramMessageRejected('blocked')
+
+        process_outgoing_message(response.data['id'], client=client)
+
+        message = Message.objects.get(id=response.data['id'])
+        self.assertEqual(message.status, MessageStatus.FAILED)
+        self.assertEqual(message.delivery_attempts, 1)
+        self.assertIsNone(message.next_delivery_attempt_at)
+
+    def test_outgoing_message_text_is_validated(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+
+        response = self._enqueue(chat, text='   ')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('text', response.data['errors'])
+
+    def test_outgoing_messages_are_rate_limited_per_workspace(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+
+        for index in range(20):
+            response = self._enqueue(chat, key=f'key-{index}')
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self._enqueue(chat, key='key-over-limit')
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.data['error'], 'rate_limit_exceeded')

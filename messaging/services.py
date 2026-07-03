@@ -21,6 +21,12 @@ class ChatServiceError(Exception):
 
     @property
     def response_data(self):
+        if self.code in {
+            'missing_idempotency_key',
+            'invalid_idempotency_key',
+            'idempotency_conflict',
+        }:
+            return {'error': self.code, 'message': self.message}
         return {'error': {'code': self.code, 'message': self.message}}
 
 

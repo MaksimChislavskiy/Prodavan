@@ -1,10 +1,16 @@
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Chat
-from .serializers import ChatSerializer, MessageSerializer
+from .outgoing import enqueue_outgoing_message
+from .serializers import (
+    ChatSerializer,
+    MessageSerializer,
+    OutgoingMessageSerializer,
+)
 from .services import (
     ChatServiceError,
     delete_chat,
@@ -13,6 +19,16 @@ from .services import (
     mark_chat_read,
     request_audit_context,
 )
+from .throttles import ChatMessageThrottle, WorkspaceTelegramMessageThrottle
+
+
+class MessageRateLimitExceeded(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = {
+        'error': 'rate_limit_exceeded',
+        'message': 'Too many messages. Please slow down.',
+    }
+    default_code = 'rate_limit_exceeded'
 
 
 def _positive_int(value, *, default, maximum):
@@ -72,6 +88,17 @@ class ChatsView(APIView):
 class ChatMessagesView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get_throttles(self):
+        if self.request.method == 'POST':
+            return [
+                ChatMessageThrottle(),
+                WorkspaceTelegramMessageThrottle(),
+            ]
+        return super().get_throttles()
+
+    def throttled(self, request, wait):
+        raise MessageRateLimitExceeded()
+
     def get(self, request, chat_id):
         limit = _positive_int(
             request.query_params.get('limit'),
@@ -95,6 +122,34 @@ class ChatMessagesView(APIView):
                 'next_cursor': next_cursor,
                 'has_more': has_more,
             },
+        )
+
+    def post(self, request, chat_id):
+        serializer = OutgoingMessageSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'message': 'Validation failed',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            message, replayed = enqueue_outgoing_message(
+                workspace=request.user.workspace,
+                user=request.user,
+                chat_id=chat_id,
+                text=serializer.validated_data['text'],
+                idempotency_key=request.headers.get('Idempotency-Key'),
+                audit_context=request_audit_context(request),
+            )
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(
+            MessageSerializer(message).data,
+            status=(
+                status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
+            ),
         )
 
 

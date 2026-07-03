@@ -18,6 +18,10 @@ class TelegramWebhookRejected(TelegramApiError):
     pass
 
 
+class TelegramMessageRejected(TelegramApiError):
+    pass
+
+
 class TelegramBotApiClient:
     def __init__(self, session=None):
         self.session = session or requests.Session()
@@ -42,6 +46,10 @@ class TelegramBotApiClient:
             raise TelegramInvalidToken('Telegram отклонил токен бота.')
         if response.status_code == 400 and method in ('getMe', 'getWebhookInfo'):
             raise TelegramInvalidToken('Telegram отклонил токен бота.')
+        if response.status_code in (400, 403) and method == 'sendMessage':
+            raise TelegramMessageRejected(
+                'Telegram отклонил сообщение.',
+            )
         if response.status_code == 400:
             raise TelegramWebhookRejected(
                 'Telegram отклонил настройки webhook.',
@@ -87,3 +95,18 @@ class TelegramBotApiClient:
             raise TelegramWebhookRejected(
                 'Telegram не подтвердил удаление webhook.',
             )
+
+    def send_message(self, token, *, chat_id, text):
+        result = self._call(
+            token,
+            'sendMessage',
+            data={'chat_id': chat_id, 'text': text},
+        )
+        if not isinstance(result, dict) or not isinstance(
+            result.get('message_id'),
+            int,
+        ):
+            raise TelegramApiUnavailable(
+                'Telegram вернул некорректный ответ на sendMessage.',
+            )
+        return result
