@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import AIAuditLog, AISettings, AIUsageDaily
+from .models import (
+    AIAuditLog,
+    AISettings,
+    AIUsageDaily,
+    KnowledgeChunk,
+    KnowledgeDocument,
+)
 
 
 @admin.register(AISettings)
@@ -36,3 +42,24 @@ class AIAuditLogAdmin(admin.ModelAdmin):
 class AIUsageDailyAdmin(admin.ModelAdmin):
     list_display = ('workspace', 'date', 'autopilot_replies')
     list_filter = ('date',)
+
+
+@admin.register(KnowledgeDocument)
+class KnowledgeDocumentAdmin(admin.ModelAdmin):
+    list_display = (
+        'original_name',
+        'workspace',
+        'status',
+        'size_bytes',
+        'processing_attempts',
+        'created_at',
+    )
+    list_filter = ('status', 'is_deleted')
+    search_fields = ('original_name', 'workspace__name', 'sha256')
+    readonly_fields = ('sha256', 'size_bytes', 'mime_type')
+
+
+@admin.register(KnowledgeChunk)
+class KnowledgeChunkAdmin(admin.ModelAdmin):
+    list_display = ('document', 'position', 'token_count', 'created_at')
+    search_fields = ('document__original_name',)

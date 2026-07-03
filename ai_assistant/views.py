@@ -8,7 +8,21 @@ from rest_framework.views import APIView
 from users.models import UserRole
 from workspaces.models import Workspace
 
-from .serializers import AISettingsSerializer, AISettingsUpdateSerializer
+from .knowledge import (
+    KnowledgeServiceError,
+    active_documents,
+    create_knowledge_documents,
+    delete_knowledge_document,
+    get_active_document,
+    retry_knowledge_document,
+    storage_usage,
+)
+from .models import KnowledgeDocumentStatus
+from .serializers import (
+    AISettingsSerializer,
+    AISettingsUpdateSerializer,
+    KnowledgeDocumentSerializer,
+)
 from .services import (
     AISettingsServiceError,
     get_ai_settings,
@@ -45,24 +59,40 @@ def _parse_if_match(value):
     return int(match.group(1))
 
 
+def _admin_workspace_or_error(request):
+    if request.user.role != UserRole.ADMIN:
+        return None, _error(
+            'PERMISSION_DENIED',
+            'Недостаточно прав.',
+            status.HTTP_403_FORBIDDEN,
+        )
+    workspace = Workspace.objects.filter(id=request.user.workspace_id).first()
+    if workspace is None:
+        return None, _error(
+            'NOT_FOUND',
+            'Workspace не найден.',
+            status.HTTP_404_NOT_FOUND,
+        )
+    return workspace, None
+
+
+def _positive_int(value, *, default, minimum, maximum):
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError from None
+    if not minimum <= parsed <= maximum:
+        raise ValueError
+    return parsed
+
+
 class AISettingsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _workspace_or_error(self, request):
-        if request.user.role != UserRole.ADMIN:
-            return None, _error(
-                'PERMISSION_DENIED',
-                'Недостаточно прав.',
-                status.HTTP_403_FORBIDDEN,
-            )
-        workspace = Workspace.objects.filter(id=request.user.workspace_id).first()
-        if workspace is None:
-            return None, _error(
-                'NOT_FOUND',
-                'Workspace не найден.',
-                status.HTTP_404_NOT_FOUND,
-            )
-        return workspace, None
+        return _admin_workspace_or_error(request)
 
     def get(self, request):
         workspace, error_response = self._workspace_or_error(request)
@@ -75,6 +105,7 @@ class AISettingsView(APIView):
         )
         response['ETag'] = f'"{settings_object.version}"'
         return response
+
     def patch(self, request):
         workspace, error_response = self._workspace_or_error(request)
         if error_response is not None:
@@ -133,3 +164,160 @@ class AISettingsView(APIView):
         )
         response['ETag'] = f'"{settings_object.version}"'
         return response
+
+
+class KnowledgeFilesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        workspace, error_response = _admin_workspace_or_error(request)
+        if error_response is not None:
+            return error_response
+        try:
+            page = _positive_int(
+                request.query_params.get('page'),
+                default=1,
+                minimum=1,
+                maximum=2_147_483_647,
+            )
+            page_size = _positive_int(
+                request.query_params.get('page_size'),
+                default=50,
+                minimum=1,
+                maximum=100,
+            )
+        except ValueError:
+            return _error(
+                'VALIDATION_ERROR',
+                'Некорректные параметры пагинации.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        search = request.query_params.get('search', '').strip()
+        if len(search) > 255:
+            return _error(
+                'VALIDATION_ERROR',
+                'Поисковый запрос не должен превышать 255 символов.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+        status_filter = request.query_params.get('status')
+        if status_filter and status_filter not in KnowledgeDocumentStatus.values:
+            return _error(
+                'VALIDATION_ERROR',
+                'Некорректный статус документа.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+        sort = request.query_params.get('sort', 'uploaded_at:desc')
+        sort_map = {
+            'uploaded_at:desc': ('-created_at', '-id'),
+            'uploaded_at:asc': ('created_at', 'id'),
+            'name:asc': ('original_name', 'id'),
+            'name:desc': ('-original_name', '-id'),
+            'size:asc': ('size_bytes', 'id'),
+            'size:desc': ('-size_bytes', '-id'),
+            'status:asc': ('status', 'id'),
+            'status:desc': ('-status', '-id'),
+        }
+        if sort not in sort_map:
+            return _error(
+                'VALIDATION_ERROR',
+                'Некорректный параметр сортировки.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = active_documents(workspace)
+        if search:
+            queryset = queryset.filter(original_name__icontains=search)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        queryset = queryset.order_by(*sort_map[sort])
+        total = queryset.count()
+        offset = (page - 1) * page_size
+        documents = queryset[offset:offset + page_size]
+        return Response(
+            {
+                'files': KnowledgeDocumentSerializer(documents, many=True).data,
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'storage': storage_usage(workspace),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        workspace, error_response = _admin_workspace_or_error(request)
+        if error_response is not None:
+            return error_response
+        uploaded_files = list(request.FILES.getlist('files'))
+        uploaded_files.extend(request.FILES.getlist('file'))
+        try:
+            documents = create_knowledge_documents(
+                workspace=workspace,
+                user=request.user,
+                uploaded_files=uploaded_files,
+            )
+        except KnowledgeServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(
+            {
+                'files': KnowledgeDocumentSerializer(documents, many=True).data,
+                'accepted': len(documents),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class KnowledgeFileDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_id):
+        workspace, error_response = _admin_workspace_or_error(request)
+        if error_response is not None:
+            return error_response
+        document = get_active_document(
+            workspace=workspace,
+            document_id=document_id,
+        )
+        if document is None:
+            return _error(
+                'DOCUMENT_NOT_FOUND',
+                'Документ не найден.',
+                status.HTTP_404_NOT_FOUND,
+            )
+        return Response(KnowledgeDocumentSerializer(document).data)
+
+    def delete(self, request, document_id):
+        workspace, error_response = _admin_workspace_or_error(request)
+        if error_response is not None:
+            return error_response
+        try:
+            delete_knowledge_document(
+                workspace=workspace,
+                user=request.user,
+                document_id=document_id,
+            )
+        except KnowledgeServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class KnowledgeFileRetryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id):
+        workspace, error_response = _admin_workspace_or_error(request)
+        if error_response is not None:
+            return error_response
+        try:
+            document = retry_knowledge_document(
+                workspace=workspace,
+                user=request.user,
+                document_id=document_id,
+            )
+        except KnowledgeServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(
+            KnowledgeDocumentSerializer(document).data,
+            status=status.HTTP_202_ACCEPTED,
+        )

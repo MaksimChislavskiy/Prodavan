@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 from django.conf import settings
 from django.db import models
@@ -16,6 +17,20 @@ class AIAuditAction(models.TextChoices):
     AUTOPILOT_ENABLED = 'autopilot_enabled', 'Включение автопилота'
     AUTOPILOT_DISABLED = 'autopilot_disabled', 'Выключение автопилота'
     AUTOPILOT_UPDATED = 'autopilot_updated', 'Изменение автопилота'
+    DOCUMENT_UPLOADED = 'document_uploaded', 'Загрузка документа'
+    DOCUMENT_DELETED = 'document_deleted', 'Удаление документа'
+    DOCUMENT_RETRY = 'document_retry', 'Повторная обработка документа'
+
+
+class KnowledgeDocumentStatus(models.TextChoices):
+    PROCESSING = 'processing', 'Обработка'
+    READY = 'ready', 'Готов'
+    FAILED = 'failed', 'Ошибка'
+
+
+def knowledge_document_upload_to(instance, filename):
+    extension = Path(instance.original_name or filename).suffix.lower()
+    return f'knowledge_base/{instance.workspace_id}/{instance.id}{extension}'
 
 
 class AISettings(TimestampMixin):
@@ -89,5 +104,98 @@ class AIUsageDaily(models.Model):
             models.UniqueConstraint(
                 fields=('workspace', 'date'),
                 name='unique_ai_usage_workspace_date',
+            ),
+        ]
+
+
+class KnowledgeDocument(TimestampMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='knowledge_documents',
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='uploaded_knowledge_documents',
+    )
+    uploaded_by_identifier = models.UUIDField(db_index=True)
+    original_name = models.CharField(max_length=255)
+    file = models.FileField(
+        upload_to=knowledge_document_upload_to,
+        max_length=500,
+    )
+    size_bytes = models.PositiveBigIntegerField()
+    mime_type = models.CharField(max_length=128)
+    sha256 = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=KnowledgeDocumentStatus.choices,
+        default=KnowledgeDocumentStatus.PROCESSING,
+        db_index=True,
+    )
+    error_reason = models.TextField(blank=True, default='')
+    processing_attempts = models.PositiveSmallIntegerField(default=0)
+    processing_started_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'ai_knowledge_document'
+        ordering = ('-created_at', '-id')
+        indexes = [
+            models.Index(
+                fields=('workspace', 'is_deleted', 'status'),
+                name='ai_doc_workspace_status_idx',
+            ),
+            models.Index(
+                fields=('workspace', 'is_deleted', '-created_at'),
+                name='ai_doc_workspace_date_idx',
+            ),
+        ]
+
+    @property
+    def uploaded_at(self):
+        return self.created_at
+
+    def __str__(self):
+        return self.original_name
+
+
+class KnowledgeChunk(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey(
+        KnowledgeDocument,
+        on_delete=models.CASCADE,
+        related_name='chunks',
+    )
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='knowledge_chunks',
+    )
+    position = models.PositiveIntegerField()
+    text = models.TextField()
+    token_count = models.PositiveIntegerField()
+    embedding = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ai_knowledge_chunk'
+        ordering = ('position',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('document', 'position'),
+                name='unique_knowledge_document_chunk_position',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=('workspace', 'document'),
+                name='ai_chunk_ws_doc_idx',
             ),
         ]
