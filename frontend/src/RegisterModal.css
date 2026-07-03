@@ -36,6 +36,14 @@
   padding: 60px 0 0;
 }
 
+.registerModalSuccess {
+  align-items: flex-start;
+  width: 604px;
+  min-height: 282px;
+  height: 282px;
+  padding: 60px 0 0;
+}
+
 .registerModalTop {
   display: flex;
   justify-content: flex-end;
@@ -498,13 +506,93 @@
   cursor: pointer;
 }
 
+.registerSuccessHeader {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 604px;
+  height: 40px;
+  padding: 0 40px;
+}
+
+.registerSuccessTitleWrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 444px;
+  height: 40px;
+  padding: 0 10px;
+}
+
+.registerSuccessTitleWrap h2 {
+  width: 366px;
+  height: 36px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  text-align: center;
+}
+
+.registerSuccessStepBlock {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 604px;
+  height: 40px;
+  padding: 0 40px;
+}
+
+.registerSuccessStepBlock p {
+  width: 103px;
+  height: 24px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: center;
+}
+
+.registerSuccessContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 604px;
+  height: 142px;
+  padding: 32px 60px 60px;
+  gap: 40px;
+}
+
+.registerSuccessLoginButton {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 420px;
+  height: 50px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 10px;
+  background: #6366ff;
+  color: #f0f0f0;
+  cursor: pointer;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
 .registerModalClose:hover,
 .registerBackButton:hover,
 .registerPasswordToggle:hover,
 .registerSubmitButton:hover,
 .registerLoginLink button:hover,
 .registerChangeEmailButton:hover,
-.registerCodeErrorMessage:hover {
+.registerCodeErrorMessage:hover,
+.registerSuccessLoginButton:hover {
   opacity: 0.86;
 }
 
@@ -524,7 +612,8 @@
   }
 
   .registerModal,
-  .registerModalEmailConfirmInvalid {
+  .registerModalEmailConfirmInvalid,
+  .registerModalSuccess {
     width: 100%;
     min-height: auto;
     height: auto;
@@ -537,12 +626,16 @@
   .registerModalForm,
   .registerConfirmHeaderRow,
   .registerConfirmStepBlock,
-  .registerEmailConfirmContent {
+  .registerEmailConfirmContent,
+  .registerSuccessHeader,
+  .registerSuccessStepBlock,
+  .registerSuccessContent {
     width: 100%;
   }
 
   .registerModalForm,
-  .registerEmailConfirmContent {
+  .registerEmailConfirmContent,
+  .registerSuccessContent {
     padding: 32px 20px 48px;
   }
 
@@ -553,7 +646,8 @@
   .registerPasswordInput input,
   .registerPasswordRules,
   .registerPasswordRules p,
-  .registerSubmitButton {
+  .registerSubmitButton,
+  .registerSuccessLoginButton {
     width: 100%;
   }
 

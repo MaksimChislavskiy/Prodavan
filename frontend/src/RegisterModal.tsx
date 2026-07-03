@@ -12,7 +12,7 @@ type RegisterModalProps = {
   onOpenLogin?: () => void
 }
 
-type RegisterStep = 'form' | 'emailConfirm'
+type RegisterStep = 'form' | 'emailConfirm' | 'success'
 
 const CORRECT_CONFIRMATION_CODE = '3578'
 
@@ -88,7 +88,13 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     const joinedCode = nextCode.join('')
 
     if (joinedCode.length === 4) {
-      setIsConfirmationCodeInvalid(joinedCode !== CORRECT_CONFIRMATION_CODE)
+      if (joinedCode === CORRECT_CONFIRMATION_CODE) {
+        setIsConfirmationCodeInvalid(false)
+        setRegisterStep('success')
+        return
+      }
+
+      setIsConfirmationCodeInvalid(true)
     } else {
       setIsConfirmationCodeInvalid(false)
     }
@@ -118,6 +124,7 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
   const registerModalClassName = [
     'registerModal',
     registerStep === 'emailConfirm' ? 'registerModalEmailConfirm' : '',
+    registerStep === 'success' ? 'registerModalSuccess' : '',
     isConfirmationCodeInvalid ? 'registerModalEmailConfirmInvalid' : '',
   ]
     .filter(Boolean)
@@ -350,6 +357,30 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                   Ввести другой адрес
                 </button>
               </div>
+            </div>
+          </>
+        )}
+
+        {registerStep === 'success' && (
+          <>
+            <div className="registerSuccessHeader">
+              <div className="registerSuccessTitleWrap">
+                <h2 id="register-modal-title">Регистрация завершена</h2>
+              </div>
+            </div>
+
+            <div className="registerSuccessStepBlock">
+              <p>Шаг 2 из 2</p>
+            </div>
+
+            <div className="registerSuccessContent">
+              <button
+                className="registerSuccessLoginButton"
+                type="button"
+                onClick={onOpenLogin || onClose}
+              >
+                Войти
+              </button>
             </div>
           </>
         )}
