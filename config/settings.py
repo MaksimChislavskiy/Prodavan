@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'users',
     'workspaces',
     'contacts',
+    'deals.apps.DealsConfig',
     'messaging',
     'ai_assistant',
 ]
