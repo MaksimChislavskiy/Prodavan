@@ -6,6 +6,7 @@ from config.env import (
     env,
     env_base64_key,
     env_bool,
+    env_float,
     env_int,
     env_list,
     env_secret,
@@ -35,6 +36,15 @@ AI_EMBEDDINGS_API_KEY = env('AI_EMBEDDINGS_API_KEY', '')
 AI_EMBEDDINGS_MODEL = env('AI_EMBEDDINGS_MODEL', '')
 AI_EMBEDDINGS_TIMEOUT = env_int('AI_EMBEDDINGS_TIMEOUT', 30)
 AI_EMBEDDINGS_BATCH_SIZE = env_int('AI_EMBEDDINGS_BATCH_SIZE', 32)
+AI_CHAT_BASE_URL = env('AI_CHAT_BASE_URL', '').rstrip('/')
+AI_CHAT_API_KEY = env('AI_CHAT_API_KEY', '')
+AI_CHAT_MODEL = env('AI_CHAT_MODEL', '')
+AI_CHAT_PROVIDER = env('AI_CHAT_PROVIDER', 'openai-compatible')
+AI_CHAT_TIMEOUT = env_int('AI_CHAT_TIMEOUT', 30)
+AI_CHAT_RETRY_ATTEMPTS = env_int('AI_CHAT_RETRY_ATTEMPTS', 3)
+AI_CHAT_MAX_CONTEXT_TOKENS = env_int('AI_CHAT_MAX_CONTEXT_TOKENS', 20_000)
+AI_CHAT_RETRIEVAL_LIMIT = env_int('AI_CHAT_RETRIEVAL_LIMIT', 5)
+AI_RETRIEVAL_MIN_SCORE = env_float('AI_RETRIEVAL_MIN_SCORE', 0.2)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', False)

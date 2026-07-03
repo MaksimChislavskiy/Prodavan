@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from config.mixins import TimestampMixin
 
@@ -26,6 +27,35 @@ class KnowledgeDocumentStatus(models.TextChoices):
     PROCESSING = 'processing', 'Обработка'
     READY = 'ready', 'Готов'
     FAILED = 'failed', 'Ошибка'
+
+
+class AIChatSessionStatus(models.TextChoices):
+    OPEN = 'open', 'Открыта'
+    CLOSED = 'closed', 'Закрыта'
+
+
+class AIChatRole(models.TextChoices):
+    USER = 'user', 'Пользователь'
+    ASSISTANT = 'assistant', 'AI'
+
+
+class AIChatMessageStatus(models.TextChoices):
+    PENDING = 'pending', 'Формируется'
+    STREAMING = 'streaming', 'Потоковая генерация'
+    SUCCESS = 'success', 'Успешно'
+    FAILED = 'failed', 'Ошибка'
+    TIMEOUT = 'timeout', 'Таймаут'
+    CANCELLED = 'cancelled', 'Отменено'
+
+
+class AIChatContextPage(models.TextChoices):
+    DASHBOARD = 'dashboard', 'Рабочий стол'
+    DEALS = 'deals', 'Сделки'
+    CONTACTS = 'contacts', 'Контакты'
+    TASKS = 'tasks', 'Задачи'
+    CHAT = 'chat', 'Чат'
+    REPORTS = 'reports', 'Отчёты'
+    SETTINGS = 'settings', 'Настройки'
 
 
 def knowledge_document_upload_to(instance, filename):
@@ -197,5 +227,121 @@ class KnowledgeChunk(models.Model):
             models.Index(
                 fields=('workspace', 'document'),
                 name='ai_chunk_ws_doc_idx',
+            ),
+        ]
+
+
+class AIChatSession(TimestampMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_chat_sessions',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='ai_chat_sessions',
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=AIChatSessionStatus.choices,
+        default=AIChatSessionStatus.OPEN,
+        db_index=True,
+    )
+    context_page = models.CharField(
+        max_length=16,
+        choices=AIChatContextPage.choices,
+        blank=True,
+        default='',
+    )
+    context_entity_id = models.UUIDField(null=True, blank=True)
+    default_model_name = models.CharField(max_length=100, blank=True, default='')
+    last_activity_at = models.DateTimeField(default=timezone.now, db_index=True)
+    message_count = models.PositiveIntegerField(default=0)
+    closed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'ai_chat_sessions'
+        ordering = ('-last_activity_at', '-id')
+        indexes = [
+            models.Index(
+                fields=('workspace', 'user', '-created_at'),
+                name='ai_sess_ws_user_created_idx',
+            ),
+        ]
+
+    @property
+    def is_closed(self):
+        return self.status == AIChatSessionStatus.CLOSED
+
+
+class AIChatMessage(TimestampMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        AIChatSession,
+        on_delete=models.CASCADE,
+        related_name='messages',
+    )
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_chat_messages',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='ai_chat_messages',
+    )
+    role = models.CharField(max_length=16, choices=AIChatRole.choices)
+    content = models.TextField()
+    status = models.CharField(
+        max_length=16,
+        choices=AIChatMessageStatus.choices,
+        db_index=True,
+    )
+    parent_message = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='answer_attempts',
+    )
+    client_message_id = models.UUIDField(null=True, blank=True)
+    retry_token = models.UUIDField(null=True, blank=True)
+    model_name = models.CharField(max_length=100, blank=True, default='')
+    provider = models.CharField(max_length=100, blank=True, default='')
+    prompt_tokens = models.PositiveIntegerField(null=True, blank=True)
+    completion_tokens = models.PositiveIntegerField(null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(null=True, blank=True)
+    processing_time_ms = models.PositiveIntegerField(null=True, blank=True)
+    error = models.TextField(blank=True, default='')
+    metadata = models.JSONField(default=dict, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'ai_chat_messages'
+        ordering = ('created_at', 'id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('workspace', 'user', 'client_message_id'),
+                condition=models.Q(client_message_id__isnull=False),
+                name='unique_ai_chat_client_msg',
+            ),
+            models.UniqueConstraint(
+                fields=('workspace', 'user', 'retry_token'),
+                condition=models.Q(retry_token__isnull=False),
+                name='unique_ai_chat_retry_token',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=('session', '-created_at', '-id'),
+                name='ai_msg_session_created_idx',
+            ),
+            models.Index(
+                fields=('workspace', 'user', '-created_at', '-id'),
+                name='ai_msg_ws_user_created_idx',
             ),
         ]

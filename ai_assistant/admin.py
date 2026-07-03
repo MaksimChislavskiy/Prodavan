@@ -4,6 +4,8 @@ from .models import (
     AIAuditLog,
     AISettings,
     AIUsageDaily,
+    AIChatMessage,
+    AIChatSession,
     KnowledgeChunk,
     KnowledgeDocument,
 )
@@ -63,3 +65,24 @@ class KnowledgeDocumentAdmin(admin.ModelAdmin):
 class KnowledgeChunkAdmin(admin.ModelAdmin):
     list_display = ('document', 'position', 'token_count', 'created_at')
     search_fields = ('document__original_name',)
+
+
+@admin.register(AIChatSession)
+class AIChatSessionAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'user',
+        'workspace',
+        'status',
+        'message_count',
+        'last_activity_at',
+    )
+    list_filter = ('status', 'context_page')
+    search_fields = ('user__email', 'workspace__name')
+
+
+@admin.register(AIChatMessage)
+class AIChatMessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'role', 'status', 'user', 'session', 'created_at')
+    list_filter = ('role', 'status', 'provider')
+    search_fields = ('content', 'user__email')

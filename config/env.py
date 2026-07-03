@@ -61,6 +61,14 @@ def env_int(name, default):
         raise ImproperlyConfigured(f'{name} должен быть целым числом.') from error
 
 
+def env_float(name, default):
+    value = env(name, str(default))
+    try:
+        return float(value)
+    except ValueError as error:
+        raise ImproperlyConfigured(f'{name} должен быть числом.') from error
+
+
 def env_list(name, default=()):
     value = env(name, ','.join(default))
     return [item.strip() for item in value.split(',') if item.strip()]
