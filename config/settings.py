@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'workspaces',
     'contacts',
     'messaging',
+    'ai_assistant',
 ]
 
 MIDDLEWARE = [
