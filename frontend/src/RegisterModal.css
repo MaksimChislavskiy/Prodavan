@@ -28,6 +28,14 @@
   height: 483px;
 }
 
+.registerModalEmailConfirmInvalid {
+  align-items: flex-start;
+  width: 604px;
+  min-height: 489px;
+  height: 489px;
+  padding: 60px 0 0;
+}
+
 .registerModalTop {
   display: flex;
   justify-content: flex-end;
@@ -275,6 +283,10 @@
   margin-top: 20px;
 }
 
+.registerModalEmailConfirmInvalid .registerConfirmHeaderRow {
+  margin-top: 0;
+}
+
 .registerBackButton {
   display: grid;
   place-items: center;
@@ -339,6 +351,10 @@
   gap: 40px;
 }
 
+.registerModalEmailConfirmInvalid .registerEmailConfirmContent {
+  height: 349px;
+}
+
 .registerEmailConfirmIntro {
   display: flex;
   flex-direction: column;
@@ -346,6 +362,11 @@
   width: 484px;
   height: 51px;
   gap: 10px;
+}
+
+.registerModalEmailConfirmInvalid .registerEmailConfirmIntro {
+  height: 24px;
+  gap: 0;
 }
 
 .registerEmailConfirmIntro h3 {
@@ -372,6 +393,18 @@
   text-align: center;
 }
 
+.registerCodeArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 484px;
+}
+
+.registerCodeAreaInvalid {
+  height: 95px;
+  gap: 24px;
+}
+
 .registerCodeInputs {
   display: flex;
   align-items: center;
@@ -381,6 +414,7 @@
 }
 
 .registerCodeInputs input {
+  box-sizing: border-box;
   width: 40px;
   height: 54px;
   padding: 0;
@@ -401,6 +435,35 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 255, 0.16);
 }
 
+.registerCodeInputs input.isInvalid,
+.registerCodeInputs input.isInvalid:focus {
+  border: 1px solid #e20f0f;
+  box-shadow: none;
+}
+
+.registerModalEmailConfirmInvalid .registerCodeInputs input {
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.registerCodeErrorMessage {
+  display: block;
+  width: 484px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  appearance: none;
+  color: #e20f0f;
+  cursor: pointer;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+  text-align: center;
+  text-decoration: underline;
+}
+
 .registerConfirmLinks {
   display: flex;
   flex-direction: column;
@@ -416,6 +479,7 @@
   padding: 0;
   border: 0;
   background: transparent;
+  appearance: none;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   font-weight: 400;
@@ -439,7 +503,8 @@
 .registerPasswordToggle:hover,
 .registerSubmitButton:hover,
 .registerLoginLink button:hover,
-.registerChangeEmailButton:hover {
+.registerChangeEmailButton:hover,
+.registerCodeErrorMessage:hover {
   opacity: 0.86;
 }
 
@@ -458,14 +523,12 @@
     padding: 16px;
   }
 
-  .registerModal {
+  .registerModal,
+  .registerModalEmailConfirmInvalid {
     width: 100%;
     min-height: auto;
-    align-items: stretch;
-  }
-
-  .registerModalEmailConfirm {
     height: auto;
+    align-items: stretch;
   }
 
   .registerModalTop,
@@ -498,6 +561,8 @@
   .registerEmailConfirmIntro,
   .registerEmailConfirmIntro h3,
   .registerEmailConfirmIntro p,
+  .registerCodeArea,
+  .registerCodeErrorMessage,
   .registerConfirmLinks,
   .registerConfirmLinks button {
     width: 100%;

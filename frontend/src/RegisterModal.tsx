@@ -14,6 +14,8 @@ type RegisterModalProps = {
 
 type RegisterStep = 'form' | 'emailConfirm'
 
+const CORRECT_CONFIRMATION_CODE = '3578'
+
 function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
   const codeInputRefs = useRef<Array<HTMLInputElement | null>>([])
@@ -21,6 +23,7 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
   const [registerStep, setRegisterStep] = useState<RegisterStep>('form')
   const [email, setEmail] = useState('')
   const [confirmationCode, setConfirmationCode] = useState(['', '', '', ''])
+  const [isConfirmationCodeInvalid, setIsConfirmationCodeInvalid] = useState(false)
   const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [isRepeatPasswordVisible, setIsRepeatPasswordVisible] = useState(false)
 
@@ -63,7 +66,15 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
   }
 
   const handleRegisterSubmit = () => {
+    setConfirmationCode(['', '', '', ''])
+    setIsConfirmationCodeInvalid(false)
     setRegisterStep('emailConfirm')
+  }
+
+  const handleBackToForm = () => {
+    setConfirmationCode(['', '', '', ''])
+    setIsConfirmationCodeInvalid(false)
+    setRegisterStep('form')
   }
 
   const handleCodeChange = (index: number, value: string) => {
@@ -71,7 +82,16 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
 
     const nextCode = [...confirmationCode]
     nextCode[index] = nextValue
+
     setConfirmationCode(nextCode)
+
+    const joinedCode = nextCode.join('')
+
+    if (joinedCode.length === 4) {
+      setIsConfirmationCodeInvalid(joinedCode !== CORRECT_CONFIRMATION_CODE)
+    } else {
+      setIsConfirmationCodeInvalid(false)
+    }
 
     if (nextValue && index < codeInputRefs.current.length - 1) {
       codeInputRefs.current[index + 1]?.focus()
@@ -87,7 +107,21 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     }
   }
 
+  const handleResendCode = () => {
+    setConfirmationCode(['', '', '', ''])
+    setIsConfirmationCodeInvalid(false)
+    codeInputRefs.current[0]?.focus()
+  }
+
   const displayEmail = email || 'dvhjkdsvbksdskj@mail.ru'
+
+  const registerModalClassName = [
+    'registerModal',
+    registerStep === 'emailConfirm' ? 'registerModalEmailConfirm' : '',
+    isConfirmationCodeInvalid ? 'registerModalEmailConfirmInvalid' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <div
@@ -97,11 +131,7 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
       onKeyDown={handleKeyDown}
     >
       <div
-        className={
-          registerStep === 'emailConfirm'
-            ? 'registerModal registerModalEmailConfirm'
-            : 'registerModal'
-        }
+        className={registerModalClassName}
         ref={modalRef}
         role="dialog"
         aria-modal="true"
@@ -228,23 +258,25 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
 
         {registerStep === 'emailConfirm' && (
           <>
-            <div className="registerModalTop">
-              <button
-                className="registerModalClose"
-                type="button"
-                aria-label="Закрыть"
-                onClick={onClose}
-              >
-                <CloseIcon />
-              </button>
-            </div>
+            {!isConfirmationCodeInvalid && (
+              <div className="registerModalTop">
+                <button
+                  className="registerModalClose"
+                  type="button"
+                  aria-label="Закрыть"
+                  onClick={onClose}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
 
             <div className="registerConfirmHeaderRow">
               <button
                 className="registerBackButton"
                 type="button"
                 aria-label="Вернуться назад"
-                onClick={() => setRegisterStep('form')}
+                onClick={handleBackToForm}
               >
                 <ArrowLeftIcon />
               </button>
@@ -261,26 +293,48 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
             <div className="registerEmailConfirmContent">
               <div className="registerEmailConfirmIntro">
                 <h3>Подтвердите ваш E-mail</h3>
-                <p>Введите код, отправленный на почту {displayEmail}</p>
+
+                {!isConfirmationCodeInvalid && (
+                  <p>Введите код, отправленный на почту {displayEmail}</p>
+                )}
               </div>
 
-              <div className="registerCodeInputs" aria-label="Код подтверждения">
-                {confirmationCode.map((digit, index) => (
-                  <input
-                    key={`confirmation-code-${index}`}
-                    ref={(element) => {
-                      codeInputRefs.current[index] = element
-                    }}
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={digit}
-                    maxLength={1}
-                    aria-label={`Цифра ${index + 1}`}
-                    onChange={(event) => handleCodeChange(index, event.target.value)}
-                    onKeyDown={(event) => handleCodeKeyDown(event, index)}
-                  />
-                ))}
+              <div
+                className={
+                  isConfirmationCodeInvalid
+                    ? 'registerCodeArea registerCodeAreaInvalid'
+                    : 'registerCodeArea'
+                }
+              >
+                <div className="registerCodeInputs" aria-label="Код подтверждения">
+                  {confirmationCode.map((digit, index) => (
+                    <input
+                      key={`confirmation-code-${index}`}
+                      ref={(element) => {
+                        codeInputRefs.current[index] = element
+                      }}
+                      className={isConfirmationCodeInvalid ? 'isInvalid' : undefined}
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={digit}
+                      maxLength={1}
+                      aria-label={`Цифра ${index + 1}`}
+                      onChange={(event) => handleCodeChange(index, event.target.value)}
+                      onKeyDown={(event) => handleCodeKeyDown(event, index)}
+                    />
+                  ))}
+                </div>
+
+                {isConfirmationCodeInvalid && (
+                  <button
+                    className="registerCodeErrorMessage"
+                    type="button"
+                    onClick={handleResendCode}
+                  >
+                    Проверьте правильность ввода или отправьте новый код
+                  </button>
+                )}
               </div>
 
               <div className="registerConfirmLinks">
@@ -291,7 +345,7 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                 <button
                   className="registerChangeEmailButton"
                   type="button"
-                  onClick={() => setRegisterStep('form')}
+                  onClick={handleBackToForm}
                 >
                   Ввести другой адрес
                 </button>
