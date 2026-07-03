@@ -1,11 +1,42 @@
+import heroImage1 from './assets/landing/hero-1.png'
+import heroImage2 from './assets/landing/hero-2.png'
+import heroImage3 from './assets/landing/hero-3.png'
+import heroImage4 from './assets/landing/hero-4.png'
+import heroImage5 from './assets/landing/hero-5.png'
+import heroImage6 from './assets/landing/hero-6.png'
+import logoFull from './assets/brand/logo-full.svg'
 import './App.css'
 
 const imageCards = [
-  'Автоматизация процессов',
-  'AI для продаж',
-  'Сделки и аналитика',
-  'Команда и стратегия',
-  'Социальные каналы',
+  {
+    // title: 'Автоматизация процессов',
+    image: heroImage1,
+  },
+  {
+    // title: 'AI для продаж',
+    image: heroImage4,
+  },
+  {
+    // title: 'Сделки и аналитика',
+    image: heroImage2,
+  },
+  {
+    // title: 'Команда и стратегия',
+    image: heroImage3,
+  },
+  {
+    // title: 'Интеграции',
+    image: heroImage5,
+  },
+  {
+    // title: 'Социальные каналы',
+    image: heroImage6,
+  },
+]
+
+const imageColumns = [
+  imageCards.slice(0, 3),
+  imageCards.slice(3, 6),
 ]
 
 function App() {
@@ -13,9 +44,8 @@ function App() {
     <div className="appShell">
       <main className="landingPage">
         <header className="siteHeader">
-          <a className="brand" href="/">
-            <span className="brandIcon">↗</span>
-            <span className="brandText">ПРОДАВАН</span>
+          <a className="brand" href="/" aria-label="Продаван">
+            <img className="brandLogoImage" src={logoFull} alt="Продаван" />
           </a>
 
           <nav className="mainNav" aria-label="Основная навигация">
@@ -51,9 +81,17 @@ function App() {
           </div>
 
           <div className="imageCollage" aria-label="Иллюстрации возможностей CRM">
-            {imageCards.map((title, index) => (
-              <div className={`imageTile tile${index + 1}`} key={title}>
-                <span>{title}</span>
+            {imageColumns.map((column, columnIndex) => (
+              <div className="imageColumn" key={`column-${columnIndex}`}>
+                {column.map((card, cardIndex) => {
+                  const tileNumber = columnIndex * 3 + cardIndex + 1
+
+                  return (
+                    <div className={`imageTile tile${tileNumber}`} key={`tile-${tileNumber}`}>
+                      <img src={card.image} alt="" />
+                    </div>
+                  )
+                })}
               </div>
             ))}
           </div>
@@ -61,9 +99,8 @@ function App() {
 
         <footer className="siteFooter">
           <div className="footerTop">
-            <a className="footerBrand" href="/">
-              <span className="brandIcon">↗</span>
-              <span className="brandText">ПРОДАВАН</span>
+            <a className="footerBrand" href="/" aria-label="Продаван">
+              <img className="brandLogoImage" src={logoFull} alt="Продаван" />
             </a>
 
             <nav className="footerNav" aria-label="Навигация в подвале">
