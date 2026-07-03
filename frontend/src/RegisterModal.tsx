@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
 import './RegisterModal.css'
 
 type RegisterModalProps = {
@@ -6,9 +12,15 @@ type RegisterModalProps = {
   onOpenLogin?: () => void
 }
 
+type RegisterStep = 'form' | 'emailConfirm'
+
 function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
+  const codeInputRefs = useRef<Array<HTMLInputElement | null>>([])
 
+  const [registerStep, setRegisterStep] = useState<RegisterStep>('form')
+  const [email, setEmail] = useState('')
+  const [confirmationCode, setConfirmationCode] = useState(['', '', '', ''])
   const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [isRepeatPasswordVisible, setIsRepeatPasswordVisible] = useState(false)
 
@@ -27,6 +39,17 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     }
   }, [])
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const firstInput = modalRef.current?.querySelector<HTMLInputElement>('input')
+      firstInput?.focus()
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [registerStep])
+
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       onClose()
@@ -39,6 +62,33 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     }
   }
 
+  const handleRegisterSubmit = () => {
+    setRegisterStep('emailConfirm')
+  }
+
+  const handleCodeChange = (index: number, value: string) => {
+    const nextValue = value.replace(/\D/g, '').slice(-1)
+
+    const nextCode = [...confirmationCode]
+    nextCode[index] = nextValue
+    setConfirmationCode(nextCode)
+
+    if (nextValue && index < codeInputRefs.current.length - 1) {
+      codeInputRefs.current[index + 1]?.focus()
+    }
+  }
+
+  const handleCodeKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+    index: number,
+  ) => {
+    if (event.key === 'Backspace' && !confirmationCode[index] && index > 0) {
+      codeInputRefs.current[index - 1]?.focus()
+    }
+  }
+
+  const displayEmail = email || 'dvhjkdsvbksdskj@mail.ru'
+
   return (
     <div
       className="registerModalOverlay"
@@ -47,122 +97,208 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
       onKeyDown={handleKeyDown}
     >
       <div
-        className="registerModal"
+        className={
+          registerStep === 'emailConfirm'
+            ? 'registerModal registerModalEmailConfirm'
+            : 'registerModal'
+        }
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="register-modal-title"
       >
-        <div className="registerModalTop">
-          <button
-            className="registerModalClose"
-            type="button"
-            aria-label="Закрыть"
-            onClick={onClose}
-          >
-            <CloseIcon />
-          </button>
-        </div>
-
-        <div className="registerModalTitleBlock">
-          <h2 id="register-modal-title">Регистрация</h2>
-        </div>
-
-        <div className="registerModalStepBlock">
-          <p>Шаг 1 из 2</p>
-        </div>
-
-        <form
-          className="registerModalForm"
-          onSubmit={(event) => {
-            event.preventDefault()
-          }}
-        >
-          <label className="registerField">
-            <span>Имя</span>
-            <input type="text" placeholder="Введите имя" />
-          </label>
-
-          <label className="registerField">
-            <span>Фамилия</span>
-            <input type="text" placeholder="Введите фамилию" />
-          </label>
-
-          <label className="registerField">
-            <span>E-mail</span>
-            <input type="email" placeholder="Введите e-mail" />
-          </label>
-
-          <div className="registerPasswordBlock">
-            <label className="registerField registerPasswordField">
-              <span>Пароль</span>
-
-              <div className="registerPasswordInput">
-                <input
-                  type={isPasswordVisible ? 'text' : 'password'}
-                  placeholder="Введите пароль"
-                />
-
-                <button
-                  className="registerPasswordToggle"
-                  type="button"
-                  aria-label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
-                  onClick={() => setIsPasswordVisible((value) => !value)}
-                >
-                  <EyeSlashIcon />
-                </button>
-              </div>
-            </label>
-
-            <div className="registerPasswordRules">
-              <p>Минимум 8 символов</p>
-              <p>Содержит цифру или символ</p>
-            </div>
-          </div>
-
-          <label className="registerField registerPasswordField">
-            <span>Повтор пароля</span>
-
-            <div className="registerPasswordInput">
-              <input
-                type={isRepeatPasswordVisible ? 'text' : 'password'}
-                placeholder="Повторите пароль"
-              />
-
+        {registerStep === 'form' && (
+          <>
+            <div className="registerModalTop">
               <button
-                className="registerPasswordToggle"
+                className="registerModalClose"
                 type="button"
-                aria-label={isRepeatPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
-                onClick={() => setIsRepeatPasswordVisible((value) => !value)}
+                aria-label="Закрыть"
+                onClick={onClose}
               >
-                <EyeSlashIcon />
+                <CloseIcon />
               </button>
             </div>
-          </label>
 
-          <div className="registerAgreementBlock">
-            <p>Нажимая Зарегистрироваться. Вы соглашаетесь</p>
+            <div className="registerModalTitleBlock">
+              <h2 id="register-modal-title">Регистрация</h2>
+            </div>
 
-            <p>
-              с{' '}
-              <a href="#terms">Условиями</a>
-              {' '}и{' '}
-              <a href="#privacy">Политикой конфиденциальности</a>
-            </p>
-          </div>
+            <div className="registerModalStepBlock">
+              <p>Шаг 1 из 2</p>
+            </div>
 
-          <button className="registerSubmitButton" type="submit">
-            Зарегистрироваться
-          </button>
+            <form
+              className="registerModalForm"
+              onSubmit={(event) => {
+                event.preventDefault()
+                handleRegisterSubmit()
+              }}
+            >
+              <label className="registerField">
+                <span>Имя</span>
+                <input type="text" placeholder="Введите имя" />
+              </label>
 
-          <div className="registerLoginLink">
-            <span>Есть аккаунт?</span>
+              <label className="registerField">
+                <span>Фамилия</span>
+                <input type="text" placeholder="Введите фамилию" />
+              </label>
 
-            <button type="button" onClick={onOpenLogin}>
-              Войти
-            </button>
-          </div>
-        </form>
+              <label className="registerField">
+                <span>E-mail</span>
+                <input
+                  type="email"
+                  placeholder="Введите e-mail"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+
+              <div className="registerPasswordBlock">
+                <label className="registerField registerPasswordField">
+                  <span>Пароль</span>
+
+                  <div className="registerPasswordInput">
+                    <input
+                      type={isPasswordVisible ? 'text' : 'password'}
+                      placeholder="Введите пароль"
+                    />
+
+                    <button
+                      className="registerPasswordToggle"
+                      type="button"
+                      aria-label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                      onClick={() => setIsPasswordVisible((value) => !value)}
+                    >
+                      <EyeSlashIcon />
+                    </button>
+                  </div>
+                </label>
+
+                <div className="registerPasswordRules">
+                  <p>Минимум 8 символов</p>
+                  <p>Содержит цифру или символ</p>
+                </div>
+              </div>
+
+              <label className="registerField registerPasswordField">
+                <span>Повтор пароля</span>
+
+                <div className="registerPasswordInput">
+                  <input
+                    type={isRepeatPasswordVisible ? 'text' : 'password'}
+                    placeholder="Повторите пароль"
+                  />
+
+                  <button
+                    className="registerPasswordToggle"
+                    type="button"
+                    aria-label={isRepeatPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                    onClick={() => setIsRepeatPasswordVisible((value) => !value)}
+                  >
+                    <EyeSlashIcon />
+                  </button>
+                </div>
+              </label>
+
+              <div className="registerAgreementBlock">
+                <p>Нажимая Зарегистрироваться. Вы соглашаетесь</p>
+
+                <p>
+                  с <a href="#terms">Условиями</a> и{' '}
+                  <a href="#privacy">Политикой конфиденциальности</a>
+                </p>
+              </div>
+
+              <button className="registerSubmitButton" type="submit">
+                Зарегистрироваться
+              </button>
+
+              <div className="registerLoginLink">
+                <span>Есть аккаунт?</span>
+
+                <button type="button" onClick={onOpenLogin}>
+                  Войти
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+
+        {registerStep === 'emailConfirm' && (
+          <>
+            <div className="registerModalTop">
+              <button
+                className="registerModalClose"
+                type="button"
+                aria-label="Закрыть"
+                onClick={onClose}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+
+            <div className="registerConfirmHeaderRow">
+              <button
+                className="registerBackButton"
+                type="button"
+                aria-label="Вернуться назад"
+                onClick={() => setRegisterStep('form')}
+              >
+                <ArrowLeftIcon />
+              </button>
+
+              <div className="registerConfirmTitleWrap">
+                <h2 id="register-modal-title">Регистрация</h2>
+              </div>
+            </div>
+
+            <div className="registerConfirmStepBlock">
+              <p>Шаг 2 из 2</p>
+            </div>
+
+            <div className="registerEmailConfirmContent">
+              <div className="registerEmailConfirmIntro">
+                <h3>Подтвердите ваш E-mail</h3>
+                <p>Введите код, отправленный на почту {displayEmail}</p>
+              </div>
+
+              <div className="registerCodeInputs" aria-label="Код подтверждения">
+                {confirmationCode.map((digit, index) => (
+                  <input
+                    key={`confirmation-code-${index}`}
+                    ref={(element) => {
+                      codeInputRefs.current[index] = element
+                    }}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={digit}
+                    maxLength={1}
+                    aria-label={`Цифра ${index + 1}`}
+                    onChange={(event) => handleCodeChange(index, event.target.value)}
+                    onKeyDown={(event) => handleCodeKeyDown(event, index)}
+                  />
+                ))}
+              </div>
+
+              <div className="registerConfirmLinks">
+                <button className="registerResendButton" type="button" disabled>
+                  Отправить снова через 00:59
+                </button>
+
+                <button
+                  className="registerChangeEmailButton"
+                  type="button"
+                  onClick={() => setRegisterStep('form')}
+                >
+                  Ввести другой адрес
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -173,6 +309,17 @@ function CloseIcon() {
     <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
       <path
         d="M6.4 5.2 12 10.8l5.6-5.6 1.2 1.2-5.6 5.6 5.6 5.6-1.2 1.2L12 13.2l-5.6 5.6-1.2-1.2 5.6-5.6-5.6-5.6 1.2-1.2Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function ArrowLeftIcon() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+      <path
+        d="M18.2 9.5 8.4 19.3a1 1 0 0 0 0 1.4l9.8 9.8 1.9-1.9-7.5-7.5h19.5v-2.7H12.6l7.5-7.5-1.9-1.4Z"
         fill="currentColor"
       />
     </svg>

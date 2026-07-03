@@ -23,6 +23,11 @@
   color: #0b2b55;
 }
 
+.registerModalEmailConfirm {
+  min-height: 483px;
+  height: 483px;
+}
+
 .registerModalTop {
   display: flex;
   justify-content: flex-end;
@@ -261,10 +266,180 @@
   cursor: pointer;
 }
 
+.registerConfirmHeaderRow {
+  display: flex;
+  align-items: center;
+  width: 604px;
+  height: 40px;
+  padding: 0 40px;
+  margin-top: 20px;
+}
+
+.registerBackButton {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  cursor: pointer;
+}
+
+.registerConfirmTitleWrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 444px;
+  height: 40px;
+  padding: 0 10px;
+}
+
+.registerConfirmTitleWrap h2 {
+  width: 194px;
+  height: 36px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  text-align: center;
+}
+
+.registerConfirmStepBlock {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 604px;
+  height: 40px;
+  padding: 0 40px;
+}
+
+.registerConfirmStepBlock p {
+  width: 103px;
+  height: 24px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: center;
+}
+
+.registerEmailConfirmContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 604px;
+  height: 335px;
+  padding: 32px 60px 60px;
+  gap: 40px;
+}
+
+.registerEmailConfirmIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 484px;
+  height: 51px;
+  gap: 10px;
+}
+
+.registerEmailConfirmIntro h3 {
+  width: 484px;
+  height: 24px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 24px;
+  text-align: center;
+}
+
+.registerEmailConfirmIntro p {
+  width: 484px;
+  height: 17px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+  text-align: center;
+}
+
+.registerCodeInputs {
+  display: flex;
+  align-items: center;
+  width: 184px;
+  height: 54px;
+  gap: 8px;
+}
+
+.registerCodeInputs input {
+  width: 40px;
+  height: 54px;
+  padding: 0;
+  border: 1px solid #0b2b55;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: center;
+  outline: none;
+}
+
+.registerCodeInputs input:focus {
+  border-color: #6366ff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 255, 0.16);
+}
+
+.registerConfirmLinks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 484px;
+  height: 58px;
+  gap: 24px;
+}
+
+.registerConfirmLinks button {
+  width: 484px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+  text-align: center;
+  text-decoration: underline;
+}
+
+.registerResendButton {
+  color: rgba(11, 43, 85, 0.5);
+  cursor: default;
+}
+
+.registerChangeEmailButton {
+  color: #1b14e5;
+  cursor: pointer;
+}
+
 .registerModalClose:hover,
+.registerBackButton:hover,
 .registerPasswordToggle:hover,
 .registerSubmitButton:hover,
-.registerLoginLink button:hover {
+.registerLoginLink button:hover,
+.registerChangeEmailButton:hover {
   opacity: 0.86;
 }
 
@@ -289,14 +464,22 @@
     align-items: stretch;
   }
 
+  .registerModalEmailConfirm {
+    height: auto;
+  }
+
   .registerModalTop,
   .registerModalTitleBlock,
   .registerModalStepBlock,
-  .registerModalForm {
+  .registerModalForm,
+  .registerConfirmHeaderRow,
+  .registerConfirmStepBlock,
+  .registerEmailConfirmContent {
     width: 100%;
   }
 
-  .registerModalForm {
+  .registerModalForm,
+  .registerEmailConfirmContent {
     padding: 32px 20px 48px;
   }
 
@@ -311,7 +494,12 @@
     width: 100%;
   }
 
-  .registerAgreementBlock {
+  .registerAgreementBlock,
+  .registerEmailConfirmIntro,
+  .registerEmailConfirmIntro h3,
+  .registerEmailConfirmIntro p,
+  .registerConfirmLinks,
+  .registerConfirmLinks button {
     width: 100%;
   }
 
