@@ -35,21 +35,6 @@
   text-decoration: none;
 }
 
-/* .brandIcon {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  color: #44bed6;
-  font-size: 24px;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.brandText {
-  font-size: 22px;
-} */
-
 .brand,
 .footerBrand {
   display: inline-flex;
@@ -363,11 +348,11 @@
 }
 
 .workCardImage {
+  display: block;
+  width: 100%;
   height: 172px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(102, 98, 255, 0.32), transparent 28%),
-    radial-gradient(circle at 40% 42%, rgba(68, 190, 214, 0.45), transparent 32%),
-    #f1f1f1;
+  object-fit: cover;
+  background: #f1f1f1;
 }
 
 .workCardContent {
@@ -397,18 +382,13 @@
   text-align: center;
 }
 
-.videoPlaceholder {
-  display: grid;
-  place-items: center;
+.videoPreview {
+  display: block;
   width: 380px;
   height: 214px;
   margin: 0 auto;
   border-radius: 8px;
-  background:
-    linear-gradient(rgba(11, 47, 79, 0.12), rgba(11, 47, 79, 0.12)),
-    linear-gradient(135deg, #d9e7ee 0%, #ffffff 48%, #d8d2c3 100%);
-  color: #0b2f4f;
-  font-weight: 800;
+  object-fit: cover;
 }
 
 .videoBlock p {
@@ -564,18 +544,15 @@
   margin-top: 18px;
 }
 
-.ctaImagePlaceholder {
-  display: grid;
-  place-items: center;
+.ctaImage {
+  display: block;
+  width: 100%;
   height: 240px;
   border-radius: 7px;
-  background:
-    radial-gradient(circle at 38% 38%, rgba(102, 98, 255, 0.45), transparent 24%),
-    radial-gradient(circle at 70% 58%, rgba(68, 190, 214, 0.55), transparent 30%),
-    linear-gradient(135deg, #d9e7ee 0%, #f6f6f6 52%, #cbc0b2 100%);
-  color: #0b2f4f;
-  font-weight: 800;
+  object-fit: cover;
 }
+
+/* Tablet */
 
 @media (max-width: 1000px) {
   .appShell {
@@ -615,7 +592,7 @@
     margin-top: 0;
   }
 
-    .workCards {
+  .workCards {
     grid-template-columns: 1fr;
   }
 
@@ -632,10 +609,12 @@
     gap: 36px;
   }
 
-  .ctaImagePlaceholder {
+  .ctaImage {
     height: 220px;
   }
 }
+
+/* Mobile */
 
 @media (max-width: 700px) {
   .appShell {
@@ -697,7 +676,7 @@
     padding: 52px 28px 32px;
   }
 
-    .howIntro {
+  .howIntro {
     padding: 64px 24px 52px;
   }
 
@@ -719,7 +698,7 @@
     padding: 42px 24px 38px;
   }
 
-  .videoPlaceholder {
+  .videoPreview {
     width: 100%;
     height: 190px;
   }

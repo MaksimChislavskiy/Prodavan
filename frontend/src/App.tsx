@@ -5,6 +5,11 @@ import heroImage3 from './assets/landing/hero-3.png'
 import heroImage4 from './assets/landing/hero-4.png'
 import heroImage5 from './assets/landing/hero-5.png'
 import heroImage6 from './assets/landing/hero-6.png'
+import stepLearningImage from './assets/how-it-works/step-learning.png'
+import stepSalesImage from './assets/how-it-works/step-sales.png'
+import stepControlImage from './assets/how-it-works/step-control.png'
+import videoPreviewImage from './assets/how-it-works/video-preview.png'
+import ctaImage from './assets/how-it-works/cta-image.png'
 import logoFull from './assets/brand/logo-full.svg'
 import './App.css'
 
@@ -40,14 +45,17 @@ const workCards = [
   {
     title: 'Обучение',
     text: 'Загрузите данные и дайте ИИ мозги вашей компании',
+    image: stepLearningImage,
   },
   {
     title: 'Продажи',
     text: 'Бот общается, квалифицирует и дожимает 24/7',
+    image: stepSalesImage,
   },
   {
     title: 'Контроль',
     text: 'Получайте готовые отчеты и подключайтесь только для важных сделок',
+    image: stepControlImage,
   },
 ]
 
@@ -67,36 +75,36 @@ const testimonials = [
 ]
 
 function App() {
-    const getPageFromPath = (): Page => {
-      return window.location.pathname === '/how-it-works' ? 'how' : 'home'
-    }
+  const getPageFromPath = (): Page => {
+    return window.location.pathname === '/how-it-works' ? 'how' : 'home'
+  }
 
-    const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
+  const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
 
-    useEffect(() => {
-      const handlePopState = () => {
-        setCurrentPage(getPageFromPath())
-        window.scrollTo(0, 0)
-      }
-
-      window.addEventListener('popstate', handlePopState)
-
-      return () => {
-        window.removeEventListener('popstate', handlePopState)
-      }
-    }, [])
-
-    const openHomePage = () => {
-      window.history.pushState(null, '', '/')
-      setCurrentPage('home')
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPage(getPageFromPath())
       window.scrollTo(0, 0)
     }
 
-    const openHowPage = () => {
-      window.history.pushState(null, '', '/how-it-works')
-      setCurrentPage('how')
-      window.scrollTo(0, 0)
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
     }
+  }, [])
+
+  const openHomePage = () => {
+    window.history.pushState(null, '', '/')
+    setCurrentPage('home')
+    window.scrollTo(0, 0)
+  }
+
+  const openHowPage = () => {
+    window.history.pushState(null, '', '/how-it-works')
+    setCurrentPage('how')
+    window.scrollTo(0, 0)
+  }
 
   return (
     <div className="appShell">
@@ -245,7 +253,7 @@ function HowItWorksPage() {
           <div className="workCards">
             {workCards.map((card) => (
               <article className="workCard" key={card.title}>
-                <div className="workCardImage" aria-hidden="true" />
+                <img className="workCardImage" src={card.image} alt="" />
 
                 <div className="workCardContent">
                   <h4>{card.title}</h4>
@@ -257,9 +265,7 @@ function HowItWorksPage() {
         </div>
 
         <div className="videoBlock">
-          <div className="videoPlaceholder">
-            <span>Видео</span>
-          </div>
+          <img className="videoPreview" src={videoPreviewImage} alt="" />
 
           <p>
             Посмотрите, как Продаван экономит 4 часа вашего времени каждый день
@@ -323,9 +329,7 @@ function HowItWorksPage() {
           </button>
         </div>
 
-        <div className="ctaImagePlaceholder" aria-hidden="true">
-          Изображение
-        </div>
+        <img className="ctaImage" src={ctaImage} alt="" />
       </section>
     </>
   )
