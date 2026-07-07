@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import RegisterModal from './RegisterModal'
 import LoginModal from './LoginModal'
+import PasswordResetModal from './PasswordResetModal'
 import heroImage1 from './assets/landing/hero-1.png'
 import heroImage2 from './assets/landing/hero-2.png'
 import heroImage3 from './assets/landing/hero-3.png'
@@ -16,7 +17,7 @@ import logoFull from './assets/brand/logo-full.svg'
 import './App.css'
 
 type Page = 'home' | 'how' | 'pricing'
-type AuthModal = 'login' | 'register'
+type AuthModal = 'login' | 'register' | 'reset'
 
 const imageCards = [
   {
@@ -187,6 +188,8 @@ function App() {
 
   const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
   const [authModal, setAuthModal] = useState<AuthModal | null>(null)
+  const [loginInitialEmail, setLoginInitialEmail] = useState('')
+  const [resetInitialEmail, setResetInitialEmail] = useState('')
 
   useEffect(() => {
     const handlePopState = () => {
@@ -220,11 +223,20 @@ function App() {
   }
 
   const openRegisterModal = () => {
+    setLoginInitialEmail('')
+    setResetInitialEmail('')
     setAuthModal('register')
   }
 
-  const openLoginModal = () => {
+  const openLoginModal = (initialEmail = '') => {
+    setLoginInitialEmail(initialEmail)
+    setResetInitialEmail('')
     setAuthModal('login')
+  }
+
+  const openResetModal = (initialEmail = '') => {
+    setResetInitialEmail(initialEmail)
+    setAuthModal('reset')
   }
 
   return (
@@ -266,7 +278,7 @@ function App() {
           </nav>
 
           <div className="headerActions">
-            <button className="loginButton" type="button" onClick={openLoginModal}>
+            <button className="loginButton" type="button" onClick={() => openLoginModal()}>
               Войти
             </button>
 
@@ -336,17 +348,24 @@ function App() {
       {authModal === 'register' && (
         <RegisterModal
           onClose={() => setAuthModal(null)}
-          onOpenLogin={() => setAuthModal('login')}
+          onOpenLogin={() => openLoginModal()}
         />
       )}
 
       {authModal === 'login' && (
         <LoginModal
+          initialEmail={loginInitialEmail}
           onClose={() => setAuthModal(null)}
-          onOpenRegister={() => setAuthModal('register')}
-          onOpenReset={() => {
-            console.log('Окно восстановления пароля сделаем следующим этапом')
-          }}
+          onOpenRegister={openRegisterModal}
+          onOpenReset={(email) => openResetModal(email)}
+        />
+      )}
+
+      {authModal === 'reset' && (
+        <PasswordResetModal
+          initialEmail={resetInitialEmail}
+          onClose={() => setAuthModal(null)}
+          onOpenLogin={(email) => openLoginModal(email)}
         />
       )}
     </div>

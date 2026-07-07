@@ -2,18 +2,24 @@ import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from
 import './LoginModal.css'
 
 type LoginModalProps = {
+  initialEmail?: string
   onClose: () => void
   onOpenRegister: () => void
-  onOpenReset?: () => void
+  onOpenReset?: (email?: string) => void
 }
 
 const MOCK_LOGIN_EMAIL = 'dvhjkdsvbksdskj@mail.ru'
 const MOCK_LOGIN_PASSWORD = 'vsdfjksfksdks'
 
-function LoginModal({ onClose, onOpenRegister, onOpenReset }: LoginModalProps) {
+function LoginModal({
+  initialEmail = '',
+  onClose,
+  onOpenRegister,
+  onOpenReset,
+}: LoginModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [loginError, setLoginError] = useState('')
@@ -153,7 +159,7 @@ function LoginModal({ onClose, onOpenRegister, onOpenReset }: LoginModalProps) {
             <button
               className="loginForgotButton"
               type="button"
-              onClick={onOpenReset}
+              onClick={() => onOpenReset?.(email)}
             >
               Забыли пароль?
             </button>
