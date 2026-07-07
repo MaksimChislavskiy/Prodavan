@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import RegisterModal from './RegisterModal'
+import LoginModal from './LoginModal'
 import heroImage1 from './assets/landing/hero-1.png'
 import heroImage2 from './assets/landing/hero-2.png'
 import heroImage3 from './assets/landing/hero-3.png'
@@ -15,6 +16,7 @@ import logoFull from './assets/brand/logo-full.svg'
 import './App.css'
 
 type Page = 'home' | 'how' | 'pricing'
+type AuthModal = 'login' | 'register'
 
 const imageCards = [
   {
@@ -184,7 +186,7 @@ function App() {
   }
 
   const [currentPage, setCurrentPage] = useState<Page>(getPageFromPath)
-  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false)
+  const [authModal, setAuthModal] = useState<AuthModal | null>(null)
 
   useEffect(() => {
     const handlePopState = () => {
@@ -218,7 +220,11 @@ function App() {
   }
 
   const openRegisterModal = () => {
-    setIsRegisterModalOpen(true)
+    setAuthModal('register')
+  }
+
+  const openLoginModal = () => {
+    setAuthModal('login')
   }
 
   return (
@@ -260,7 +266,7 @@ function App() {
           </nav>
 
           <div className="headerActions">
-            <button className="loginButton" type="button">
+            <button className="loginButton" type="button" onClick={openLoginModal}>
               Войти
             </button>
 
@@ -327,10 +333,20 @@ function App() {
         </footer>
       </main>
 
-      {isRegisterModalOpen && (
+      {authModal === 'register' && (
         <RegisterModal
-          onClose={() => setIsRegisterModalOpen(false)}
-          onOpenLogin={() => setIsRegisterModalOpen(false)}
+          onClose={() => setAuthModal(null)}
+          onOpenLogin={() => setAuthModal('login')}
+        />
+      )}
+
+      {authModal === 'login' && (
+        <LoginModal
+          onClose={() => setAuthModal(null)}
+          onOpenRegister={() => setAuthModal('register')}
+          onOpenReset={() => {
+            console.log('Окно восстановления пароля сделаем следующим этапом')
+          }}
         />
       )}
     </div>

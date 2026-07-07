@@ -1,0 +1,339 @@
+.loginModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 42.5px 16px;
+  overflow-y: auto;
+  background: rgba(19, 19, 21, 0.42);
+  animation: loginOverlayFadeIn 0.3s ease;
+}
+
+.loginModal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 604px;
+  min-height: 594px;
+  padding: 24px 0 0;
+  background: #ffffff;
+  border-radius: 14px;
+  color: #0b2b55;
+}
+
+.loginModalWithError {
+  align-items: flex-start;
+  min-height: 602px;
+  padding: 60px 0 0;
+}
+
+.loginModalTop {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 604px;
+  height: 24px;
+  padding: 0 24px;
+}
+
+.loginModalClose {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  cursor: pointer;
+}
+
+.loginModalBackRow {
+  display: flex;
+  align-items: center;
+  width: 604px;
+  height: 40px;
+  padding: 0 40px;
+}
+
+.loginBackButton {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  cursor: pointer;
+}
+
+.loginModalTitleBlock {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 604px;
+  height: 40px;
+  padding: 0 40px;
+  margin-top: 20px;
+}
+
+.loginModalWithError .loginModalTitleBlock {
+  margin-top: 20px;
+}
+
+.loginModalTitleBlock h2 {
+  width: 444px;
+  margin: 0;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  text-align: center;
+}
+
+.loginModalForm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 604px;
+  min-height: 486px;
+  padding: 32px 60px 60px;
+  gap: 40px;
+}
+
+.loginModalWithError .loginModalForm {
+  padding-top: 32px;
+}
+
+.loginField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 419px;
+  gap: 8px;
+}
+
+.loginField span {
+  width: 100%;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.loginField input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 54px;
+  padding: 0 20px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  outline: none;
+}
+
+.loginField input::placeholder {
+  color: rgba(11, 43, 85, 0.5);
+}
+
+.loginField input:focus {
+  border-color: #6366ff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 255, 0.16);
+}
+
+.loginPasswordBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 420px;
+  gap: 8px;
+}
+
+.loginPasswordField {
+  width: 420px;
+}
+
+.loginPasswordInput {
+  position: relative;
+  width: 420px;
+  height: 50px;
+}
+
+.loginPasswordInput input {
+  width: 420px;
+  height: 50px;
+  padding: 0 56px 0 20px;
+}
+
+.loginPasswordToggle {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.loginForgotButton {
+  width: 420px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1b14e5;
+  cursor: pointer;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: left;
+}
+
+.loginErrorMessage {
+  width: 420px;
+  height: 24px;
+  margin: 0;
+  color: #e20f0f;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.loginActionsBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 484px;
+  height: 114px;
+  gap: 40px;
+}
+
+.loginSubmitButton {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 420px;
+  height: 50px;
+  margin: 0 auto;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 10px;
+  background: #6366ff;
+  color: #f0f0f0;
+  cursor: pointer;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.loginRegisterLink {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 484px;
+  height: 24px;
+  gap: 10px;
+}
+
+.loginRegisterLink span,
+.loginRegisterLink button {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.loginRegisterLink span {
+  color: #0b2b55;
+}
+
+.loginRegisterLink button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1b14e5;
+  cursor: pointer;
+}
+
+.loginModalClose:hover,
+.loginBackButton:hover,
+.loginPasswordToggle:hover,
+.loginForgotButton:hover,
+.loginSubmitButton:hover,
+.loginRegisterLink button:hover {
+  opacity: 0.86;
+}
+
+@keyframes loginOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 700px) {
+  .loginModalOverlay {
+    padding: 16px;
+  }
+
+  .loginModal,
+  .loginModalWithError {
+    width: 100%;
+    min-height: auto;
+    height: auto;
+    align-items: stretch;
+  }
+
+  .loginModalTop,
+  .loginModalBackRow,
+  .loginModalTitleBlock,
+  .loginModalForm {
+    width: 100%;
+  }
+
+  .loginModalForm {
+    padding: 32px 20px 48px;
+  }
+
+  .loginField,
+  .loginPasswordBlock,
+  .loginPasswordField,
+  .loginPasswordInput,
+  .loginPasswordInput input,
+  .loginForgotButton,
+  .loginErrorMessage,
+  .loginSubmitButton {
+    width: 100%;
+  }
+
+  .loginActionsBlock,
+  .loginRegisterLink {
+    width: 100%;
+  }
+
+  .loginRegisterLink {
+    flex-wrap: wrap;
+  }
+}
