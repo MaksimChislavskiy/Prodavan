@@ -419,6 +419,8 @@ class AIAutomationAuditLog(models.Model):
     raw_message = models.TextField(blank=True, default='')
     ai_prompt = models.TextField(blank=True, default='')
     ai_response = models.JSONField(default=dict, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
     confidence = models.FloatField(null=True, blank=True)
     details = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

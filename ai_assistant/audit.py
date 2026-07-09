@@ -85,6 +85,8 @@ def _create_log(
     details,
     ai_prompt='',
     ai_response=None,
+    ip=None,
+    user_agent='',
     confidence=None,
 ):
     action = _audit_action(action_type, details)
@@ -102,6 +104,8 @@ def _create_log(
             'raw_message': (raw_message or '')[:1000],
             'ai_prompt': (ai_prompt or '')[:2000],
             'ai_response': _json_safe(ai_response or {}),
+            'ip': ip,
+            'user_agent': (user_agent or '')[:512],
             'confidence': confidence,
             'details': _json_safe(details),
         },

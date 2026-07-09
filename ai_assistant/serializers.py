@@ -122,14 +122,17 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
 
 
 class AIAutomationAuditLogSerializer(serializers.ModelSerializer):
+    workspace_id = serializers.UUIDField(source='workspace.id')
     user_id = serializers.UUIDField(source='user.id', allow_null=True)
     chat_id = serializers.UUIDField(source='chat.id', allow_null=True)
     message_id = serializers.UUIDField(source='message.id', allow_null=True)
+    timestamp = serializers.DateTimeField(source='created_at')
 
     class Meta:
         model = AIAutomationAuditLog
         fields = (
             'id',
+            'workspace_id',
             'action',
             'action_type',
             'trigger',
@@ -140,7 +143,10 @@ class AIAutomationAuditLogSerializer(serializers.ModelSerializer):
             'raw_message',
             'ai_prompt',
             'ai_response',
+            'ip',
+            'user_agent',
             'confidence',
             'details',
+            'timestamp',
             'created_at',
         )

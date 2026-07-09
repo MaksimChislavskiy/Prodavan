@@ -142,9 +142,50 @@ class AIAuditApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(response.data['logs']), 3)
         first = response.data['logs'][0]
+        self.assertEqual(first['workspace_id'], str(self.workspace.id))
+        self.assertIn('timestamp', first)
+        self.assertIn('ip', first)
+        self.assertIn('user_agent', first)
         self.assertIn('raw_message', first)
         self.assertIn('ai_response', first)
         self.assertIn('details', first)
+
+        deal_response = self.client.get(
+            self.audit_url,
+            {'type': 'deal'},
+            **self._auth(access),
+        )
+        self.assertEqual(deal_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(deal_response.data['logs']), 1)
+        self.assertEqual(
+            {item['action_type'] for item in deal_response.data['logs']},
+            {'deal_create', 'deal_enrichment'},
+        )
+
+    def test_endpoint_exposes_audit_request_metadata(self):
+        log = AIAutomationAuditLog.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            action=AIAutomationAuditAction.AI_DECISION_SKIPPED,
+            action_type='metadata_test',
+            trigger='test',
+            correlation_id=self.user.id,
+            chat=self.chat,
+            ip='127.0.0.1',
+            user_agent='Prodavan QA Browser',
+            details={'reason': 'test'},
+        )
+
+        access = self._login()
+        response = self.client.get(self.audit_url, **self._auth(access))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item = response.data['logs'][0]
+        self.assertEqual(item['id'], str(log.id))
+        self.assertEqual(item['workspace_id'], str(self.workspace.id))
+        self.assertEqual(item['ip'], '127.0.0.1')
+        self.assertEqual(item['user_agent'], 'Prodavan QA Browser')
+        self.assertEqual(item['timestamp'], item['created_at'])
 
     def test_autopilot_filter_returns_only_autopilot_logs(self):
         AISettings.objects.create(
