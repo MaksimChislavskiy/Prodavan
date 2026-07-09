@@ -65,6 +65,15 @@
   background: #ffffff;
 }
 
+.crm-sidebar__link--active {
+  background: rgba(240, 240, 240, 0.12);
+}
+
+.crm-sidebar__link--ai.crm-sidebar__link--active {
+  background: #f0f0f0;
+  color: #0b2b55;
+}
+
 .crm-sidebar__icon {
   width: 32px;
   height: 32px;

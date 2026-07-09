@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import logoFull from '../../assets/brand/logo-full.svg'
 import './CrmLayout.css'
 
@@ -10,22 +11,150 @@ type SidebarIconName =
   | 'settings'
   | 'chat'
 
+type CrmSectionId =
+  | 'dashboard'
+  | 'ai'
+  | 'deals'
+  | 'contacts'
+  | 'tasks'
+  | 'settings'
+  | 'chat'
+
 type NavigationItem = {
+  id: CrmSectionId
   label: string
   icon: SidebarIconName
   href: string
   variant?: 'ai'
 }
 
+type CrmSection = {
+  title: string
+  eyebrow: string
+  text: string
+  widgets: {
+    value: string
+    label: string
+  }[]
+}
+
 const navigationItems: NavigationItem[] = [
-  { label: 'AI', icon: 'ai', href: '/app/ai', variant: 'ai' },
-  { label: 'Рабочий стол', icon: 'dashboard', href: '/app' },
-  { label: 'Сделки', icon: 'deals', href: '/app/deals' },
-  { label: 'Контакты', icon: 'contacts', href: '/app/contacts' },
-  { label: 'Задачи', icon: 'tasks', href: '/app/tasks' },
-  { label: 'Настройки', icon: 'settings', href: '/app/settings/ai' },
-  { label: 'Чат', icon: 'chat', href: '/app/chats' },
+  { id: 'ai', label: 'AI', icon: 'ai', href: '/app/ai', variant: 'ai' },
+  { id: 'dashboard', label: 'Рабочий стол', icon: 'dashboard', href: '/app' },
+  { id: 'deals', label: 'Сделки', icon: 'deals', href: '/app/deals' },
+  { id: 'contacts', label: 'Контакты', icon: 'contacts', href: '/app/contacts' },
+  { id: 'tasks', label: 'Задачи', icon: 'tasks', href: '/app/tasks' },
+  { id: 'settings', label: 'Настройки', icon: 'settings', href: '/app/settings/ai' },
+  { id: 'chat', label: 'Чат', icon: 'chat', href: '/app/chats' },
 ]
+
+const crmSections: Record<CrmSectionId, CrmSection> = {
+  dashboard: {
+    eyebrow: 'CRM',
+    title: 'Рабочий стол',
+    text:
+      'Это первая заглушка рабочего стола. Позже здесь появятся задачи на сегодня, онбординг и реальные данные из API.',
+    widgets: [
+      { value: '0', label: 'Задач на сегодня' },
+      { value: '0', label: 'Просрочено' },
+      { value: '—', label: 'AI пока без API' },
+    ],
+  },
+  ai: {
+    eyebrow: 'AI',
+    title: 'AI-помощник',
+    text:
+      'Здесь позже появится интерфейс AI-помощника: быстрые запросы, история диалогов и ответы на основе данных CRM.',
+    widgets: [
+      { value: '0', label: 'Запросов сегодня' },
+      { value: '0', label: 'Ответов AI' },
+      { value: 'mock', label: 'Режим без API' },
+    ],
+  },
+  deals: {
+    eyebrow: 'CRM',
+    title: 'Сделки',
+    text:
+      'Здесь позже появится канбан-доска сделок: этапы продаж, карточки сделок, создание и перемещение между колонками.',
+    widgets: [
+      { value: '0', label: 'Активных сделок' },
+      { value: '0 ₽', label: 'Сумма в работе' },
+      { value: 'mock', label: 'Канбан позже' },
+    ],
+  },
+  contacts: {
+    eyebrow: 'CRM',
+    title: 'Контакты',
+    text:
+      'Здесь позже появится список клиентов и карточки контактов: имя, компания, телефон, e-mail и Telegram.',
+    widgets: [
+      { value: '0', label: 'Контактов' },
+      { value: '0', label: 'Компаний' },
+      { value: 'mock', label: 'Данные позже' },
+    ],
+  },
+  tasks: {
+    eyebrow: 'CRM',
+    title: 'Задачи',
+    text:
+      'Здесь позже появится раздел задач: статусы, сроки, карточки задач и управление действиями менеджера.',
+    widgets: [
+      { value: '0', label: 'Новых задач' },
+      { value: '0', label: 'В работе' },
+      { value: '0', label: 'Завершено' },
+    ],
+  },
+  settings: {
+    eyebrow: 'CRM',
+    title: 'Настройки AI',
+    text:
+      'Здесь позже появятся настройки AI: инструкция, автопилот, база знаний и полезные материалы.',
+    widgets: [
+      { value: 'off', label: 'Автопилот' },
+      { value: '0', label: 'Документов' },
+      { value: 'mock', label: 'Настройки позже' },
+    ],
+  },
+  chat: {
+    eyebrow: 'CRM',
+    title: 'Чат',
+    text:
+      'Здесь позже появится единое окно переписок с клиентами и возможность подключать AI к диалогам.',
+    widgets: [
+      { value: '0', label: 'Диалогов' },
+      { value: '0', label: 'Новых сообщений' },
+      { value: 'mock', label: 'Чат позже' },
+    ],
+  },
+}
+
+function getSectionFromPath(pathname: string): CrmSectionId {
+  if (pathname === '/app/ai') {
+    return 'ai'
+  }
+
+  if (pathname === '/app/deals') {
+    return 'deals'
+  }
+
+  if (pathname === '/app/contacts') {
+    return 'contacts'
+  }
+
+  if (pathname === '/app/tasks') {
+    return 'tasks'
+  }
+
+  if (pathname === '/app/settings/ai') {
+    return 'settings'
+  }
+
+  if (pathname === '/app/chats') {
+    return 'chat'
+  }
+
+  return 'dashboard'
+}
 
 function SidebarIcon({ name }: { name: SidebarIconName }) {
   if (name === 'ai') {
@@ -85,6 +214,31 @@ function SidebarIcon({ name }: { name: SidebarIconName }) {
 }
 
 export function CrmLayout() {
+  const [activeSection, setActiveSection] = useState<CrmSectionId>(() =>
+    getSectionFromPath(window.location.pathname),
+  )
+
+  const currentSection = crmSections[activeSection]
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveSection(getSectionFromPath(window.location.pathname))
+      window.scrollTo(0, 0)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [])
+
+  const openSection = (href: string) => {
+    window.history.pushState(null, '', href)
+    setActiveSection(getSectionFromPath(href))
+    window.scrollTo(0, 0)
+  }
+
   return (
     <div className="crm-shell">
       <aside className="crm-sidebar" aria-label="Основное меню CRM">
@@ -93,22 +247,33 @@ export function CrmLayout() {
         </a>
 
         <nav className="crm-sidebar__nav">
-          {navigationItems.map((item) => (
-            <a
-              className={
-                item.variant === 'ai'
-                  ? 'crm-sidebar__link crm-sidebar__link--ai'
-                  : 'crm-sidebar__link'
-              }
-              href={item.href}
-              key={item.label}
-            >
-              <span className="crm-sidebar__icon">
-                <SidebarIcon name={item.icon} />
-              </span>
-              <span>{item.label}</span>
-            </a>
-          ))}
+          {navigationItems.map((item) => {
+            const isActive = item.id === activeSection
+
+            return (
+              <a
+                className={[
+                  'crm-sidebar__link',
+                  item.variant === 'ai' ? 'crm-sidebar__link--ai' : '',
+                  isActive ? 'crm-sidebar__link--active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                href={item.href}
+                key={item.label}
+                aria-current={isActive ? 'page' : undefined}
+                onClick={(event) => {
+                  event.preventDefault()
+                  openSection(item.href)
+                }}
+              >
+                <span className="crm-sidebar__icon">
+                  <SidebarIcon name={item.icon} />
+                </span>
+                <span>{item.label}</span>
+              </a>
+            )
+          })}
         </nav>
       </aside>
 
@@ -145,29 +310,18 @@ export function CrmLayout() {
 
         <main className="crm-content">
           <section className="crm-hero-card">
-            <p className="crm-hero-card__eyebrow">CRM</p>
-            <h1 className="crm-hero-card__title">Рабочий стол</h1>
-            <p className="crm-hero-card__text">
-              Это первая заглушка внутренней части CRM. Позже здесь появятся задачи на сегодня,
-              онбординг и реальные данные из API.
-            </p>
+            <p className="crm-hero-card__eyebrow">{currentSection.eyebrow}</p>
+            <h1 className="crm-hero-card__title">{currentSection.title}</h1>
+            <p className="crm-hero-card__text">{currentSection.text}</p>
           </section>
 
-          <section className="crm-widgets" aria-label="Заглушки виджетов рабочего стола">
-            <article className="crm-widget">
-              <span className="crm-widget__value">0</span>
-              <span className="crm-widget__label">Задач на сегодня</span>
-            </article>
-
-            <article className="crm-widget">
-              <span className="crm-widget__value">0</span>
-              <span className="crm-widget__label">Просрочено</span>
-            </article>
-
-            <article className="crm-widget">
-              <span className="crm-widget__value">—</span>
-              <span className="crm-widget__label">AI пока без API</span>
-            </article>
+          <section className="crm-widgets" aria-label={`Заглушки раздела ${currentSection.title}`}>
+            {currentSection.widgets.map((widget) => (
+              <article className="crm-widget" key={widget.label}>
+                <span className="crm-widget__value">{widget.value}</span>
+                <span className="crm-widget__label">{widget.label}</span>
+              </article>
+            ))}
           </section>
         </main>
       </div>
