@@ -207,6 +207,60 @@ class DealApiTests(TestCase):
         )
         self.assertEqual(response.data['ai_insights']['probability'], 82)
 
+    def test_ai_insights_endpoint_returns_normalized_payload(self):
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=self.stage,
+            contact=self.contact,
+            name='AI Сделка',
+            ai_insights={
+                'needs': 'Автоматизация продаж',
+                'next_step': 'Назначить демо',
+                'confidence': 0.91,
+            },
+        )
+
+        response = self.client.get(
+            f'/api/crm/deals/{deal.id}/ai-insights',
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['deal_id'], str(deal.id))
+        self.assertEqual(response.data['contact_id'], str(self.contact.id))
+        self.assertEqual(
+            response.data['ai_insights']['needs'],
+            'Автоматизация продаж',
+        )
+        self.assertEqual(response.data['ai_insights']['next_step'], 'Назначить демо')
+        self.assertIsNone(response.data['ai_insights']['budget'])
+
+    def test_ai_insights_endpoint_hides_foreign_deal(self):
+        other = User.objects.create_user(
+            email='foreign-deal@example.com',
+            password='StrongPass1',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        other_stage = SalesStage.objects.get(
+            workspace=other.workspace,
+            is_system=True,
+        )
+        deal = Deal.objects.create(
+            workspace=other.workspace,
+            stage=other_stage,
+            name='Чужая сделка',
+            ai_insights={'needs': 'Не показывать'},
+        )
+
+        response = self.client.get(
+            f'/api/crm/deals/{deal.id}/ai-insights',
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_move_is_versioned_and_same_stage_is_noop(self):
         target = self.client.post(
             '/api/crm/stages', {'name': 'В работе'}, format='json', **self.auth,

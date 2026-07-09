@@ -156,6 +156,49 @@ class ContactApiTests(TestCase):
         self.assertEqual(response.data['ai_insights']['needs'], 'CRM для продаж')
         self.assertEqual(response.data['ai_insights']['probability'], 70)
 
+    def test_ai_insights_endpoint_returns_normalized_payload(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='AI Контакт',
+            ai_insights={
+                'needs': 'CRM для продаж',
+                'confidence': 0.8,
+            },
+        )
+
+        response = self.client.get(
+            f'/api/contacts/{contact.id}/ai-insights',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['contact_id'], str(contact.id))
+        self.assertEqual(response.data['ai_insights']['needs'], 'CRM для продаж')
+        self.assertEqual(response.data['ai_insights']['confidence'], 0.8)
+        self.assertIsNone(response.data['ai_insights']['budget'])
+        self.assertIn('last_analyzed_at', response.data['ai_insights'])
+
+    def test_ai_insights_endpoint_hides_foreign_contact(self):
+        other = User.objects.create_user(
+            email='foreign-contact@example.com',
+            password='StrongPass1',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Чужой контакт',
+            ai_insights={'needs': 'Не показывать'},
+        )
+
+        response = self.client.get(
+            f'/api/contacts/{contact.id}/ai-insights',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_patch_uses_optimistic_lock_and_skips_noop(self):
         contact_id = self._create().data['id']
         no_change = self.client.patch(

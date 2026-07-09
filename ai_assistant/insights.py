@@ -28,6 +28,16 @@ def empty_ai_insights():
     }
 
 
+def format_ai_insights(value):
+    result = empty_ai_insights()
+    if not isinstance(value, dict):
+        return result
+    for field in INSIGHT_FIELDS:
+        if field in value:
+            result[field] = value[field]
+    return result
+
+
 def apply_structured_insights(*, contact, deal=None, insight_data=None, analyzed_at=None):
     structured = normalize_structured_insights(
         insight_data or {},
@@ -99,12 +109,7 @@ def update_object_insights(instance, structured):
 
 
 def _normalized_existing(value):
-    result = empty_ai_insights()
-    if isinstance(value, dict):
-        for field in INSIGHT_FIELDS:
-            if field in value:
-                result[field] = value[field]
-    return result
+    return format_ai_insights(value)
 
 
 def _should_update(current, structured):

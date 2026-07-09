@@ -4,6 +4,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ai_assistant.insights import format_ai_insights
+
 from .cursors import decode_cursor, encode_cursor
 from .models import Deal, DealHistory, SalesStage
 from .serializers import (
@@ -206,6 +208,30 @@ class DealDetailView(APIView):
         except CRMServiceError as error:
             return service_error_response(error)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DealAIInsightsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, deal_id):
+        deal = Deal.objects.select_related('contact').filter(
+            id=deal_id,
+            workspace=request.user.workspace,
+            is_deleted=False,
+        ).first()
+        if deal is None:
+            return Response(
+                {'error': {'code': 'DEAL_NOT_FOUND', 'message': 'Сделка не найдена.'}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        contact_id = None
+        if deal.contact is not None and not deal.contact.is_deleted:
+            contact_id = str(deal.contact.id)
+        return Response({
+            'deal_id': str(deal.id),
+            'contact_id': contact_id,
+            'ai_insights': format_ai_insights(deal.ai_insights),
+        })
 
 
 class DealStageView(APIView):
