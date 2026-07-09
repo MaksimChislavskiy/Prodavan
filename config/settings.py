@@ -50,6 +50,7 @@ AI_RETRIEVAL_MIN_SCORE = env_float('AI_RETRIEVAL_MIN_SCORE', 0.2)
 DEBUG = env_bool('DJANGO_DEBUG', False)
 
 ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', ('localhost', '127.0.0.1'))
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', ())
 
 # Application definition
 INSTALLED_APPS = [
@@ -103,7 +104,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
             ],
         },
-    },
+    }
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
@@ -125,10 +126,11 @@ else:
     }
 
 # Database
+SQLITE_PATH = env('SQLITE_PATH', str(BASE_DIR / 'db.sqlite3'))
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': SQLITE_PATH,
     }
 }
 
@@ -155,7 +157,8 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
