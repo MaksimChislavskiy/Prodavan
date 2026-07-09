@@ -58,6 +58,27 @@ class AIChatContextPage(models.TextChoices):
     SETTINGS = 'settings', 'Настройки'
 
 
+class AutomationEventStatus(models.TextChoices):
+    PENDING = 'pending', 'Ожидает обработки'
+    PROCESSING = 'processing', 'Обрабатывается'
+    COMPLETED = 'completed', 'Обработано'
+    FAILED = 'failed', 'Ошибка'
+    IGNORED = 'ignored', 'Пропущено'
+
+
+class AutomationActionType(models.TextChoices):
+    CONTACT_ENRICHMENT = 'contact_enrichment', 'Обогащение контакта'
+    DEAL_CREATE = 'deal_create', 'Создание сделки'
+    DEAL_ENRICHMENT = 'deal_enrichment', 'Обогащение сделки'
+    TASK_CREATE = 'task_create', 'Создание задачи'
+    INSIGHT = 'insight', 'Инсайт по чату'
+
+
+class AutomationFailureType(models.TextChoices):
+    TECHNICAL = 'technical', 'Техническая ошибка'
+    BUSINESS = 'business', 'Бизнес-ошибка'
+
+
 def knowledge_document_upload_to(instance, filename):
     extension = Path(instance.original_name or filename).suffix.lower()
     return f'knowledge_base/{instance.workspace_id}/{instance.id}{extension}'
@@ -134,6 +155,139 @@ class AIUsageDaily(models.Model):
             models.UniqueConstraint(
                 fields=('workspace', 'date'),
                 name='unique_ai_usage_workspace_date',
+            ),
+        ]
+
+
+class AIAutomationEvent(TimestampMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_automation_events',
+    )
+    chat = models.ForeignKey(
+        'messaging.Chat',
+        on_delete=models.CASCADE,
+        related_name='ai_automation_events',
+    )
+    message = models.OneToOneField(
+        'messaging.Message',
+        on_delete=models.CASCADE,
+        related_name='ai_automation_event',
+    )
+    event_type = models.CharField(
+        max_length=64,
+        default='chat_message_received',
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=AutomationEventStatus.choices,
+        default=AutomationEventStatus.PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    available_at = models.DateTimeField(default=timezone.now, db_index=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    failure_type = models.CharField(
+        max_length=16,
+        choices=AutomationFailureType.choices,
+        blank=True,
+        default='',
+    )
+    last_error = models.TextField(blank=True, default='')
+    analysis = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'ai_automation_event'
+        ordering = ('available_at', 'created_at', 'id')
+        indexes = [
+            models.Index(
+                fields=('workspace', 'status', 'available_at'),
+                name='ai_auto_event_queue_idx',
+            ),
+            models.Index(
+                fields=('chat', '-processed_at'),
+                name='ai_auto_event_chat_done_idx',
+            ),
+        ]
+
+
+class AIProcessedEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_processed_events',
+    )
+    event = models.ForeignKey(
+        AIAutomationEvent,
+        on_delete=models.CASCADE,
+        related_name='processed_actions',
+    )
+    chat = models.ForeignKey(
+        'messaging.Chat',
+        on_delete=models.CASCADE,
+        related_name='ai_processed_events',
+    )
+    action_type = models.CharField(
+        max_length=32,
+        choices=AutomationActionType.choices,
+    )
+    idempotency_key = models.CharField(max_length=64, unique=True)
+    result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = 'ai_processed_events'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('workspace', 'event', 'action_type'),
+                name='unique_ai_processed_event_action',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=('chat', 'action_type', '-created_at'),
+                name='ai_processed_chat_action_idx',
+            ),
+        ]
+
+
+class AIChatInsight(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_chat_insights',
+    )
+    chat = models.ForeignKey(
+        'messaging.Chat',
+        on_delete=models.CASCADE,
+        related_name='ai_insights',
+    )
+    source_message = models.OneToOneField(
+        'messaging.Message',
+        on_delete=models.CASCADE,
+        related_name='ai_insight',
+    )
+    message_count = models.PositiveIntegerField(default=0)
+    summary = models.TextField(blank=True, default='')
+    sentiment = models.CharField(max_length=32, blank=True, default='')
+    objections = models.JSONField(default=list, blank=True)
+    recommendations = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'ai_chat_insights'
+        ordering = ('-created_at', '-id')
+        indexes = [
+            models.Index(
+                fields=('chat', '-created_at'),
+                name='ai_insight_chat_created_idx',
             ),
         ]
 
