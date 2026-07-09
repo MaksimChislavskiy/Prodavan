@@ -60,6 +60,9 @@ export function AiSettingsPage() {
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
   const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
   const [deletingKnowledgeFileId, setDeletingKnowledgeFileId] = useState<string | null>(null)
+  const [isResetSaving, setIsResetSaving] = useState(false)
+  const [resetStatus, setResetStatus] = useState<SaveStatus>('idle')
+  const [resetMessage, setResetMessage] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -159,6 +162,8 @@ export function AiSettingsPage() {
     setIsInstructionSaving(true)
     setSaveStatus('idle')
     setSaveMessage('')
+    setResetStatus('idle')
+    setResetMessage('')
 
     try {
       const updatedSettings = await updateAiSettings({ version: settings.version, instruction })
@@ -181,6 +186,8 @@ export function AiSettingsPage() {
     setIsAutopilotSaving(true)
     setAutopilotStatus('idle')
     setAutopilotMessage('')
+    setResetStatus('idle')
+    setResetMessage('')
 
     try {
       const updatedSettings = await updateAiSettings({
@@ -317,6 +324,38 @@ export function AiSettingsPage() {
     }
   }
 
+  const handleSettingsReset = async () => {
+    if (isResetSaving) return
+    if (!window.confirm('Сбросить настройки AI? Инструкция будет очищена, автопилот будет выключен.')) return
+
+    setIsResetSaving(true)
+    setResetStatus('idle')
+    setResetMessage('')
+    setSaveStatus('idle')
+    setSaveMessage('')
+    setAutopilotStatus('idle')
+    setAutopilotMessage('')
+
+    try {
+      const updatedSettings = await updateAiSettings({
+        version: settings.version,
+        instruction: '',
+        autopilot_enabled: false,
+      })
+
+      setState({ settings: updatedSettings, isLoading: false, error: '' })
+      setInstruction(updatedSettings.instruction)
+      setInitialInstruction(updatedSettings.instruction)
+      setResetStatus('success')
+      setResetMessage('Настройки сброшены')
+    } catch (error) {
+      setResetStatus('error')
+      setResetMessage(error instanceof Error ? error.message : 'Не удалось сбросить настройки')
+    } finally {
+      setIsResetSaving(false)
+    }
+  }
+
   return (
     <main className="ai-settings-page">
       <section className="ai-settings-card ai-settings-card--instruction">
@@ -332,6 +371,8 @@ export function AiSettingsPage() {
             setInstruction(event.target.value)
             setSaveStatus('idle')
             setSaveMessage('')
+            setResetStatus('idle')
+            setResetMessage('')
           }}
         />
 
@@ -501,7 +542,20 @@ export function AiSettingsPage() {
         </div>
       </section>
 
-      <button className="ai-settings-reset-button" type="button">Сброс настроек</button>
+      <button
+        className="ai-settings-reset-button"
+        type="button"
+        disabled={isResetSaving}
+        onClick={() => void handleSettingsReset()}
+      >
+        {isResetSaving ? 'Сбрасываем...' : 'Сброс настроек'}
+      </button>
+
+      {resetMessage && (
+        <p className={resetStatus === 'error' ? 'ai-settings-reset-message ai-settings-reset-message--error' : 'ai-settings-reset-message'}>
+          {resetMessage}
+        </p>
+      )}
 
       {isAutopilotConfirmOpen && (
         <div className="ai-settings-modal-backdrop" role="presentation">
