@@ -50,16 +50,10 @@ export function AiSettingsPage() {
   if (state.isLoading) {
     return (
       <main className="ai-settings-page">
-        <section className="ai-settings-header">
-          <p className="ai-settings-header__eyebrow">AI</p>
-          <h1 className="ai-settings-header__title">Настройки AI</h1>
-          <p className="ai-settings-header__text">Загружаем настройки AI из backend...</p>
-        </section>
-
-        <section className="ai-settings-card">
+        <section className="ai-settings-card ai-settings-card--instruction">
+          <h1 className="ai-settings-card__title">Инструкция для AI</h1>
           <div className="ai-settings-skeleton" />
-          <div className="ai-settings-skeleton ai-settings-skeleton--short" />
-          <div className="ai-settings-skeleton ai-settings-skeleton--textarea" />
+          <div className="ai-settings-skeleton ai-settings-skeleton--button" />
         </section>
       </main>
     )
@@ -68,15 +62,9 @@ export function AiSettingsPage() {
   if (state.error || !state.settings) {
     return (
       <main className="ai-settings-page">
-        <section className="ai-settings-header">
-          <p className="ai-settings-header__eyebrow">AI</p>
-          <h1 className="ai-settings-header__title">Настройки AI</h1>
-          <p className="ai-settings-header__text">Не удалось получить настройки AI.</p>
-        </section>
-
-        <section className="ai-settings-card">
-          <h2 className="ai-settings-card__title">Ошибка загрузки</h2>
-          <p className="ai-settings-card__text">{state.error}</p>
+        <section className="ai-settings-card ai-settings-card--instruction">
+          <h1 className="ai-settings-card__title">Ошибка загрузки</h1>
+          <p className="ai-settings-card__text">{state.error || 'Не удалось получить настройки AI.'}</p>
         </section>
       </main>
     )
@@ -86,127 +74,80 @@ export function AiSettingsPage() {
 
   return (
     <main className="ai-settings-page">
-      <section className="ai-settings-header">
-        <p className="ai-settings-header__eyebrow">AI</p>
-        <h1 className="ai-settings-header__title">Настройки AI</h1>
-        <p className="ai-settings-header__text">
-          Управление поведением AI-помощника: инструкция, автопилот, база знаний и полезные материалы.
-        </p>
+      <section className="ai-settings-card ai-settings-card--instruction">
+        <h1 className="ai-settings-card__title">Инструкция для AI</h1>
+
+        <textarea
+          className="ai-settings-instruction-input"
+          value={settings.instruction}
+          placeholder="Введите инструкцию для AI-помощника"
+          readOnly
+          rows={1}
+        />
+
+        <button className="ai-settings-save-button" type="button" disabled>
+          Сохранить
+        </button>
       </section>
 
-      <section className="ai-settings-grid">
-        <article className="ai-settings-card ai-settings-card--wide">
-          <div className="ai-settings-card__header">
-            <div>
-              <h2 className="ai-settings-card__title">Инструкция для AI</h2>
-              <p className="ai-settings-card__text">
-                Постоянная инструкция задаёт стиль, тональность и правила ответов AI клиентам.
-              </p>
-            </div>
+      <section className="ai-settings-card ai-settings-card--autopilot">
+        <div className="ai-settings-autopilot-title-row">
+          <span
+            className={[
+              'ai-settings-switch',
+              settings.autopilot_enabled ? 'ai-settings-switch--active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            aria-hidden="true"
+          >
+            <span className="ai-settings-switch__button" />
+          </span>
 
-            <span className="ai-settings-card__badge">version {settings.version}</span>
-          </div>
-
-          <textarea
-            className="ai-settings-textarea"
-            value={settings.instruction}
-            placeholder="Введите инструкцию для AI-помощника"
-            readOnly
-            rows={8}
-          />
-
-          <div className="ai-settings-actions">
-            <button className="ai-settings-primary-button" type="button" disabled>
-              Сохранить
-            </button>
-            <span className="ai-settings-hint">Редактирование подключим следующим шагом.</span>
-          </div>
-        </article>
-
-        <article className="ai-settings-card">
           <h2 className="ai-settings-card__title">Автопилот</h2>
-          <p className="ai-settings-card__text">AI сам отвечает на входящие сообщения клиентов.</p>
+        </div>
 
-          <div className="ai-settings-toggle-row">
-            <span className="ai-settings-toggle-row__label">
-              {settings.autopilot_enabled ? 'Включён' : 'Выключен'}
-            </span>
-
-            <span
-              className={[
-                'ai-settings-toggle',
-                settings.autopilot_enabled ? 'ai-settings-toggle--active' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              aria-hidden="true"
-            >
-              <span className="ai-settings-toggle__circle" />
-            </span>
-          </div>
-
-          <dl className="ai-settings-list">
-            <div>
-              <dt>Режим</dt>
-              <dd>{getAutopilotModeText(settings.autopilot_mode)}</dd>
-            </div>
-
-            <div>
-              <dt>Задержка ответа</dt>
-              <dd>{settings.autopilot_delay} сек.</dd>
-            </div>
-
-            <div>
-              <dt>Ответов сегодня</dt>
-              <dd>{settings.current_usage.autopilot_replies_today}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="ai-settings-card">
-          <h2 className="ai-settings-card__title">База знаний</h2>
-          <p className="ai-settings-card__text">
-            Здесь будут документы компании, которые AI использует при формировании ответов.
-          </p>
-
-          <div className="ai-settings-empty">
-            <div className="ai-settings-empty__icon" aria-hidden="true">
-              📄
-            </div>
-            <p>Список документов подключим отдельным шагом.</p>
-          </div>
-        </article>
-
-        <article className="ai-settings-card ai-settings-card--wide">
-          <h2 className="ai-settings-card__title">Полезные материалы</h2>
-          <p className="ai-settings-card__text">
-            Быстрый доступ к обучающему видео и PDF-инструкции по настройке AI.
-          </p>
-
-          <div className="ai-settings-materials">
-            <button className="ai-settings-secondary-button" type="button">
-              Смотреть обучающее видео
-            </button>
-
-            <a
-              className="ai-settings-secondary-button ai-settings-secondary-button--link"
-              href="/static/ai_setup_guide.pdf"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Читать инструкцию
-            </a>
-          </div>
-        </article>
+        <p className="ai-settings-card__text">AI сам отвечает на все входящие сообщения клиентов</p>
       </section>
+
+      <section className="ai-settings-card ai-settings-card--knowledge">
+        <h2 className="ai-settings-card__title">База знаний</h2>
+        <p className="ai-settings-card__text">Необходимо, чтобы Анна Ai “поумнела”</p>
+
+        <div className="ai-settings-upload-box">
+          <span className="ai-settings-upload-box__icon" aria-hidden="true">
+            ↥
+          </span>
+          <span>Чтобы загрузить документ, перетащите их сюда или нажмите</span>
+          <button className="ai-settings-upload-box__button" type="button">
+            Загрузить⌄
+          </button>
+        </div>
+      </section>
+
+      <section className="ai-settings-card ai-settings-card--materials">
+        <h2 className="ai-settings-card__title">Полезные материалы</h2>
+
+        <div className="ai-settings-materials">
+          <button className="ai-settings-video-button" type="button">
+            <span aria-hidden="true">▶</span>
+            Смотреть обучающее видео
+          </button>
+
+          <a
+            className="ai-settings-guide-link"
+            href="/static/ai_setup_guide.pdf"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Читать инструкцию
+          </a>
+        </div>
+      </section>
+
+      <button className="ai-settings-reset-button" type="button">
+        Сброс настроек
+      </button>
     </main>
   )
-}
-
-function getAutopilotModeText(mode: ApiAiSettings['autopilot_mode']) {
-  if (mode === 'always') {
-    return 'Всегда'
-  }
-
-  return 'Если менеджер не ответил'
 }
