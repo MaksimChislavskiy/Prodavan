@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import logoFull from '../../assets/brand/logo-full.svg'
+import { DashboardPage } from './DashboardPage'
 import './CrmLayout.css'
 
 type SidebarIconName =
@@ -309,20 +310,26 @@ export function CrmLayout() {
         </header>
 
         <main className="crm-content">
-          <section className="crm-hero-card">
-            <p className="crm-hero-card__eyebrow">{currentSection.eyebrow}</p>
-            <h1 className="crm-hero-card__title">{currentSection.title}</h1>
-            <p className="crm-hero-card__text">{currentSection.text}</p>
-          </section>
+          {activeSection === 'dashboard' ? (
+            <DashboardPage />
+          ) : (
+            <>
+              <section className="crm-hero-card">
+                <p className="crm-hero-card__eyebrow">{currentSection.eyebrow}</p>
+                <h1 className="crm-hero-card__title">{currentSection.title}</h1>
+                <p className="crm-hero-card__text">{currentSection.text}</p>
+              </section>
 
-          <section className="crm-widgets" aria-label={`Заглушки раздела ${currentSection.title}`}>
-            {currentSection.widgets.map((widget) => (
-              <article className="crm-widget" key={widget.label}>
-                <span className="crm-widget__value">{widget.value}</span>
-                <span className="crm-widget__label">{widget.label}</span>
-              </article>
-            ))}
-          </section>
+              <section className="crm-widgets" aria-label={`Заглушки раздела ${currentSection.title}`}>
+                {currentSection.widgets.map((widget) => (
+                  <article className="crm-widget" key={widget.label}>
+                    <span className="crm-widget__value">{widget.value}</span>
+                    <span className="crm-widget__label">{widget.label}</span>
+                  </article>
+                ))}
+              </section>
+            </>
+          )}
         </main>
       </div>
     </div>
