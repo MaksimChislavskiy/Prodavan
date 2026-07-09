@@ -12,6 +12,7 @@ import {
 import './AiSettingsPage.css'
 
 const MAX_INSTRUCTION_LENGTH = 5000
+const KNOWLEDGE_PAGE_SIZE = 50
 
 type AiSettingsState = {
   settings: ApiAiSettings | null
@@ -31,11 +32,7 @@ type SaveStatus = 'idle' | 'success' | 'error'
 
 export function AiSettingsPage() {
   const knowledgeFileInputRef = useRef<HTMLInputElement | null>(null)
-  const [state, setState] = useState<AiSettingsState>({
-    settings: null,
-    isLoading: true,
-    error: '',
-  })
+  const [state, setState] = useState<AiSettingsState>({ settings: null, isLoading: true, error: '' })
   const [knowledgeState, setKnowledgeState] = useState<KnowledgeFilesState>({
     files: [],
     total: 0,
@@ -53,6 +50,7 @@ export function AiSettingsPage() {
   const [autopilotMessage, setAutopilotMessage] = useState('')
   const [isAutopilotConfirmOpen, setIsAutopilotConfirmOpen] = useState(false)
   const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false)
+  const [isKnowledgeRefreshing, setIsKnowledgeRefreshing] = useState(false)
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
   const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
   const [deletingKnowledgeFileId, setDeletingKnowledgeFileId] = useState<string | null>(null)
@@ -63,50 +61,42 @@ export function AiSettingsPage() {
     async function loadAiSettings() {
       try {
         const settings = await getAiSettings()
+        if (!isMounted) return
 
-        if (isMounted) {
-          setState({
-            settings,
-            isLoading: false,
-            error: '',
-          })
-          setInstruction(settings.instruction)
-          setInitialInstruction(settings.instruction)
-        }
+        setState({ settings, isLoading: false, error: '' })
+        setInstruction(settings.instruction)
+        setInitialInstruction(settings.instruction)
       } catch (error) {
-        if (isMounted) {
-          setState({
-            settings: null,
-            isLoading: false,
-            error: error instanceof Error ? error.message : 'Не удалось загрузить настройки AI',
-          })
-        }
+        if (!isMounted) return
+        setState({
+          settings: null,
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Не удалось загрузить настройки AI',
+        })
       }
     }
 
     async function loadKnowledgeFiles() {
       try {
-        const response = await getKnowledgeFiles(1, 50)
+        const response = await getKnowledgeFiles(1, KNOWLEDGE_PAGE_SIZE)
+        if (!isMounted) return
 
-        if (isMounted) {
-          setKnowledgeState({
-            files: response.files,
-            total: response.total,
-            storage: response.storage,
-            isLoading: false,
-            error: '',
-          })
-        }
+        setKnowledgeState({
+          files: response.files,
+          total: response.total,
+          storage: response.storage,
+          isLoading: false,
+          error: '',
+        })
       } catch (error) {
-        if (isMounted) {
-          setKnowledgeState({
-            files: [],
-            total: 0,
-            storage: null,
-            isLoading: false,
-            error: error instanceof Error ? error.message : 'Не удалось загрузить базу знаний',
-          })
-        }
+        if (!isMounted) return
+        setKnowledgeState({
+          files: [],
+          total: 0,
+          storage: null,
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Не удалось загрузить базу знаний',
+        })
       }
     }
 
@@ -144,47 +134,43 @@ export function AiSettingsPage() {
   const { settings } = state
   const isInstructionChanged = instruction !== initialInstruction
   const isInstructionTooLong = instruction.length > MAX_INSTRUCTION_LENGTH
-  const canSaveInstruction =
-    isInstructionChanged && !isInstructionTooLong && !isInstructionSaving
+  const canSaveInstruction = isInstructionChanged && !isInstructionTooLong && !isInstructionSaving
+
+  const refreshKnowledgeFiles = async () => {
+    const response = await getKnowledgeFiles(1, KNOWLEDGE_PAGE_SIZE)
+    setKnowledgeState({
+      files: response.files,
+      total: response.total,
+      storage: response.storage,
+      isLoading: false,
+      error: '',
+    })
+  }
 
   const handleInstructionSave = async () => {
-    if (!canSaveInstruction) {
-      return
-    }
+    if (!canSaveInstruction) return
 
     setIsInstructionSaving(true)
     setSaveStatus('idle')
     setSaveMessage('')
 
     try {
-      const updatedSettings = await updateAiSettings({
-        version: settings.version,
-        instruction,
-      })
-
-      setState({
-        settings: updatedSettings,
-        isLoading: false,
-        error: '',
-      })
+      const updatedSettings = await updateAiSettings({ version: settings.version, instruction })
+      setState({ settings: updatedSettings, isLoading: false, error: '' })
       setInstruction(updatedSettings.instruction)
       setInitialInstruction(updatedSettings.instruction)
       setSaveStatus('success')
       setSaveMessage('Инструкция сохранена')
     } catch (error) {
       setSaveStatus('error')
-      setSaveMessage(
-        error instanceof Error ? error.message : 'Не удалось сохранить инструкцию',
-      )
+      setSaveMessage(error instanceof Error ? error.message : 'Не удалось сохранить инструкцию')
     } finally {
       setIsInstructionSaving(false)
     }
   }
 
   const updateAutopilot = async (isEnabled: boolean) => {
-    if (isAutopilotSaving) {
-      return
-    }
+    if (isAutopilotSaving) return
 
     setIsAutopilotSaving(true)
     setAutopilotStatus('idle')
@@ -195,28 +181,19 @@ export function AiSettingsPage() {
         version: settings.version,
         autopilot_enabled: isEnabled,
       })
-
-      setState({
-        settings: updatedSettings,
-        isLoading: false,
-        error: '',
-      })
+      setState({ settings: updatedSettings, isLoading: false, error: '' })
       setAutopilotStatus('success')
       setAutopilotMessage(isEnabled ? 'Автопилот включён' : 'Автопилот выключен')
     } catch (error) {
       setAutopilotStatus('error')
-      setAutopilotMessage(
-        error instanceof Error ? error.message : 'Не удалось изменить автопилот',
-      )
+      setAutopilotMessage(error instanceof Error ? error.message : 'Не удалось изменить автопилот')
     } finally {
       setIsAutopilotSaving(false)
     }
   }
 
   const handleAutopilotClick = () => {
-    if (isAutopilotSaving) {
-      return
-    }
+    if (isAutopilotSaving) return
 
     setAutopilotStatus('idle')
     setAutopilotMessage('')
@@ -229,22 +206,25 @@ export function AiSettingsPage() {
     setIsAutopilotConfirmOpen(true)
   }
 
-  const refreshKnowledgeFiles = async () => {
-    const knowledgeResponse = await getKnowledgeFiles(1, 50)
+  const handleKnowledgeRefresh = async () => {
+    if (isKnowledgeRefreshing) return
 
-    setKnowledgeState({
-      files: knowledgeResponse.files,
-      total: knowledgeResponse.total,
-      storage: knowledgeResponse.storage,
-      isLoading: false,
-      error: '',
-    })
+    setIsKnowledgeRefreshing(true)
+    setKnowledgeUploadStatus('idle')
+    setKnowledgeUploadMessage('')
+
+    try {
+      await refreshKnowledgeFiles()
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось обновить список файлов')
+    } finally {
+      setIsKnowledgeRefreshing(false)
+    }
   }
 
   const handleKnowledgeFilesUpload = async (files: File[]) => {
-    if (files.length === 0 || isKnowledgeUploading) {
-      return
-    }
+    if (files.length === 0 || isKnowledgeUploading) return
 
     setIsKnowledgeUploading(true)
     setKnowledgeUploadStatus('idle')
@@ -257,28 +237,16 @@ export function AiSettingsPage() {
       setKnowledgeUploadMessage(`Загружено файлов: ${uploadResponse.accepted}`)
     } catch (error) {
       setKnowledgeUploadStatus('error')
-      setKnowledgeUploadMessage(
-        error instanceof Error ? error.message : 'Не удалось загрузить файлы',
-      )
+      setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось загрузить файлы')
     } finally {
       setIsKnowledgeUploading(false)
-
-      if (knowledgeFileInputRef.current) {
-        knowledgeFileInputRef.current.value = ''
-      }
+      if (knowledgeFileInputRef.current) knowledgeFileInputRef.current.value = ''
     }
   }
 
   const handleKnowledgeFileDelete = async (file: ApiKnowledgeDocument) => {
-    if (deletingKnowledgeFileId) {
-      return
-    }
-
-    const isConfirmed = window.confirm(`Удалить файл «${file.name}» из базы знаний?`)
-
-    if (!isConfirmed) {
-      return
-    }
+    if (deletingKnowledgeFileId) return
+    if (!window.confirm(`Удалить файл «${file.name}» из базы знаний?`)) return
 
     setDeletingKnowledgeFileId(file.id)
     setKnowledgeUploadStatus('idle')
@@ -291,9 +259,7 @@ export function AiSettingsPage() {
       setKnowledgeUploadMessage('Файл удалён')
     } catch (error) {
       setKnowledgeUploadStatus('error')
-      setKnowledgeUploadMessage(
-        error instanceof Error ? error.message : 'Не удалось удалить файл',
-      )
+      setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось удалить файл')
     } finally {
       setDeletingKnowledgeFileId(null)
     }
@@ -318,26 +284,11 @@ export function AiSettingsPage() {
         />
 
         <div className="ai-settings-instruction-footer">
-          <span
-            className={[
-              'ai-settings-instruction-counter',
-              isInstructionTooLong ? 'ai-settings-instruction-counter--error' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
+          <span className={isInstructionTooLong ? 'ai-settings-instruction-counter ai-settings-instruction-counter--error' : 'ai-settings-instruction-counter'}>
             {instruction.length}/{MAX_INSTRUCTION_LENGTH}
           </span>
-
           {saveMessage && (
-            <span
-              className={[
-                'ai-settings-save-message',
-                saveStatus === 'error' ? 'ai-settings-save-message--error' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
+            <span className={saveStatus === 'error' ? 'ai-settings-save-message ai-settings-save-message--error' : 'ai-settings-save-message'}>
               {saveMessage}
             </span>
           )}
@@ -347,9 +298,7 @@ export function AiSettingsPage() {
           className="ai-settings-save-button"
           type="button"
           disabled={!canSaveInstruction}
-          onClick={() => {
-            void handleInstructionSave()
-          }}
+          onClick={() => void handleInstructionSave()}
         >
           {isInstructionSaving ? 'Сохраняем...' : 'Сохранить'}
         </button>
@@ -358,12 +307,7 @@ export function AiSettingsPage() {
       <section className="ai-settings-card ai-settings-card--autopilot">
         <div className="ai-settings-autopilot-title-row">
           <button
-            className={[
-              'ai-settings-switch',
-              settings.autopilot_enabled ? 'ai-settings-switch--active' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
+            className={settings.autopilot_enabled ? 'ai-settings-switch ai-settings-switch--active' : 'ai-settings-switch'}
             type="button"
             aria-label={settings.autopilot_enabled ? 'Выключить автопилот' : 'Включить автопилот'}
             aria-pressed={settings.autopilot_enabled}
@@ -372,21 +316,12 @@ export function AiSettingsPage() {
           >
             <span className="ai-settings-switch__button" />
           </button>
-
           <h2 className="ai-settings-card__title">Автопилот</h2>
         </div>
 
         <p className="ai-settings-card__text">AI сам отвечает на все входящие сообщения клиентов</p>
-
         {autopilotMessage && (
-          <p
-            className={[
-              'ai-settings-autopilot-message',
-              autopilotStatus === 'error' ? 'ai-settings-autopilot-message--error' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
+          <p className={autopilotStatus === 'error' ? 'ai-settings-autopilot-message ai-settings-autopilot-message--error' : 'ai-settings-autopilot-message'}>
             {autopilotMessage}
           </p>
         )}
@@ -399,19 +334,25 @@ export function AiSettingsPage() {
             <p className="ai-settings-card__text">Необходимо, чтобы Анна Ai “поумнела”</p>
           </div>
 
-          {knowledgeState.storage && (
-            <span className="ai-settings-storage-summary">
-              {knowledgeState.storage.files_count}/{knowledgeState.storage.files_limit} файлов ·{' '}
-              {formatFileSize(knowledgeState.storage.used_bytes)} из{' '}
-              {formatFileSize(knowledgeState.storage.limit_bytes)}
-            </span>
-          )}
+          <div className="ai-settings-knowledge-actions">
+            {knowledgeState.storage && (
+              <span className="ai-settings-storage-summary">
+                {knowledgeState.storage.files_count}/{knowledgeState.storage.files_limit} файлов · {formatFileSize(knowledgeState.storage.used_bytes)} из {formatFileSize(knowledgeState.storage.limit_bytes)}
+              </span>
+            )}
+            <button
+              className="ai-settings-refresh-button"
+              type="button"
+              disabled={knowledgeState.isLoading || isKnowledgeRefreshing}
+              onClick={() => void handleKnowledgeRefresh()}
+            >
+              {isKnowledgeRefreshing ? 'Обновляем...' : 'Обновить'}
+            </button>
+          </div>
         </div>
 
         <div className="ai-settings-upload-box">
-          <span className="ai-settings-upload-box__icon" aria-hidden="true">
-            ↥
-          </span>
+          <span className="ai-settings-upload-box__icon" aria-hidden="true">↥</span>
           <span>Чтобы загрузить документ, перетащите их сюда или нажмите</span>
           <input
             className="ai-settings-file-input"
@@ -419,10 +360,7 @@ export function AiSettingsPage() {
             type="file"
             accept=".pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             multiple
-            onChange={(event) => {
-              const selectedFiles = Array.from(event.target.files ?? [])
-              void handleKnowledgeFilesUpload(selectedFiles)
-            }}
+            onChange={(event) => void handleKnowledgeFilesUpload(Array.from(event.target.files ?? []))}
           />
           <button
             className="ai-settings-upload-box__button"
@@ -435,14 +373,7 @@ export function AiSettingsPage() {
         </div>
 
         {knowledgeUploadMessage && (
-          <p
-            className={[
-              'ai-settings-upload-message',
-              knowledgeUploadStatus === 'error' ? 'ai-settings-upload-message--error' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
+          <p className={knowledgeUploadStatus === 'error' ? 'ai-settings-upload-message ai-settings-upload-message--error' : 'ai-settings-upload-message'}>
             {knowledgeUploadMessage}
           </p>
         )}
@@ -473,12 +404,7 @@ export function AiSettingsPage() {
                       <td>{formatFileSize(file.size)}</td>
                       <td>{formatDate(file.uploaded_at)}</td>
                       <td>
-                        <span
-                          className={[
-                            'ai-settings-status-badge',
-                            `ai-settings-status-badge--${file.status}`,
-                          ].join(' ')}
-                        >
+                        <span className={`ai-settings-status-badge ai-settings-status-badge--${file.status}`}>
                           {getKnowledgeStatusLabel(file.status)}
                         </span>
                       </td>
@@ -487,9 +413,7 @@ export function AiSettingsPage() {
                           className="ai-settings-table-action-button"
                           type="button"
                           disabled={deletingKnowledgeFileId === file.id}
-                          onClick={() => {
-                            void handleKnowledgeFileDelete(file)
-                          }}
+                          onClick={() => void handleKnowledgeFileDelete(file)}
                         >
                           {deletingKnowledgeFileId === file.id ? 'Удаляем...' : 'Удалить'}
                         </button>
@@ -502,58 +426,33 @@ export function AiSettingsPage() {
           )}
 
           {!knowledgeState.isLoading && !knowledgeState.error && knowledgeState.total > 0 && (
-            <p className="ai-settings-knowledge-total">
-              Показано {knowledgeState.files.length} из {knowledgeState.total}
-            </p>
+            <p className="ai-settings-knowledge-total">Показано {knowledgeState.files.length} из {knowledgeState.total}</p>
           )}
         </div>
       </section>
 
       <section className="ai-settings-card ai-settings-card--materials">
         <h2 className="ai-settings-card__title">Полезные материалы</h2>
-
         <div className="ai-settings-materials">
           <button className="ai-settings-video-button" type="button">
             <span aria-hidden="true">▶</span>
             Смотреть обучающее видео
           </button>
-
-          <a
-            className="ai-settings-guide-link"
-            href="/static/ai_setup_guide.pdf"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a className="ai-settings-guide-link" href="/static/ai_setup_guide.pdf" target="_blank" rel="noreferrer">
             Читать инструкцию
           </a>
         </div>
       </section>
 
-      <button className="ai-settings-reset-button" type="button">
-        Сброс настроек
-      </button>
+      <button className="ai-settings-reset-button" type="button">Сброс настроек</button>
 
       {isAutopilotConfirmOpen && (
         <div className="ai-settings-modal-backdrop" role="presentation">
-          <div
-            className="ai-settings-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="ai-autopilot-confirm-title"
-          >
-            <h2 className="ai-settings-modal__title" id="ai-autopilot-confirm-title">
-              Включить автопилот?
-            </h2>
-            <p className="ai-settings-modal__text">
-              AI сможет автоматически отвечать клиентам в чате. Продолжить?
-            </p>
-
+          <div className="ai-settings-modal" role="dialog" aria-modal="true" aria-labelledby="ai-autopilot-confirm-title">
+            <h2 className="ai-settings-modal__title" id="ai-autopilot-confirm-title">Включить автопилот?</h2>
+            <p className="ai-settings-modal__text">AI сможет автоматически отвечать клиентам в чате. Продолжить?</p>
             <div className="ai-settings-modal__actions">
-              <button
-                className="ai-settings-modal__button ai-settings-modal__button--secondary"
-                type="button"
-                onClick={() => setIsAutopilotConfirmOpen(false)}
-              >
+              <button className="ai-settings-modal__button ai-settings-modal__button--secondary" type="button" onClick={() => setIsAutopilotConfirmOpen(false)}>
                 Отмена
               </button>
               <button
@@ -576,18 +475,9 @@ export function AiSettingsPage() {
 }
 
 function formatFileSize(size: number) {
-  if (size < 1024) {
-    return `${size} Б`
-  }
-
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} КБ`
-  }
-
-  if (size < 1024 * 1024 * 1024) {
-    return `${(size / 1024 / 1024).toFixed(1)} МБ`
-  }
-
+  if (size < 1024) return `${size} Б`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} КБ`
+  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} МБ`
   return `${(size / 1024 / 1024 / 1024).toFixed(1)} ГБ`
 }
 
@@ -602,17 +492,8 @@ function formatDate(date: string) {
 }
 
 function getKnowledgeStatusLabel(status: ApiKnowledgeDocument['status']) {
-  if (status === 'uploading') {
-    return 'Загружается'
-  }
-
-  if (status === 'processing') {
-    return 'Обработка'
-  }
-
-  if (status === 'ready') {
-    return 'Готово'
-  }
-
+  if (status === 'uploading') return 'Загружается'
+  if (status === 'processing') return 'Обработка'
+  if (status === 'ready') return 'Готово'
   return 'Ошибка'
 }
