@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './AiAssistantModal.css'
 
 export type AiChatMessage = {
@@ -10,6 +10,7 @@ export type AiChatMessage = {
 type AiAssistantModalProps = {
   messages: AiChatMessage[]
   isLoading: boolean
+  isHistoryLoading: boolean
   onSendMessage: (message: string) => void
   onClose: () => void
 }
@@ -17,17 +18,36 @@ type AiAssistantModalProps = {
 export function AiAssistantModal({
   messages,
   isLoading,
+  isHistoryLoading,
   onSendMessage,
   onClose,
 }: AiAssistantModalProps) {
   const [messageText, setMessageText] = useState('')
+  const bodyRef = useRef<HTMLDivElement | null>(null)
 
   const hasMessages = messages.length > 0
+  const isInputDisabled = isLoading || isHistoryLoading
+
+  useEffect(() => {
+    if (isHistoryLoading) {
+      return
+    }
+
+    const bodyElement = bodyRef.current
+
+    if (!bodyElement) {
+      return
+    }
+
+    requestAnimationFrame(() => {
+      bodyElement.scrollTop = bodyElement.scrollHeight
+    })
+  }, [messages, isLoading, isHistoryLoading])
 
   const handleSubmit = () => {
     const normalizedMessage = messageText.trim()
 
-    if (!normalizedMessage || isLoading) {
+    if (!normalizedMessage || isInputDisabled) {
       return
     }
 
@@ -57,8 +77,16 @@ export function AiAssistantModal({
           </button>
         </header>
 
-        <div className="ai-assistant-body">
-          {hasMessages ? (
+        <div className="ai-assistant-body" ref={bodyRef}>
+          {isHistoryLoading ? (
+            <div className="ai-assistant-loading-state">
+              <div className="ai-assistant-loading-state__icon" aria-hidden="true">
+                ✨
+              </div>
+
+              <p>Загружаем историю...</p>
+            </div>
+          ) : hasMessages ? (
             <>
               {messages.map((message) => (
                 <div
@@ -105,11 +133,11 @@ export function AiAssistantModal({
             placeholder="Сообщение"
             aria-label="Сообщение для Анны AI"
             value={messageText}
-            disabled={isLoading}
+            disabled={isInputDisabled}
             onChange={(event) => setMessageText(event.target.value)}
           />
 
-          <button type="submit" aria-label="Отправить сообщение" disabled={isLoading}>
+          <button type="submit" aria-label="Отправить сообщение" disabled={isInputDisabled}>
             ↗
           </button>
         </form>

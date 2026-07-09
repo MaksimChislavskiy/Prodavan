@@ -531,7 +531,8 @@ export function CrmLayout() {
         {isAiAssistantOpen && (
           <AiAssistantModal
             messages={aiMessages}
-            isLoading={isAiAnswerLoading || isAiHistoryLoading}
+            isLoading={isAiAnswerLoading}
+            isHistoryLoading={isAiHistoryLoading}
             onSendMessage={(message) => {
               void sendAiMessage(message)
             }}
