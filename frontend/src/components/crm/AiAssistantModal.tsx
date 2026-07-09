@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import './AiAssistantModal.css'
 
 export type AiChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  sessionId: string | null
+  createdAt: string | null
 }
 
 type AiAssistantModalProps = {
@@ -55,6 +57,19 @@ export function AiAssistantModal({
     setMessageText('')
   }
 
+  const shouldShowSessionDivider = (message: AiChatMessage, index: number) => {
+    if (index === 0) {
+      return true
+    }
+
+    const previousMessage = messages[index - 1]
+
+    return (
+      previousMessage.sessionId !== message.sessionId ||
+      getMessageDateKey(previousMessage.createdAt) !== getMessageDateKey(message.createdAt)
+    )
+  }
+
   return (
     <div className="ai-assistant-overlay" role="presentation" onMouseDown={onClose}>
       <section
@@ -88,17 +103,25 @@ export function AiAssistantModal({
             </div>
           ) : hasMessages ? (
             <>
-              {messages.map((message) => (
-                <div
-                  className={
-                    message.role === 'user'
-                      ? 'ai-assistant-message ai-assistant-message--user'
-                      : 'ai-assistant-message ai-assistant-message--anna'
-                  }
-                  key={message.id}
-                >
-                  {message.text}
-                </div>
+              {messages.map((message, index) => (
+                <Fragment key={message.id}>
+                  {shouldShowSessionDivider(message, index) && (
+                    <div className="ai-assistant-session-divider">
+                      <span>{formatMessageDate(message.createdAt)}</span>
+                      <strong>{formatSessionTitle(message.sessionId)}</strong>
+                    </div>
+                  )}
+
+                  <div
+                    className={
+                      message.role === 'user'
+                        ? 'ai-assistant-message ai-assistant-message--user'
+                        : 'ai-assistant-message ai-assistant-message--anna'
+                    }
+                  >
+                    {message.text}
+                  </div>
+                </Fragment>
               ))}
 
               {isLoading && (
@@ -144,4 +167,32 @@ export function AiAssistantModal({
       </section>
     </div>
   )
+}
+
+function getMessageDateKey(date: string | null) {
+  if (!date) {
+    return 'unknown-date'
+  }
+
+  return new Date(date).toDateString()
+}
+
+function formatMessageDate(date: string | null) {
+  if (!date) {
+    return 'Без даты'
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(date))
+}
+
+function formatSessionTitle(sessionId: string | null) {
+  if (!sessionId) {
+    return 'Текущая сессия'
+  }
+
+  return `Сессия ${sessionId.slice(0, 8)}`
 }

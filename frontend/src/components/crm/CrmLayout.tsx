@@ -284,6 +284,8 @@ export function CrmLayout() {
       id: message.id,
       role: message.role,
       text: text || 'Сообщение пока обрабатывается.',
+      sessionId: message.session_id,
+      createdAt: message.created_at,
     }
   }
 
@@ -325,6 +327,8 @@ export function CrmLayout() {
           text: error instanceof Error
             ? error.message
             : 'Не удалось загрузить историю AI-чата.',
+          sessionId: null,
+          createdAt: new Date().toISOString(),
         },
       ])
 
@@ -345,26 +349,30 @@ export function CrmLayout() {
 
     const context = getAiContext()
     const localMessageId = `${Date.now()}-${Math.random()}`
-
-    setAiMessages((currentMessages) => [
-      ...currentMessages,
-      {
-        id: `user-message-${localMessageId}`,
-        role: 'user',
-        text: normalizedMessage,
-      },
-    ])
+    let currentSessionId = sessionIdOverride ?? aiSessionId
+    let isUserMessageAdded = false
 
     setIsAiAnswerLoading(true)
 
     try {
-      let currentSessionId = sessionIdOverride ?? aiSessionId
-
       if (!currentSessionId) {
         const session = await createAiChatSession(context)
         currentSessionId = session.session_id
         setAiSessionId(session.session_id)
       }
+
+      setAiMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `user-message-${localMessageId}`,
+          role: 'user',
+          text: normalizedMessage,
+          sessionId: currentSessionId,
+          createdAt: new Date().toISOString(),
+        },
+      ])
+
+      isUserMessageAdded = true
 
       const response = await sendAiChatMessage({
         sessionId: currentSessionId,
@@ -381,17 +389,34 @@ export function CrmLayout() {
           id: response.message.id,
           role: 'assistant',
           text: answerText,
+          sessionId: response.message.session_id,
+          createdAt: response.message.created_at,
         },
       ])
     } catch (error) {
       setAiMessages((currentMessages) => [
         ...currentMessages,
+        ...(
+          isUserMessageAdded
+            ? []
+            : [
+                {
+                  id: `user-message-${localMessageId}`,
+                  role: 'user' as const,
+                  text: normalizedMessage,
+                  sessionId: currentSessionId,
+                  createdAt: new Date().toISOString(),
+                },
+              ]
+        ),
         {
           id: `assistant-error-${localMessageId}`,
           role: 'assistant',
           text: error instanceof Error
             ? error.message
             : 'Не удалось получить ответ. Повторите попытку позже.',
+          sessionId: currentSessionId,
+          createdAt: new Date().toISOString(),
         },
       ])
     } finally {
