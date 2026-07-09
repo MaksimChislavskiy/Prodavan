@@ -19,7 +19,8 @@
   cursor: pointer;
 }
 
-.ai-settings-refresh-button:disabled {
+.ai-settings-refresh-button:disabled,
+.ai-settings-reset-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -29,6 +30,20 @@
   background: rgba(99, 102, 255, 0.08);
 }
 
+.ai-settings-reset-message {
+  align-self: flex-end;
+  width: 300px;
+  margin: -8px 0 0;
+  color: #118a3b;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.ai-settings-reset-message--error {
+  color: #e20f0f;
+}
+
 @media (max-width: 980px) {
   .ai-settings-knowledge-actions {
     justify-content: flex-start;
@@ -36,7 +51,8 @@
 }
 
 @media (max-width: 560px) {
-  .ai-settings-refresh-button {
+  .ai-settings-refresh-button,
+  .ai-settings-reset-message {
     width: 100%;
   }
 }
