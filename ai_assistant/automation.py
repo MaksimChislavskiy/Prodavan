@@ -30,6 +30,7 @@ from .chat_client import (
     ChatTimeoutError,
     EmptyChatResponseError,
 )
+from .insights import apply_structured_insights
 from .limits import AI_LIMITS
 from .models import (
     AIChatInsight,
@@ -80,7 +81,9 @@ class AutomationAnalysisClient:
                         '"description":"","due_date":null,'
                         '"due_date_type":"none","comment":""},'
                         '"insight":{"summary":"","sentiment":"",'
-                        '"objections":[],"recommendations":[]}'
+                        '"needs":null,"budget":null,"timeline":null,'
+                        '"objections":[],"next_step":null,"probability":null,'
+                        '"confidence":0,"recommendations":[]}'
                         '}.'
                     ),
                 },
@@ -359,7 +362,11 @@ def _apply_actions(event, analysis):
         analysis,
         active_deal,
     )
-    results[AutomationActionType.INSIGHT] = _create_insight_if_due(event, analysis)
+    results[AutomationActionType.INSIGHT] = _create_insight_if_due(
+        event,
+        analysis,
+        active_deal,
+    )
     return results
 
 
@@ -577,7 +584,7 @@ def _create_task_if_needed(event, analysis, deal):
         )
 
 
-def _create_insight_if_due(event, analysis):
+def _create_insight_if_due(event, analysis, deal):
     action_type = AutomationActionType.INSIGHT
     if _action_already_processed(event, action_type):
         return {'status': 'already_processed'}
@@ -610,6 +617,12 @@ def _create_insight_if_due(event, analysis):
         objections=_string_list(insight_data.get('objections')),
         recommendations=_string_list(insight_data.get('recommendations')),
     )
+    structured_result = apply_structured_insights(
+        contact=event.chat.contact,
+        deal=deal,
+        insight_data=insight_data,
+        analyzed_at=insight.created_at,
+    )
     return _record_action(
         event,
         action_type,
@@ -617,6 +630,7 @@ def _create_insight_if_due(event, analysis):
             'status': 'created',
             'insight_id': str(insight.id),
             'message_count': message_count,
+            'structured': structured_result,
         },
     )
 

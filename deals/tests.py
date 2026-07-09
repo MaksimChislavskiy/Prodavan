@@ -180,6 +180,33 @@ class DealApiTests(TestCase):
         self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(stale.data['error']['current_version'], changed.data['version'])
 
+    def test_detail_includes_ai_insights(self):
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=self.stage,
+            contact=self.contact,
+            name='AI Сделка',
+            ai_insights={
+                'needs': 'Автоматизация продаж',
+                'budget': '250000 RUB',
+                'timeline': 'Q3',
+                'objections': ['Нужна интеграция'],
+                'next_step': 'Назначить демо',
+                'probability': 82,
+                'last_analyzed_at': '2026-07-09T12:00:00+00:00',
+                'confidence': 0.91,
+            },
+        )
+
+        response = self.client.get(f'/api/crm/deals/{deal.id}', **self.auth)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data['ai_insights']['needs'],
+            'Автоматизация продаж',
+        )
+        self.assertEqual(response.data['ai_insights']['probability'], 82)
+
     def test_move_is_versioned_and_same_stage_is_noop(self):
         target = self.client.post(
             '/api/crm/stages', {'name': 'В работе'}, format='json', **self.auth,

@@ -76,7 +76,7 @@ class ContactReadSerializer(serializers.ModelSerializer):
         model = Contact
         fields = (
             'id', 'name', 'company', 'phone', 'email', 'telegram',
-            'comment', 'version', 'created_at', 'updated_at',
+            'comment', 'ai_insights', 'version', 'created_at', 'updated_at',
         )
 
 

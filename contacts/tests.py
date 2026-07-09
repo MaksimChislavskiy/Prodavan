@@ -131,6 +131,31 @@ class ContactApiTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_detail_includes_ai_insights(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='AI Контакт',
+            ai_insights={
+                'needs': 'CRM для продаж',
+                'budget': '120000 RUB',
+                'timeline': None,
+                'objections': ['Цена'],
+                'next_step': 'Отправить КП',
+                'probability': 70,
+                'last_analyzed_at': '2026-07-09T12:00:00+00:00',
+                'confidence': 0.8,
+            },
+        )
+
+        response = self.client.get(
+            f'/api/contacts/{contact.id}',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['ai_insights']['needs'], 'CRM для продаж')
+        self.assertEqual(response.data['ai_insights']['probability'], 70)
+
     def test_patch_uses_optimistic_lock_and_skips_noop(self):
         contact_id = self._create().data['id']
         no_change = self.client.patch(

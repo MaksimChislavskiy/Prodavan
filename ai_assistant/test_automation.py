@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from contacts.models import Contact
-from deals.models import ChangedByType, Deal, DealHistory
+from deals.models import ChangedByType, Deal, DealHistory, SalesStage
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
 from tasks.models import Task
 from users.models import User
@@ -305,3 +305,41 @@ class AIAutomationTests(TestCase):
         self.assertEqual(insight.message_count, 5)
         self.assertEqual(insight.summary, 'Клиент активно интересуется покупкой.')
         self.assertEqual(insight.objections, ['Цена'])
+
+    def test_structured_insights_are_saved_to_contact_and_deal(self):
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Текущая сделка',
+        )
+        messages = [self.incoming(f'Сообщение {index}') for index in range(5)]
+        analyzer = DummyAnalyzer({
+            'insight': {
+                'summary': 'Клиенту нужна CRM для отдела продаж.',
+                'needs': 'CRM для отдела продаж',
+                'budget': '120000 RUB',
+                'timeline': 'в течение месяца',
+                'objections': ['Нужно согласовать бюджет'],
+                'next_step': 'Отправить коммерческое предложение',
+                'probability': 72,
+                'confidence': 0.86,
+            },
+        })
+
+        process_automation_event(messages[-1].ai_automation_event.id, analyzer=analyzer)
+
+        self.contact.refresh_from_db()
+        deal.refresh_from_db()
+        self.assertEqual(self.contact.ai_insights['needs'], 'CRM для отдела продаж')
+        self.assertEqual(self.contact.ai_insights['probability'], 72)
+        self.assertEqual(self.contact.ai_insights['confidence'], 0.86)
+        self.assertIsNotNone(self.contact.ai_insights['last_analyzed_at'])
+        self.assertEqual(deal.ai_insights['budget'], '120000 RUB')
+        action = AIProcessedEvent.objects.get(
+            event=messages[-1].ai_automation_event,
+            action_type=AutomationActionType.INSIGHT,
+        )
+        self.assertIn('structured', action.result)
+        self.assertIn('contact', action.result['structured']['changes'])

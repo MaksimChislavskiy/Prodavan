@@ -64,7 +64,7 @@ class DealDetailSerializer(serializers.ModelSerializer):
         model = Deal
         fields = (
             'id', 'name', 'amount', 'currency', 'stage_id', 'version',
-            'comment', 'contact', 'created_at', 'updated_at',
+            'comment', 'ai_insights', 'contact', 'created_at', 'updated_at',
         )
 
     def get_contact(self, obj):
