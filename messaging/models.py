@@ -40,6 +40,7 @@ class Chat(TimestampMixin):
     last_message = models.TextField(null=True, blank=True)
     last_message_at = models.DateTimeField(null=True, blank=True, db_index=True)
     unread_count = models.PositiveIntegerField(default=0)
+    ai_autopilot_enabled = models.BooleanField(null=True, blank=True, default=None)
     is_deleted = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 

@@ -18,7 +18,7 @@ class ChatSerializer(serializers.ModelSerializer):
         model = Chat
         fields = (
             'id', 'contact', 'last_message', 'last_message_at',
-            'unread_count',
+            'unread_count', 'ai_autopilot_enabled',
         )
 
 
@@ -45,3 +45,15 @@ class OutgoingMessageSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError('Сообщение не может быть пустым.')
         return value
+
+
+class ChatAutopilotSerializer(serializers.Serializer):
+    ai_autopilot_enabled = serializers.BooleanField(allow_null=True)
+
+    def to_internal_value(self, data):
+        unknown = set(data) - set(self.fields)
+        if unknown:
+            raise serializers.ValidationError(
+                {field: 'Неизвестное поле.' for field in sorted(unknown)},
+            )
+        return super().to_internal_value(data)

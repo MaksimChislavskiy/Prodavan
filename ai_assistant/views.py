@@ -1,5 +1,6 @@
 import re
 
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,6 +9,7 @@ from rest_framework.views import APIView
 from users.models import UserRole
 from workspaces.models import Workspace
 
+from .cursors import InvalidCursor, decode_cursor, encode_cursor
 from .knowledge import (
     KnowledgeServiceError,
     active_documents,
@@ -17,8 +19,9 @@ from .knowledge import (
     retry_knowledge_document,
     storage_usage,
 )
-from .models import KnowledgeDocumentStatus
+from .models import AIAutomationAuditLog, AutomationActionType, KnowledgeDocumentStatus
 from .serializers import (
+    AIAutomationAuditLogSerializer,
     AISettingsSerializer,
     AISettingsUpdateSerializer,
     KnowledgeDocumentSerializer,
@@ -164,6 +167,79 @@ class AISettingsView(APIView):
         )
         response['ETag'] = f'"{settings_object.version}"'
         return response
+
+
+class AIAuditView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        workspace, error_response = _admin_workspace_or_error(request)
+        if error_response is not None:
+            return error_response
+        try:
+            limit = _positive_int(
+                request.query_params.get('limit'),
+                default=20,
+                minimum=1,
+                maximum=100,
+            )
+        except ValueError:
+            return _error(
+                'VALIDATION_ERROR',
+                'Некорректный параметр limit.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        type_filter = request.query_params.get('type', '').strip()
+        queryset = AIAutomationAuditLog.objects.select_related(
+            'user',
+            'chat',
+            'message',
+        ).filter(workspace=workspace)
+        if type_filter:
+            if type_filter != 'autopilot':
+                return _error(
+                    'VALIDATION_ERROR',
+                    'Некорректный параметр type.',
+                    status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(
+                action_type=AutomationActionType.AUTOPILOT_REPLY,
+            )
+
+        cursor = request.query_params.get('cursor')
+        if cursor:
+            try:
+                created_at, object_id = decode_cursor(cursor, kind='ai_audit')
+            except InvalidCursor:
+                return _error(
+                    'INVALID_CURSOR',
+                    'Некорректный курсор.',
+                    status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(
+                Q(created_at__lt=created_at)
+                | Q(created_at=created_at, id__lt=object_id),
+            )
+
+        logs = list(queryset.order_by('-created_at', '-id')[:limit + 1])
+        page = logs[:limit]
+        next_cursor = None
+        if len(logs) > limit and page:
+            last = page[-1]
+            next_cursor = encode_cursor(
+                kind='ai_audit',
+                timestamp=last.created_at,
+                object_id=last.id,
+            )
+        return Response(
+            {
+                'logs': AIAutomationAuditLogSerializer(page, many=True).data,
+                'next_cursor': next_cursor,
+                'has_more': next_cursor is not None,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class KnowledgeFilesView(APIView):

@@ -1,0 +1,59 @@
+.ai-settings-knowledge-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ai-settings-refresh-button {
+  height: 32px;
+  padding: 0 16px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.ai-settings-refresh-button:disabled,
+.ai-settings-reset-button:disabled,
+.ai-settings-guide-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-settings-upload-box--drag-active {
+  border-color: #6366ff;
+  background: rgba(99, 102, 255, 0.08);
+}
+
+.ai-settings-reset-message {
+  align-self: flex-end;
+  width: 300px;
+  margin: -8px 0 0;
+  color: #118a3b;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.ai-settings-reset-message--error {
+  color: #e20f0f;
+}
+
+@media (max-width: 980px) {
+  .ai-settings-knowledge-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .ai-settings-refresh-button,
+  .ai-settings-reset-message {
+    width: 100%;
+  }
+}

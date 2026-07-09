@@ -4,23 +4,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.utils import timezone
 from rest_framework import serializers
 
+from .limits import AI_LIMITS
 from .models import (
+    AIAutomationAuditLog,
     AISettings,
     AIUsageDaily,
     AutopilotMode,
     KnowledgeDocument,
 )
-
-
-AI_LIMITS = {
-    'daily_deal_creation': 50,
-    'daily_task_creation': 100,
-    'daily_contact_updates': 50,
-    'daily_autopilot_replies': 50,
-    'hourly_autopilot_replies_per_chat': 10,
-    'max_consecutive_ai_replies': 5,
-    'tasks_per_chat_24h': 5,
-}
 
 
 def _workspace_local_date(workspace):
@@ -127,4 +118,29 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
             'processing_attempts',
             'uploaded_at',
             'processed_at',
+        )
+
+
+class AIAutomationAuditLogSerializer(serializers.ModelSerializer):
+    user_id = serializers.UUIDField(source='user.id', allow_null=True)
+    chat_id = serializers.UUIDField(source='chat.id', allow_null=True)
+    message_id = serializers.UUIDField(source='message.id', allow_null=True)
+
+    class Meta:
+        model = AIAutomationAuditLog
+        fields = (
+            'id',
+            'action',
+            'action_type',
+            'trigger',
+            'correlation_id',
+            'user_id',
+            'chat_id',
+            'message_id',
+            'raw_message',
+            'ai_prompt',
+            'ai_response',
+            'confidence',
+            'details',
+            'created_at',
         )

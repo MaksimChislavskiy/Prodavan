@@ -45,6 +45,10 @@ AI_CHAT_RETRY_ATTEMPTS = env_int('AI_CHAT_RETRY_ATTEMPTS', 3)
 AI_CHAT_MAX_CONTEXT_TOKENS = env_int('AI_CHAT_MAX_CONTEXT_TOKENS', 20_000)
 AI_CHAT_RETRIEVAL_LIMIT = env_int('AI_CHAT_RETRIEVAL_LIMIT', 5)
 AI_RETRIEVAL_MIN_SCORE = env_float('AI_RETRIEVAL_MIN_SCORE', 0.2)
+AI_AUTOMATION_CONFIDENCE_THRESHOLD = env_float(
+    'AI_AUTOMATION_CONFIDENCE_THRESHOLD',
+    0.7,
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', False)
@@ -75,7 +79,7 @@ INSTALLED_APPS = [
     'deals.apps.DealsConfig',
     'tasks.apps.TasksConfig',
     'messaging',
-    'ai_assistant',
+    'ai_assistant.apps.AiAssistantConfig',
 ]
 
 MIDDLEWARE = [
