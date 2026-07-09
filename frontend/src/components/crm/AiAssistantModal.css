@@ -313,3 +313,17 @@
   font-size: 11px;
   font-weight: 800;
 }
+
+.ai-assistant-older-loading {
+  width: fit-content;
+  max-width: 82%;
+  margin: 0 auto 14px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #315174;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(15, 27, 51, 0.08);
+}

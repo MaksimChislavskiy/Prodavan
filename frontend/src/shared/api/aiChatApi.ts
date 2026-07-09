@@ -48,8 +48,16 @@ export function createAiChatSession(context: AiChatContext) {
   })
 }
 
-export function getAiChatHistory(limit = 20) {
-  return apiRequest<ApiAiChatHistoryResponse>(`/api/ai/chat/history?limit=${limit}`)
+export function getAiChatHistory(limit = 20, cursor?: string | null) {
+  const searchParams = new URLSearchParams({
+    limit: String(limit),
+  })
+
+  if (cursor) {
+    searchParams.set('cursor', cursor)
+  }
+
+  return apiRequest<ApiAiChatHistoryResponse>(`/api/ai/chat/history?${searchParams.toString()}`)
 }
 
 export function sendAiChatMessage(params: {

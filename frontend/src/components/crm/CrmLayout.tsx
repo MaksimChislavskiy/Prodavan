@@ -233,6 +233,9 @@ export function CrmLayout() {
   const [isAiAnswerLoading, setIsAiAnswerLoading] = useState(false)
   const [isAiHistoryLoaded, setIsAiHistoryLoaded] = useState(false)
   const [isAiHistoryLoading, setIsAiHistoryLoading] = useState(false)
+  const [aiHistoryCursor, setAiHistoryCursor] = useState<string | null>(null)
+  const [hasMoreAiHistory, setHasMoreAiHistory] = useState(false)
+  const [isAiOlderHistoryLoading, setIsAiOlderHistoryLoading] = useState(false)
 
   const currentSection = crmSections[activeSection]
 
@@ -309,6 +312,8 @@ export function CrmLayout() {
         .map(mapApiMessageToAiMessage)
 
       setAiMessages(historyMessages)
+      setAiHistoryCursor(response.next_cursor)
+      setHasMoreAiHistory(response.has_more)
 
       const latestSessionId = response.messages[0]?.session_id ?? null
 
@@ -333,6 +338,8 @@ export function CrmLayout() {
       ])
 
       setIsAiHistoryLoaded(true)
+      setAiHistoryCursor(null)
+      setHasMoreAiHistory(false)
 
       return null
     } finally {
@@ -340,10 +347,61 @@ export function CrmLayout() {
     }
   }
 
+  const loadOlderAiHistory = async () => {
+    if (
+      !hasMoreAiHistory ||
+      !aiHistoryCursor ||
+      isAiHistoryLoading ||
+      isAiOlderHistoryLoading
+    ) {
+      return
+    }
+
+    setIsAiOlderHistoryLoading(true)
+
+    try {
+      const response = await getAiChatHistory(20, aiHistoryCursor)
+
+      const olderMessages = [...response.messages]
+        .reverse()
+        .map(mapApiMessageToAiMessage)
+
+      setAiMessages((currentMessages) => {
+        const existingMessageIds = new Set(currentMessages.map((message) => message.id))
+        const uniqueOlderMessages = olderMessages.filter(
+          (message) => !existingMessageIds.has(message.id),
+        )
+
+        return [...uniqueOlderMessages, ...currentMessages]
+      })
+
+      setAiHistoryCursor(response.next_cursor)
+      setHasMoreAiHistory(response.has_more)
+    } catch {
+      setAiMessages((currentMessages) => [
+        {
+          id: `ai-older-history-load-error-${Date.now()}`,
+          role: 'assistant',
+          text: 'Не удалось загрузить более ранние сообщения.',
+          sessionId: null,
+          createdAt: new Date().toISOString(),
+        },
+        ...currentMessages,
+      ])
+    } finally {
+      setIsAiOlderHistoryLoading(false)
+    }
+  }
+
   const sendAiMessage = async (message: string, sessionIdOverride?: string | null) => {
     const normalizedMessage = message.trim()
 
-    if (!normalizedMessage || isAiAnswerLoading || isAiHistoryLoading) {
+    if (
+      !normalizedMessage ||
+      isAiAnswerLoading ||
+      isAiHistoryLoading ||
+      isAiOlderHistoryLoading
+    ) {
       return
     }
 
@@ -558,6 +616,11 @@ export function CrmLayout() {
             messages={aiMessages}
             isLoading={isAiAnswerLoading}
             isHistoryLoading={isAiHistoryLoading}
+            isOlderHistoryLoading={isAiOlderHistoryLoading}
+            hasMoreHistory={hasMoreAiHistory}
+            onLoadOlderHistory={() => {
+              void loadOlderAiHistory()
+            }}
             onSendMessage={(message) => {
               void sendAiMessage(message)
             }}

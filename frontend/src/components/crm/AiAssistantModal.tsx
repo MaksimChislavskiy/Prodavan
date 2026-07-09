@@ -9,10 +9,18 @@ export type AiChatMessage = {
   createdAt: string | null
 }
 
+type OlderHistoryScrollSnapshot = {
+  scrollHeight: number
+  scrollTop: number
+}
+
 type AiAssistantModalProps = {
   messages: AiChatMessage[]
   isLoading: boolean
   isHistoryLoading: boolean
+  isOlderHistoryLoading: boolean
+  hasMoreHistory: boolean
+  onLoadOlderHistory: () => void
   onSendMessage: (message: string) => void
   onClose: () => void
 }
@@ -21,14 +29,21 @@ export function AiAssistantModal({
   messages,
   isLoading,
   isHistoryLoading,
+  isOlderHistoryLoading,
+  hasMoreHistory,
+  onLoadOlderHistory,
   onSendMessage,
   onClose,
 }: AiAssistantModalProps) {
   const [messageText, setMessageText] = useState('')
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const previousFirstMessageIdRef = useRef<string | null>(null)
+  const previousLastMessageIdRef = useRef<string | null>(null)
+  const olderHistoryScrollSnapshotRef = useRef<OlderHistoryScrollSnapshot | null>(null)
+  const isOlderHistoryRequestedRef = useRef(false)
 
   const hasMessages = messages.length > 0
-  const isInputDisabled = isLoading || isHistoryLoading
+  const isInputDisabled = isLoading || isHistoryLoading || isOlderHistoryLoading
 
   useEffect(() => {
     if (isHistoryLoading) {
@@ -41,10 +56,72 @@ export function AiAssistantModal({
       return
     }
 
+    const olderHistoryScrollSnapshot = olderHistoryScrollSnapshotRef.current
+
+    if (olderHistoryScrollSnapshot && !isOlderHistoryLoading) {
+      requestAnimationFrame(() => {
+        const heightDifference = bodyElement.scrollHeight - olderHistoryScrollSnapshot.scrollHeight
+
+        bodyElement.scrollTop = olderHistoryScrollSnapshot.scrollTop + heightDifference
+        olderHistoryScrollSnapshotRef.current = null
+        isOlderHistoryRequestedRef.current = false
+      })
+
+      return
+    }
+
+    if (isOlderHistoryLoading) {
+      return
+    }
+
+    const firstMessageId = messages[0]?.id ?? null
+    const lastMessageId = messages[messages.length - 1]?.id ?? null
+    const previousFirstMessageId = previousFirstMessageIdRef.current
+    const previousLastMessageId = previousLastMessageIdRef.current
+
+    previousFirstMessageIdRef.current = firstMessageId
+    previousLastMessageIdRef.current = lastMessageId
+
+    const isOlderMessagesPrepended =
+      previousFirstMessageId !== null &&
+      previousLastMessageId !== null &&
+      firstMessageId !== previousFirstMessageId &&
+      lastMessageId === previousLastMessageId
+
+    if (isOlderMessagesPrepended) {
+      return
+    }
+
     requestAnimationFrame(() => {
       bodyElement.scrollTop = bodyElement.scrollHeight
     })
-  }, [messages, isLoading, isHistoryLoading])
+  }, [messages, isLoading, isHistoryLoading, isOlderHistoryLoading])
+
+  const handleBodyScroll = () => {
+    const bodyElement = bodyRef.current
+
+    if (!bodyElement) {
+      return
+    }
+
+    if (
+      bodyElement.scrollTop > 80 ||
+      !hasMoreHistory ||
+      isHistoryLoading ||
+      isOlderHistoryLoading ||
+      isOlderHistoryRequestedRef.current
+    ) {
+      return
+    }
+
+    olderHistoryScrollSnapshotRef.current = {
+      scrollHeight: bodyElement.scrollHeight,
+      scrollTop: bodyElement.scrollTop,
+    }
+
+    isOlderHistoryRequestedRef.current = true
+    onLoadOlderHistory()
+  }
 
   const handleSubmit = () => {
     const normalizedMessage = messageText.trim()
@@ -92,7 +169,7 @@ export function AiAssistantModal({
           </button>
         </header>
 
-        <div className="ai-assistant-body" ref={bodyRef}>
+        <div className="ai-assistant-body" ref={bodyRef} onScroll={handleBodyScroll}>
           {isHistoryLoading ? (
             <div className="ai-assistant-loading-state">
               <div className="ai-assistant-loading-state__icon" aria-hidden="true">
@@ -103,6 +180,12 @@ export function AiAssistantModal({
             </div>
           ) : hasMessages ? (
             <>
+              {isOlderHistoryLoading && (
+                <div className="ai-assistant-older-loading">
+                  Загружаем более ранние сообщения...
+                </div>
+              )}
+
               {messages.map((message, index) => (
                 <Fragment key={message.id}>
                   {shouldShowSessionDivider(message, index) && (
