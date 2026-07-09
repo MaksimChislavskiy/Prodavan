@@ -13,6 +13,7 @@ from messaging.services import write_chat_audit
 from users.models import User
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 
+from .audit import audit_autopilot_job
 from .chat_client import (
     ChatCompletionClient,
     ChatConfigurationError,
@@ -478,6 +479,7 @@ def _mark_sent(job_id, *, reply_message, batch_messages, sources):
             'updated_at',
         ))
         _record_processed_action(job, job.result)
+        audit_autopilot_job(job)
 
 
 def _mark_skipped(job_id, error):
@@ -500,17 +502,28 @@ def _mark_skipped(job_id, error):
             'updated_at',
         ))
         _record_processed_action(job, job.result)
+        audit_autopilot_job(job)
 
 
 def _mark_failed(job_id, error, failure_type):
-    AIAutopilotJob.objects.filter(id=job_id).update(
-        status=AutopilotJobStatus.FAILED,
-        processed_at=timezone.now(),
-        locked_at=None,
-        failure_type=failure_type,
-        last_error=_error_text(error),
-        result={'status': 'failed', 'error': _error_text(error)},
-    )
+    with transaction.atomic():
+        job = AIAutopilotJob.objects.select_for_update().get(id=job_id)
+        job.status = AutopilotJobStatus.FAILED
+        job.processed_at = timezone.now()
+        job.locked_at = None
+        job.failure_type = failure_type
+        job.last_error = _error_text(error)
+        job.result = {'status': 'failed', 'error': job.last_error}
+        job.save(update_fields=(
+            'status',
+            'processed_at',
+            'locked_at',
+            'failure_type',
+            'last_error',
+            'result',
+            'updated_at',
+        ))
+        audit_autopilot_job(job)
 
 
 def _mark_technical_retry(job_id, error, *, now):

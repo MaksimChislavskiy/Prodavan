@@ -22,6 +22,7 @@ from tasks.dates import normalize_due_date
 from tasks.models import DueDateType, TaskSource
 from tasks.services import TaskServiceError, create_task
 
+from .audit import audit_automation_event
 from .chat_client import (
     ChatCompletionClient,
     ChatConfigurationError,
@@ -185,6 +186,11 @@ def process_automation_event(event_id, *, analyzer=None):
         failure_type='',
         last_error='',
         analysis=_json_safe({'analysis': analysis, 'actions': action_results}),
+    )
+    audit_automation_event(
+        event=event,
+        analysis=analysis,
+        action_results=action_results,
     )
     return 'completed'
 

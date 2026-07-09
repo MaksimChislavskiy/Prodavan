@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     AIAuditLog,
     AIAutomationEvent,
+    AIAutomationAuditLog,
     AIAutopilotJob,
     AIChatInsight,
     AISettings,
@@ -105,6 +106,37 @@ class AIProcessedEventAdmin(admin.ModelAdmin):
         'result',
         'created_at',
         'expires_at',
+    )
+
+
+@admin.register(AIAutomationAuditLog)
+class AIAutomationAuditLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'action',
+        'action_type',
+        'workspace',
+        'chat',
+        'created_at',
+    )
+    list_filter = ('action', 'action_type', 'trigger')
+    search_fields = ('raw_message', 'ai_prompt')
+    readonly_fields = (
+        'id',
+        'workspace',
+        'user',
+        'action',
+        'action_type',
+        'trigger',
+        'correlation_id',
+        'chat',
+        'message',
+        'raw_message',
+        'ai_prompt',
+        'ai_response',
+        'confidence',
+        'details',
+        'created_at',
     )
 
 

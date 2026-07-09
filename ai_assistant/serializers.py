@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from .limits import AI_LIMITS
 from .models import (
+    AIAutomationAuditLog,
     AISettings,
     AIUsageDaily,
     AutopilotMode,
@@ -117,4 +118,29 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
             'processing_attempts',
             'uploaded_at',
             'processed_at',
+        )
+
+
+class AIAutomationAuditLogSerializer(serializers.ModelSerializer):
+    user_id = serializers.UUIDField(source='user.id', allow_null=True)
+    chat_id = serializers.UUIDField(source='chat.id', allow_null=True)
+    message_id = serializers.UUIDField(source='message.id', allow_null=True)
+
+    class Meta:
+        model = AIAutomationAuditLog
+        fields = (
+            'id',
+            'action',
+            'action_type',
+            'trigger',
+            'correlation_id',
+            'user_id',
+            'chat_id',
+            'message_id',
+            'raw_message',
+            'ai_prompt',
+            'ai_response',
+            'confidence',
+            'details',
+            'created_at',
         )

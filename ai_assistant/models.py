@@ -89,6 +89,19 @@ class AutopilotJobStatus(models.TextChoices):
     CANCELLED = 'cancelled', 'Отменено'
 
 
+class AIAutomationAuditAction(models.TextChoices):
+    AI_CONTACT_CREATED = 'ai_contact_created', 'AI создал контакт'
+    AI_DEAL_CREATED = 'ai_deal_created', 'AI создал сделку'
+    AI_TASK_CREATED = 'ai_task_created', 'AI создал задачу'
+    AI_CONTACT_UPDATED = 'ai_contact_updated', 'AI обновил контакт'
+    AI_DEAL_UPDATED = 'ai_deal_updated', 'AI обновил сделку'
+    AI_INSIGHTS_EXTRACTED = 'ai_insights_extracted', 'AI извлёк инсайты'
+    AI_AUTOPILOT_SENT = 'ai_autopilot_sent', 'Автопилот отправил ответ'
+    AI_DECISION_SKIPPED = 'ai_decision_skipped', 'AI пропустил действие'
+    AI_LIMIT_REACHED = 'ai_limit_reached', 'AI достиг лимита'
+    AI_ACTION_FAILED = 'ai_action_failed', 'AI-действие завершилось ошибкой'
+
+
 def knowledge_document_upload_to(instance, filename):
     extension = Path(instance.original_name or filename).suffix.lower()
     return f'knowledge_base/{instance.workspace_id}/{instance.id}{extension}'
@@ -363,6 +376,70 @@ class AIAutopilotJob(TimestampMixin):
             models.Index(
                 fields=('chat', '-processed_at'),
                 name='ai_autopilot_done_idx',
+            ),
+        ]
+
+
+class AIAutomationAuditLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_automation_audit_logs',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ai_automation_audit_logs',
+    )
+    action = models.CharField(
+        max_length=32,
+        choices=AIAutomationAuditAction.choices,
+        db_index=True,
+    )
+    action_type = models.CharField(max_length=32, db_index=True)
+    trigger = models.CharField(max_length=64, blank=True, default='')
+    correlation_id = models.UUIDField(db_index=True)
+    chat = models.ForeignKey(
+        'messaging.Chat',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ai_audit_logs',
+    )
+    message = models.ForeignKey(
+        'messaging.Message',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ai_audit_logs',
+    )
+    raw_message = models.TextField(blank=True, default='')
+    ai_prompt = models.TextField(blank=True, default='')
+    ai_response = models.JSONField(default=dict, blank=True)
+    confidence = models.FloatField(null=True, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'ai_automation_audit_log'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('workspace', 'correlation_id', 'action_type'),
+                name='unique_ai_auto_audit_action',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=('workspace', '-created_at', '-id'),
+                name='ai_auto_audit_ws_created_idx',
+            ),
+            models.Index(
+                fields=('workspace', 'action_type', '-created_at'),
+                name='ai_auto_audit_type_idx',
             ),
         ]
 
