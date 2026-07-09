@@ -103,12 +103,14 @@
   line-height: 16px;
 }
 
-.ai-settings-save-message {
+.ai-settings-save-message,
+.ai-settings-autopilot-message {
   color: #118a3b;
 }
 
 .ai-settings-instruction-counter--error,
-.ai-settings-save-message--error {
+.ai-settings-save-message--error,
+.ai-settings-autopilot-message--error {
   color: #e20f0f;
 }
 
@@ -153,6 +155,12 @@
   border: 2px solid #8e8e93;
   border-radius: 24px;
   background: #ffffff;
+  cursor: pointer;
+}
+
+.ai-settings-switch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .ai-settings-switch--active {
@@ -170,6 +178,12 @@
 
 .ai-settings-switch--active .ai-settings-switch__button {
   background: #ffffff;
+}
+
+.ai-settings-autopilot-message {
+  margin: 10px 0 0 68px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .ai-settings-upload-box {
@@ -265,6 +279,78 @@
   cursor: pointer;
 }
 
+.ai-settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(1, 17, 38, 0.45);
+}
+
+.ai-settings-modal {
+  box-sizing: border-box;
+  width: 420px;
+  max-width: 100%;
+  padding: 28px;
+  border-radius: 24px;
+  background: #ffffff;
+  color: #0b2b55;
+  box-shadow: 0 24px 80px rgba(1, 17, 38, 0.25);
+}
+
+.ai-settings-modal__title {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-settings-modal__text {
+  margin: 18px 0 0;
+  color: #0b2b55;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.ai-settings-modal__actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.ai-settings-modal__button {
+  min-width: 118px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 24px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 19px;
+  cursor: pointer;
+}
+
+.ai-settings-modal__button--secondary {
+  border: 0.3px solid #0b2b55;
+  background: #ffffff;
+  color: #0b2b55;
+}
+
+.ai-settings-modal__button--primary {
+  border: 0;
+  background: #6366ff;
+  color: #f0f0f0;
+}
+
+.ai-settings-modal__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .ai-settings-skeleton {
   height: 50px;
   margin-top: 10px;
@@ -319,9 +405,21 @@
     flex-direction: column;
   }
 
+  .ai-settings-autopilot-message {
+    margin-left: 0;
+  }
+
   .ai-settings-video-button,
   .ai-settings-guide-link,
   .ai-settings-reset-button {
+    width: 100%;
+  }
+
+  .ai-settings-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .ai-settings-modal__button {
     width: 100%;
   }
 }
