@@ -1,4 +1,22 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: prodavan_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - prodavan_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     container_name: prodavan_redis
@@ -10,12 +28,16 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.deploy_settings
     volumes:
-      - prodavan_data:/app/data
       - prodavan_media:/app/media
       - prodavan_static:/app/staticfiles
     depends_on:
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     expose:
       - "8000"
 
@@ -32,6 +54,6 @@ services:
       - backend
 
 volumes:
-  prodavan_data:
+  prodavan_pg_data:
   prodavan_media:
   prodavan_static:
