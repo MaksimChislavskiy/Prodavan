@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import ChatDetailView, ChatMessagesView, ChatReadView, ChatsView
+from .views import (
+    ChatDetailView,
+    ChatMessagesView,
+    ChatReadView,
+    ChatSettingsView,
+    ChatsView,
+)
 
 
 urlpatterns = [
@@ -14,6 +20,11 @@ urlpatterns = [
         'chats/<uuid:chat_id>/read',
         ChatReadView.as_view(),
         name='chat-read',
+    ),
+    path(
+        'chats/<uuid:chat_id>/settings',
+        ChatSettingsView.as_view(),
+        name='chat-settings',
     ),
     path(
         'chats/<uuid:chat_id>',

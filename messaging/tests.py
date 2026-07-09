@@ -298,6 +298,65 @@ class MessagingTests(TestCase):
         self.assertTrue(chat.is_deleted)
         self.assertTrue(message.is_deleted)
 
+    def test_chat_settings_endpoint_updates_autopilot_override(self):
+        _, chat = self._contact_and_chat()
+
+        disabled = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+        inherited = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'ai_autopilot_enabled': None},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(disabled.status_code, status.HTTP_200_OK)
+        self.assertFalse(disabled.data['ai_autopilot_enabled'])
+        self.assertEqual(inherited.status_code, status.HTTP_200_OK)
+        self.assertIsNone(inherited.data['ai_autopilot_enabled'])
+        chat.refresh_from_db()
+        self.assertIsNone(chat.ai_autopilot_enabled)
+
+    def test_chat_settings_endpoint_validates_payload(self):
+        _, chat = self._contact_and_chat()
+
+        response = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'enabled': False},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('enabled', response.data['errors'])
+
+    def test_chat_settings_endpoint_is_workspace_scoped(self):
+        other = User.objects.create_user(
+            email='other@example.com',
+            password='StrongPass1',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Чужой контакт',
+        )
+        chat = Chat.objects.create(workspace=other.workspace, contact=contact)
+
+        response = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_chat_endpoints_require_authentication(self):
         response = APIClient().get('/api/chats')
 

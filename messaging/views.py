@@ -49,6 +49,27 @@ def _query_error(field, message):
     )
 
 
+def _update_chat_settings(request, chat_id):
+    serializer = ChatAutopilotSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {
+                'message': 'Validation failed',
+                'errors': serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
+    except ChatServiceError as error:
+        return Response(error.response_data, status=error.status_code)
+    chat.ai_autopilot_enabled = serializer.validated_data[
+        'ai_autopilot_enabled'
+    ]
+    chat.save(update_fields=('ai_autopilot_enabled', 'updated_at'))
+    return Response(ChatSerializer(chat).data)
+
+
 class ChatsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -174,24 +195,7 @@ class ChatDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, chat_id):
-        serializer = ChatAutopilotSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(
-                {
-                    'message': 'Validation failed',
-                    'errors': serializer.errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
-        except ChatServiceError as error:
-            return Response(error.response_data, status=error.status_code)
-        chat.ai_autopilot_enabled = serializer.validated_data[
-            'ai_autopilot_enabled'
-        ]
-        chat.save(update_fields=('ai_autopilot_enabled', 'updated_at'))
-        return Response(ChatSerializer(chat).data)
+        return _update_chat_settings(request, chat_id)
 
     def delete(self, request, chat_id):
         try:
@@ -204,3 +208,10 @@ class ChatDetailView(APIView):
         except ChatServiceError as error:
             return Response(error.response_data, status=error.status_code)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChatSettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, chat_id):
+        return _update_chat_settings(request, chat_id)
