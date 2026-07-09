@@ -1,0 +1,37 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: prodavan_redis
+    restart: unless-stopped
+
+  backend:
+    image: maxwell884/prodavan-backend:develop
+    container_name: prodavan_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - prodavan_data:/app/data
+      - prodavan_media:/app/media
+      - prodavan_static:/app/staticfiles
+    depends_on:
+      - redis
+    expose:
+      - "8000"
+
+  frontend:
+    image: maxwell884/prodavan-frontend:develop
+    container_name: prodavan_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - prodavan_media:/media:ro
+      - prodavan_static:/static:ro
+    depends_on:
+      - backend
+
+volumes:
+  prodavan_data:
+  prodavan_media:
+  prodavan_static:
