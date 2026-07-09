@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import {
   deleteKnowledgeFile,
   getAiSettings,
@@ -52,6 +52,7 @@ export function AiSettingsPage() {
   const [isAutopilotConfirmOpen, setIsAutopilotConfirmOpen] = useState(false)
   const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false)
   const [isKnowledgeRefreshing, setIsKnowledgeRefreshing] = useState(false)
+  const [isKnowledgeDragActive, setIsKnowledgeDragActive] = useState(false)
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
   const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
   const [deletingKnowledgeFileId, setDeletingKnowledgeFileId] = useState<string | null>(null)
@@ -228,6 +229,7 @@ export function AiSettingsPage() {
     if (files.length === 0 || isKnowledgeUploading) return
 
     setIsKnowledgeUploading(true)
+    setIsKnowledgeDragActive(false)
     setKnowledgeUploadStatus('idle')
     setKnowledgeUploadMessage('')
 
@@ -241,8 +243,39 @@ export function AiSettingsPage() {
       setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось загрузить файлы')
     } finally {
       setIsKnowledgeUploading(false)
+      setIsKnowledgeDragActive(false)
       if (knowledgeFileInputRef.current) knowledgeFileInputRef.current.value = ''
     }
+  }
+
+  const handleKnowledgeDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = isKnowledgeUploading ? 'none' : 'copy'
+
+    if (!isKnowledgeUploading) {
+      setIsKnowledgeDragActive(true)
+    }
+  }
+
+  const handleKnowledgeDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget
+
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return
+    }
+
+    setIsKnowledgeDragActive(false)
+  }
+
+  const handleKnowledgeDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsKnowledgeDragActive(false)
+
+    if (isKnowledgeUploading) {
+      return
+    }
+
+    void handleKnowledgeFilesUpload(Array.from(event.dataTransfer.files))
   }
 
   const handleKnowledgeFileDelete = async (file: ApiKnowledgeDocument) => {
@@ -352,7 +385,12 @@ export function AiSettingsPage() {
           </div>
         </div>
 
-        <div className="ai-settings-upload-box">
+        <div
+          className={isKnowledgeDragActive ? 'ai-settings-upload-box ai-settings-upload-box--drag-active' : 'ai-settings-upload-box'}
+          onDragOver={handleKnowledgeDragOver}
+          onDragLeave={handleKnowledgeDragLeave}
+          onDrop={handleKnowledgeDrop}
+        >
           <span className="ai-settings-upload-box__icon" aria-hidden="true">↥</span>
           <span>Чтобы загрузить документ, перетащите их сюда или нажмите</span>
           <input
