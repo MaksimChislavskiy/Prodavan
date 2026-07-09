@@ -24,6 +24,11 @@
   cursor: not-allowed;
 }
 
+.ai-settings-upload-box--drag-active {
+  border-color: #6366ff;
+  background: rgba(99, 102, 255, 0.08);
+}
+
 @media (max-width: 980px) {
   .ai-settings-knowledge-actions {
     justify-content: flex-start;
