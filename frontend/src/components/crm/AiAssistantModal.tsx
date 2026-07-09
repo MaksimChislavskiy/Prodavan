@@ -37,6 +37,7 @@ export function AiAssistantModal({
 }: AiAssistantModalProps) {
   const [messageText, setMessageText] = useState('')
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const previousFirstMessageIdRef = useRef<string | null>(null)
   const previousLastMessageIdRef = useRef<string | null>(null)
   const olderHistoryScrollSnapshotRef = useRef<OlderHistoryScrollSnapshot | null>(null)
@@ -44,6 +45,12 @@ export function AiAssistantModal({
 
   const hasMessages = messages.length > 0
   const isInputDisabled = isLoading || isHistoryLoading || isOlderHistoryLoading
+
+  useEffect(() => {
+    if (!isInputDisabled) {
+      inputRef.current?.focus()
+    }
+  }, [isInputDisabled])
 
   useEffect(() => {
     if (isHistoryLoading) {
@@ -123,6 +130,12 @@ export function AiAssistantModal({
     onLoadOlderHistory()
   }
 
+  const focusInput = () => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+    })
+  }
+
   const handleSubmit = () => {
     const normalizedMessage = messageText.trim()
 
@@ -132,19 +145,7 @@ export function AiAssistantModal({
 
     onSendMessage(normalizedMessage)
     setMessageText('')
-  }
-
-  const shouldShowSessionDivider = (message: AiChatMessage, index: number) => {
-    if (index === 0) {
-      return true
-    }
-
-    const previousMessage = messages[index - 1]
-
-    return (
-      previousMessage.sessionId !== message.sessionId ||
-      getMessageDateKey(previousMessage.createdAt) !== getMessageDateKey(message.createdAt)
-    )
+    focusInput()
   }
 
   return (
@@ -188,7 +189,7 @@ export function AiAssistantModal({
 
               {messages.map((message, index) => (
                 <Fragment key={message.id}>
-                  {shouldShowSessionDivider(message, index) && (
+                  {shouldShowSessionDivider(messages, message, index) && (
                     <div className="ai-assistant-session-divider">
                       <span>{formatMessageDate(message.createdAt)}</span>
                       <strong>{formatSessionTitle(message.sessionId)}</strong>
@@ -235,6 +236,7 @@ export function AiAssistantModal({
           }}
         >
           <input
+            ref={inputRef}
             type="text"
             placeholder="Сообщение"
             aria-label="Сообщение для Анны AI"
@@ -249,6 +251,23 @@ export function AiAssistantModal({
         </form>
       </section>
     </div>
+  )
+}
+
+function shouldShowSessionDivider(
+  messages: AiChatMessage[],
+  message: AiChatMessage,
+  index: number,
+) {
+  if (index === 0) {
+    return true
+  }
+
+  const previousMessage = messages[index - 1]
+
+  return (
+    previousMessage.sessionId !== message.sessionId ||
+    getMessageDateKey(previousMessage.createdAt) !== getMessageDateKey(message.createdAt)
   )
 }
 

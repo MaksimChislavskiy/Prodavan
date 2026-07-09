@@ -48,12 +48,12 @@ type CrmSection = {
 }
 
 const navigationItems: NavigationItem[] = [
-  { id: 'ai', label: 'AI', icon: 'ai', href: '/app/ai', variant: 'ai' },
+  { id: 'ai', label: 'AI', icon: 'ai', href: '/app/settings/ai', variant: 'ai' },
   { id: 'dashboard', label: 'Рабочий стол', icon: 'dashboard', href: '/app' },
   { id: 'deals', label: 'Сделки', icon: 'deals', href: '/app/deals' },
   { id: 'contacts', label: 'Контакты', icon: 'contacts', href: '/app/contacts' },
   { id: 'tasks', label: 'Задачи', icon: 'tasks', href: '/app/tasks' },
-  { id: 'settings', label: 'Настройки', icon: 'settings', href: '/app/settings/ai' },
+  { id: 'settings', label: 'Настройки', icon: 'settings', href: '/app/settings' },
   { id: 'chat', label: 'Чат', icon: 'chat', href: '/app/chats' },
 ]
 
@@ -66,18 +66,18 @@ const crmSections: Record<CrmSectionId, CrmSection> = {
     widgets: [
       { value: '0', label: 'Задач на сегодня' },
       { value: '0', label: 'Просрочено' },
-      { value: '—', label: 'AI пока без API' },
+      { value: 'AI', label: 'Помощник готов' },
     ],
   },
   ai: {
     eyebrow: 'AI',
-    title: 'AI-помощник',
+    title: 'Настройки AI',
     text:
-      'Здесь позже появится интерфейс AI-помощника: быстрые запросы, история диалогов и ответы на основе данных CRM.',
+      'Здесь позже появятся настройки AI-помощника: инструкция, автопилот, база знаний, полезные материалы и правила работы с клиентами.',
     widgets: [
-      { value: '0', label: 'Запросов сегодня' },
-      { value: '0', label: 'Ответов AI' },
-      { value: 'mock', label: 'Режим без API' },
+      { value: 'off', label: 'Автопилот' },
+      { value: '0', label: 'Документов в базе' },
+      { value: 'mock', label: 'Настройки позже' },
     ],
   },
   deals: {
@@ -115,13 +115,13 @@ const crmSections: Record<CrmSectionId, CrmSection> = {
   },
   settings: {
     eyebrow: 'CRM',
-    title: 'Настройки AI',
+    title: 'Настройки',
     text:
-      'Здесь позже появятся настройки AI: инструкция, автопилот, база знаний и полезные материалы.',
+      'Здесь позже появятся общие настройки аккаунта, команды, уведомлений, интеграций и доступа.',
     widgets: [
-      { value: 'off', label: 'Автопилот' },
-      { value: '0', label: 'Документов' },
-      { value: 'mock', label: 'Настройки позже' },
+      { value: 'mock', label: 'Профиль' },
+      { value: 'mock', label: 'Команда' },
+      { value: 'mock', label: 'Интеграции' },
     ],
   },
   chat: {
@@ -138,7 +138,7 @@ const crmSections: Record<CrmSectionId, CrmSection> = {
 }
 
 function getSectionFromPath(pathname: string): CrmSectionId {
-  if (pathname === '/app/ai') {
+  if (pathname === '/app/ai' || pathname === '/app/settings/ai') {
     return 'ai'
   }
 
@@ -154,7 +154,7 @@ function getSectionFromPath(pathname: string): CrmSectionId {
     return 'tasks'
   }
 
-  if (pathname === '/app/settings/ai') {
+  if (pathname === '/app/settings') {
     return 'settings'
   }
 
@@ -240,14 +240,7 @@ export function CrmLayout() {
   const currentSection = crmSections[activeSection]
 
   const getAiContext = (): AiChatContext => {
-    if (activeSection === 'ai') {
-      return {
-        page: 'dashboard',
-        entity_id: null,
-      }
-    }
-
-    if (activeSection === 'settings') {
+    if (activeSection === 'ai' || activeSection === 'settings') {
       return {
         page: 'settings',
         entity_id: null,
@@ -393,7 +386,11 @@ export function CrmLayout() {
     }
   }
 
-  const sendAiMessage = async (message: string, sessionIdOverride?: string | null) => {
+  const sendAiMessage = async (
+    message: string,
+    sessionIdOverride?: string | null,
+    forceNewSession = false,
+  ) => {
     const normalizedMessage = message.trim()
 
     if (
@@ -407,7 +404,7 @@ export function CrmLayout() {
 
     const context = getAiContext()
     const localMessageId = `${Date.now()}-${Math.random()}`
-    let currentSessionId = sessionIdOverride ?? aiSessionId
+    let currentSessionId = forceNewSession ? null : sessionIdOverride ?? aiSessionId
     let isUserMessageAdded = false
 
     setIsAiAnswerLoading(true)
@@ -485,26 +482,19 @@ export function CrmLayout() {
   const openAiAssistant = (prompt = '') => {
     const normalizedPrompt = prompt.trim()
 
-    setIsAiAssistantOpen(true)
-
-    if (normalizedPrompt) {
-      void (async () => {
-        const historySessionId = await loadAiHistory()
-        await sendAiMessage(normalizedPrompt, historySessionId)
-      })()
-
+    if (!normalizedPrompt) {
       return
     }
 
-    void loadAiHistory()
+    setIsAiAssistantOpen(true)
+
+    void (async () => {
+      await loadAiHistory()
+      await sendAiMessage(normalizedPrompt, null, true)
+    })()
   }
 
   const openSection = (href: string) => {
-    if (href === '/app/ai') {
-      openAiAssistant()
-      return
-    }
-
     window.history.pushState(null, '', href)
     setActiveSection(getSectionFromPath(href))
     window.scrollTo(0, 0)
@@ -554,7 +544,14 @@ export function CrmLayout() {
             className="crm-ai-search"
             onSubmit={(event) => {
               event.preventDefault()
-              openAiAssistant(aiSearchQuery)
+
+              const normalizedQuery = aiSearchQuery.trim()
+
+              if (!normalizedQuery) {
+                return
+              }
+
+              openAiAssistant(normalizedQuery)
               setAiSearchQuery('')
             }}
           >
