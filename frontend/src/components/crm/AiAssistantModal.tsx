@@ -1,6 +1,15 @@
+import { useState } from 'react'
 import './AiAssistantModal.css'
 
+export type AiChatMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
 type AiAssistantModalProps = {
+  messages: AiChatMessage[]
+  onSendMessage: (message: string) => void
   onClose: () => void
 }
 
@@ -23,7 +32,22 @@ const mockTasks = [
   },
 ]
 
-export function AiAssistantModal({ onClose }: AiAssistantModalProps) {
+export function AiAssistantModal({ messages, onSendMessage, onClose }: AiAssistantModalProps) {
+  const [messageText, setMessageText] = useState('')
+
+  const hasMessages = messages.length > 0
+
+  const handleSubmit = () => {
+    const normalizedMessage = messageText.trim()
+
+    if (!normalizedMessage) {
+      return
+    }
+
+    onSendMessage(normalizedMessage)
+    setMessageText('')
+  }
+
   return (
     <div className="ai-assistant-overlay" role="presentation" onMouseDown={onClose}>
       <section
@@ -47,37 +71,70 @@ export function AiAssistantModal({ onClose }: AiAssistantModalProps) {
         </header>
 
         <div className="ai-assistant-body">
-          <div className="ai-assistant-message ai-assistant-message--user">
-            Какие задачи на сегодня с высоким приоритетом?
-          </div>
-
-          <div className="ai-assistant-message ai-assistant-message--anna">
-            Вот список задач с высоким приоритетом на сегодня.
-          </div>
-
-          <div className="ai-assistant-task-list">
-            {mockTasks.map((task) => (
-              <article className="ai-assistant-task" key={task.title}>
-                <div className="ai-assistant-task__top">
-                  <div>
-                    <h3>{task.title}</h3>
-                    {task.isOverdue && <span>просрочено</span>}
-                  </div>
-
-                  <button type="button" aria-label="Действия с задачей">
-                    ⋮
-                  </button>
+          {hasMessages ? (
+            <>
+              {messages.map((message) => (
+                <div
+                  className={
+                    message.role === 'user'
+                      ? 'ai-assistant-message ai-assistant-message--user'
+                      : 'ai-assistant-message ai-assistant-message--anna'
+                  }
+                  key={message.id}
+                >
+                  {message.text}
                 </div>
+              ))}
 
-                <p className="ai-assistant-task__company">{task.company}</p>
-                <p className="ai-assistant-task__meta">{task.meta}</p>
-              </article>
-            ))}
-          </div>
+              <div className="ai-assistant-task-list">
+                {mockTasks.map((task) => (
+                  <article className="ai-assistant-task" key={task.title}>
+                    <div className="ai-assistant-task__top">
+                      <div>
+                        <h3>{task.title}</h3>
+                        {task.isOverdue && <span>просрочено</span>}
+                      </div>
+
+                      <button type="button" aria-label="Действия с задачей">
+                        ⋮
+                      </button>
+                    </div>
+
+                    <p className="ai-assistant-task__company">{task.company}</p>
+                    <p className="ai-assistant-task__meta">{task.meta}</p>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="ai-assistant-empty-state">
+              <div className="ai-assistant-empty-state__icon" aria-hidden="true">
+                ✨
+              </div>
+
+              <h3>Здравствуйте, я Анна AI</h3>
+              <p>
+                Задайте вопрос по CRM, задачам, сделкам, клиентам или базе знаний. Позже здесь будет
+                отображаться история диалога.
+              </p>
+            </div>
+          )}
         </div>
 
-        <form className="ai-assistant-input-row" onSubmit={(event) => event.preventDefault()}>
-          <input type="text" placeholder="Сообщение" aria-label="Сообщение для Анны AI" />
+        <form
+          className="ai-assistant-input-row"
+          onSubmit={(event) => {
+            event.preventDefault()
+            handleSubmit()
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Сообщение"
+            aria-label="Сообщение для Анны AI"
+            value={messageText}
+            onChange={(event) => setMessageText(event.target.value)}
+          />
 
           <button type="submit" aria-label="Отправить сообщение">
             ↗

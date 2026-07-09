@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import logoFull from '../../assets/brand/logo-full.svg'
 import { DashboardPage } from './DashboardPage'
-import { AiAssistantModal } from './AiAssistantModal'
+import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import './CrmLayout.css'
 
 type SidebarIconName =
@@ -220,6 +220,8 @@ export function CrmLayout() {
     getSectionFromPath(window.location.pathname),
   )
   const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false)
+  const [aiSearchQuery, setAiSearchQuery] = useState('')
+  const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([])
 
   const currentSection = crmSections[activeSection]
 
@@ -236,9 +238,43 @@ export function CrmLayout() {
     }
   }, [])
 
+    const addAiMockExchange = (message: string) => {
+      const normalizedMessage = message.trim()
+
+      if (!normalizedMessage) {
+        return
+      }
+
+      const messageId = `${Date.now()}-${Math.random()}`
+
+      setAiMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `user-message-${messageId}`,
+          role: 'user',
+          text: normalizedMessage,
+        },
+        {
+          id: `assistant-message-${messageId}`,
+          role: 'assistant',
+          text: 'Пока это демонстрационный ответ. Позже здесь будет настоящий ответ AI из backend.',
+        },
+      ])
+    }
+
+    const openAiAssistant = (prompt = '') => {
+      const normalizedPrompt = prompt.trim()
+
+      if (normalizedPrompt) {
+        addAiMockExchange(normalizedPrompt)
+      }
+
+      setIsAiAssistantOpen(true)
+    }
+
     const openSection = (href: string) => {
       if (href === '/app/ai') {
-        setIsAiAssistantOpen(true)
+        openAiAssistant()
         return
       }
 
@@ -291,7 +327,8 @@ export function CrmLayout() {
             className="crm-ai-search"
             onSubmit={(event) => {
               event.preventDefault()
-              setIsAiAssistantOpen(true)
+              openAiAssistant(aiSearchQuery)
+              setAiSearchQuery('')
             }}
           >
             <span className="crm-ai-search__icon" aria-hidden="true">
@@ -303,7 +340,8 @@ export function CrmLayout() {
               placeholder="Спросите AI"
               aria-label="Спросить AI"
               maxLength={200}
-              onFocus={() => setIsAiAssistantOpen(true)}
+              value={aiSearchQuery}
+              onChange={(event) => setAiSearchQuery(event.target.value)}
             />
             <button className="crm-ai-search__button" type="submit" aria-label="Отправить запрос AI">
               ↵
@@ -347,7 +385,11 @@ export function CrmLayout() {
         </main>
 
         {isAiAssistantOpen && (
-          <AiAssistantModal onClose={() => setIsAiAssistantOpen(false)} />
+          <AiAssistantModal
+            messages={aiMessages}
+            onSendMessage={addAiMockExchange}
+            onClose={() => setIsAiAssistantOpen(false)}
+          />
         )}
       </div>
     </div>
