@@ -10,6 +10,7 @@ import {
   type ApiKnowledgeFilesResponse,
 } from '../../shared/api/aiSettingsApi'
 import './AiSettingsPage.css'
+import './AiSettingsPageRefresh.css'
 
 const MAX_INSTRUCTION_LENGTH = 5000
 const KNOWLEDGE_PAGE_SIZE = 50
