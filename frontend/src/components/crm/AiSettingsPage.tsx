@@ -27,6 +27,10 @@ export function AiSettingsPage() {
   const [isInstructionSaving, setIsInstructionSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveMessage, setSaveMessage] = useState('')
+  const [isAutopilotSaving, setIsAutopilotSaving] = useState(false)
+  const [autopilotStatus, setAutopilotStatus] = useState<SaveStatus>('idle')
+  const [autopilotMessage, setAutopilotMessage] = useState('')
+  const [isAutopilotConfirmOpen, setIsAutopilotConfirmOpen] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -125,6 +129,54 @@ export function AiSettingsPage() {
     }
   }
 
+  const updateAutopilot = async (isEnabled: boolean) => {
+    if (isAutopilotSaving) {
+      return
+    }
+
+    setIsAutopilotSaving(true)
+    setAutopilotStatus('idle')
+    setAutopilotMessage('')
+
+    try {
+      const updatedSettings = await updateAiSettings({
+        version: settings.version,
+        autopilot_enabled: isEnabled,
+      })
+
+      setState({
+        settings: updatedSettings,
+        isLoading: false,
+        error: '',
+      })
+      setAutopilotStatus('success')
+      setAutopilotMessage(isEnabled ? 'Автопилот включён' : 'Автопилот выключен')
+    } catch (error) {
+      setAutopilotStatus('error')
+      setAutopilotMessage(
+        error instanceof Error ? error.message : 'Не удалось изменить автопилот',
+      )
+    } finally {
+      setIsAutopilotSaving(false)
+    }
+  }
+
+  const handleAutopilotClick = () => {
+    if (isAutopilotSaving) {
+      return
+    }
+
+    setAutopilotStatus('idle')
+    setAutopilotMessage('')
+
+    if (settings.autopilot_enabled) {
+      void updateAutopilot(false)
+      return
+    }
+
+    setIsAutopilotConfirmOpen(true)
+  }
+
   return (
     <main className="ai-settings-page">
       <section className="ai-settings-card ai-settings-card--instruction">
@@ -183,22 +235,39 @@ export function AiSettingsPage() {
 
       <section className="ai-settings-card ai-settings-card--autopilot">
         <div className="ai-settings-autopilot-title-row">
-          <span
+          <button
             className={[
               'ai-settings-switch',
               settings.autopilot_enabled ? 'ai-settings-switch--active' : '',
             ]
               .filter(Boolean)
               .join(' ')}
-            aria-hidden="true"
+            type="button"
+            aria-label={settings.autopilot_enabled ? 'Выключить автопилот' : 'Включить автопилот'}
+            aria-pressed={settings.autopilot_enabled}
+            disabled={isAutopilotSaving}
+            onClick={handleAutopilotClick}
           >
             <span className="ai-settings-switch__button" />
-          </span>
+          </button>
 
           <h2 className="ai-settings-card__title">Автопилот</h2>
         </div>
 
         <p className="ai-settings-card__text">AI сам отвечает на все входящие сообщения клиентов</p>
+
+        {autopilotMessage && (
+          <p
+            className={[
+              'ai-settings-autopilot-message',
+              autopilotStatus === 'error' ? 'ai-settings-autopilot-message--error' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {autopilotMessage}
+          </p>
+        )}
       </section>
 
       <section className="ai-settings-card ai-settings-card--knowledge">
@@ -239,6 +308,45 @@ export function AiSettingsPage() {
       <button className="ai-settings-reset-button" type="button">
         Сброс настроек
       </button>
+
+      {isAutopilotConfirmOpen && (
+        <div className="ai-settings-modal-backdrop" role="presentation">
+          <div
+            className="ai-settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ai-autopilot-confirm-title"
+          >
+            <h2 className="ai-settings-modal__title" id="ai-autopilot-confirm-title">
+              Включить автопилот?
+            </h2>
+            <p className="ai-settings-modal__text">
+              AI сможет автоматически отвечать клиентам в чате. Продолжить?
+            </p>
+
+            <div className="ai-settings-modal__actions">
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--secondary"
+                type="button"
+                onClick={() => setIsAutopilotConfirmOpen(false)}
+              >
+                Отмена
+              </button>
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--primary"
+                type="button"
+                disabled={isAutopilotSaving}
+                onClick={() => {
+                  setIsAutopilotConfirmOpen(false)
+                  void updateAutopilot(true)
+                }}
+              >
+                Включить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
