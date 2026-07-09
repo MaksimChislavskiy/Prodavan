@@ -10,11 +10,12 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project \
+    && uv pip install "psycopg[binary]>=3.2,<4"
 
 COPY . .
 
-RUN mkdir -p /app/data /app/media /app/staticfiles
+RUN mkdir -p /app/media /app/staticfiles
 
 EXPOSE 8000
 
