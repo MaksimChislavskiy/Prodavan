@@ -103,3 +103,9 @@ export function uploadKnowledgeFiles(files: File[]) {
     body: formData,
   })
 }
+
+export function deleteKnowledgeFile(documentId: string) {
+  return apiRequest<null>(`/api/ai/knowledge-base/files/${encodeURIComponent(documentId)}`, {
+    method: 'DELETE',
+  })
+}
