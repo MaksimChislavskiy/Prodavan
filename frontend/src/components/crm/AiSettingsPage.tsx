@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   getAiSettings,
+  getKnowledgeFiles,
   updateAiSettings,
   type ApiAiSettings,
+  type ApiKnowledgeDocument,
+  type ApiKnowledgeFilesResponse,
 } from '../../shared/api/aiSettingsApi'
 import './AiSettingsPage.css'
 
@@ -14,11 +17,26 @@ type AiSettingsState = {
   error: string
 }
 
+type KnowledgeFilesState = {
+  files: ApiKnowledgeDocument[]
+  total: number
+  storage: ApiKnowledgeFilesResponse['storage'] | null
+  isLoading: boolean
+  error: string
+}
+
 type SaveStatus = 'idle' | 'success' | 'error'
 
 export function AiSettingsPage() {
   const [state, setState] = useState<AiSettingsState>({
     settings: null,
+    isLoading: true,
+    error: '',
+  })
+  const [knowledgeState, setKnowledgeState] = useState<KnowledgeFilesState>({
+    files: [],
+    total: 0,
+    storage: null,
     isLoading: true,
     error: '',
   })
@@ -59,7 +77,34 @@ export function AiSettingsPage() {
       }
     }
 
+    async function loadKnowledgeFiles() {
+      try {
+        const response = await getKnowledgeFiles(1, 50)
+
+        if (isMounted) {
+          setKnowledgeState({
+            files: response.files,
+            total: response.total,
+            storage: response.storage,
+            isLoading: false,
+            error: '',
+          })
+        }
+      } catch (error) {
+        if (isMounted) {
+          setKnowledgeState({
+            files: [],
+            total: 0,
+            storage: null,
+            isLoading: false,
+            error: error instanceof Error ? error.message : 'Не удалось загрузить базу знаний',
+          })
+        }
+      }
+    }
+
     void loadAiSettings()
+    void loadKnowledgeFiles()
 
     return () => {
       isMounted = false
@@ -271,8 +316,20 @@ export function AiSettingsPage() {
       </section>
 
       <section className="ai-settings-card ai-settings-card--knowledge">
-        <h2 className="ai-settings-card__title">База знаний</h2>
-        <p className="ai-settings-card__text">Необходимо, чтобы Анна Ai “поумнела”</p>
+        <div className="ai-settings-knowledge-header">
+          <div>
+            <h2 className="ai-settings-card__title">База знаний</h2>
+            <p className="ai-settings-card__text">Необходимо, чтобы Анна Ai “поумнела”</p>
+          </div>
+
+          {knowledgeState.storage && (
+            <span className="ai-settings-storage-summary">
+              {knowledgeState.storage.files_count}/{knowledgeState.storage.files_limit} файлов ·{' '}
+              {formatFileSize(knowledgeState.storage.used_bytes)} из{' '}
+              {formatFileSize(knowledgeState.storage.limit_bytes)}
+            </span>
+          )}
+        </div>
 
         <div className="ai-settings-upload-box">
           <span className="ai-settings-upload-box__icon" aria-hidden="true">
@@ -282,6 +339,58 @@ export function AiSettingsPage() {
           <button className="ai-settings-upload-box__button" type="button">
             Загрузить⌄
           </button>
+        </div>
+
+        <div className="ai-settings-knowledge-list">
+          {knowledgeState.isLoading ? (
+            <p className="ai-settings-knowledge-empty">Загружаем список документов...</p>
+          ) : knowledgeState.error ? (
+            <p className="ai-settings-knowledge-error">{knowledgeState.error}</p>
+          ) : knowledgeState.files.length === 0 ? (
+            <p className="ai-settings-knowledge-empty">Файлы пока не загружены</p>
+          ) : (
+            <div className="ai-settings-knowledge-table-wrapper">
+              <table className="ai-settings-knowledge-table">
+                <thead>
+                  <tr>
+                    <th>Название</th>
+                    <th>Размер</th>
+                    <th>Дата загрузки</th>
+                    <th>Статус</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {knowledgeState.files.map((file) => (
+                    <tr key={file.id}>
+                      <td>{file.name}</td>
+                      <td>{formatFileSize(file.size)}</td>
+                      <td>{formatDate(file.uploaded_at)}</td>
+                      <td>
+                        <span
+                          className={[
+                            'ai-settings-status-badge',
+                            `ai-settings-status-badge--${file.status}`,
+                          ].join(' ')}
+                        >
+                          {getKnowledgeStatusLabel(file.status)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ai-settings-table-muted">позже</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!knowledgeState.isLoading && !knowledgeState.error && knowledgeState.total > 0 && (
+            <p className="ai-settings-knowledge-total">
+              Показано {knowledgeState.files.length} из {knowledgeState.total}
+            </p>
+          )}
         </div>
       </section>
 
@@ -349,4 +458,46 @@ export function AiSettingsPage() {
       )}
     </main>
   )
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} Б`
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} КБ`
+  }
+
+  if (size < 1024 * 1024 * 1024) {
+    return `${(size / 1024 / 1024).toFixed(1)} МБ`
+  }
+
+  return `${(size / 1024 / 1024 / 1024).toFixed(1)} ГБ`
+}
+
+function formatDate(date: string) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(date))
+}
+
+function getKnowledgeStatusLabel(status: ApiKnowledgeDocument['status']) {
+  if (status === 'uploading') {
+    return 'Загружается'
+  }
+
+  if (status === 'processing') {
+    return 'Обработка'
+  }
+
+  if (status === 'ready') {
+    return 'Готово'
+  }
+
+  return 'Ошибка'
 }
