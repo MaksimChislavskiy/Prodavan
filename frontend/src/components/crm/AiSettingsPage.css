@@ -337,6 +337,23 @@
   color: rgba(11, 43, 85, 0.55);
 }
 
+.ai-settings-table-action-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e20f0f;
+  font: inherit;
+  font-size: 14px;
+  line-height: 18px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ai-settings-table-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .ai-settings-materials {
   margin-top: 20px;
   display: flex;
