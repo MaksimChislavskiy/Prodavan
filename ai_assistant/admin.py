@@ -2,10 +2,15 @@ from django.contrib import admin
 
 from .models import (
     AIAuditLog,
+    AIAutomationEvent,
+    AIAutomationAuditLog,
+    AIAutopilotJob,
+    AIChatInsight,
     AISettings,
     AIUsageDaily,
     AIChatMessage,
     AIChatSession,
+    AIProcessedEvent,
     KnowledgeChunk,
     KnowledgeDocument,
 )
@@ -42,8 +47,144 @@ class AIAuditLogAdmin(admin.ModelAdmin):
 
 @admin.register(AIUsageDaily)
 class AIUsageDailyAdmin(admin.ModelAdmin):
-    list_display = ('workspace', 'date', 'autopilot_replies')
+    list_display = (
+        'workspace',
+        'date',
+        'deals_created',
+        'tasks_created',
+        'contacts_updated',
+        'autopilot_replies',
+    )
     list_filter = ('date',)
+
+
+@admin.register(AIAutomationEvent)
+class AIAutomationEventAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'workspace',
+        'chat',
+        'status',
+        'attempts',
+        'available_at',
+        'processed_at',
+    )
+    list_filter = ('status', 'failure_type', 'event_type')
+    search_fields = ('id', 'message__text', 'last_error')
+    readonly_fields = (
+        'id',
+        'workspace',
+        'chat',
+        'message',
+        'event_type',
+        'attempts',
+        'analysis',
+        'created_at',
+        'updated_at',
+    )
+
+
+@admin.register(AIProcessedEvent)
+class AIProcessedEventAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'workspace',
+        'chat',
+        'action_type',
+        'created_at',
+        'expires_at',
+    )
+    list_filter = ('action_type',)
+    search_fields = ('idempotency_key',)
+    readonly_fields = (
+        'id',
+        'workspace',
+        'event',
+        'chat',
+        'action_type',
+        'idempotency_key',
+        'result',
+        'created_at',
+        'expires_at',
+    )
+
+
+@admin.register(AIAutomationAuditLog)
+class AIAutomationAuditLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'action',
+        'action_type',
+        'workspace',
+        'chat',
+        'created_at',
+    )
+    list_filter = ('action', 'action_type', 'trigger')
+    search_fields = ('raw_message', 'ai_prompt')
+    readonly_fields = (
+        'id',
+        'workspace',
+        'user',
+        'action',
+        'action_type',
+        'trigger',
+        'correlation_id',
+        'chat',
+        'message',
+        'raw_message',
+        'ai_prompt',
+        'ai_response',
+        'confidence',
+        'details',
+        'created_at',
+    )
+
+
+@admin.register(AIAutopilotJob)
+class AIAutopilotJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'workspace',
+        'chat',
+        'mode',
+        'status',
+        'attempts',
+        'available_at',
+        'processed_at',
+    )
+    list_filter = ('mode', 'status', 'failure_type')
+    search_fields = ('id', 'trigger_message__text', 'last_error')
+    readonly_fields = (
+        'id',
+        'workspace',
+        'chat',
+        'trigger_message',
+        'reply_message',
+        'attempts',
+        'batched_message_ids',
+        'sources',
+        'result',
+        'created_at',
+        'updated_at',
+    )
+
+
+@admin.register(AIChatInsight)
+class AIChatInsightAdmin(admin.ModelAdmin):
+    list_display = ('id', 'workspace', 'chat', 'message_count', 'sentiment', 'created_at')
+    search_fields = ('summary',)
+    readonly_fields = (
+        'id',
+        'workspace',
+        'chat',
+        'source_message',
+        'message_count',
+        'summary',
+        'sentiment',
+        'objections',
+        'recommendations',
+        'created_at',
+    )
 
 
 @admin.register(KnowledgeDocument)

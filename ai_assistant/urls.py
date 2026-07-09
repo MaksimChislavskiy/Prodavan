@@ -11,6 +11,7 @@ from .chat_views import (
     AIChatView,
 )
 from .views import (
+    AIAuditView,
     AISettingsView,
     KnowledgeFileDetailView,
     KnowledgeFileRetryView,
@@ -20,6 +21,7 @@ from .views import (
 
 urlpatterns = [
     path('ai/settings', AISettingsView.as_view(), name='ai-settings'),
+    path('ai/audit', AIAuditView.as_view(), name='ai-audit'),
     path(
         'ai/knowledge-base/files',
         KnowledgeFilesView.as_view(),

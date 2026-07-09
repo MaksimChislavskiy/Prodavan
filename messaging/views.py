@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from .models import Chat
 from .outgoing import enqueue_outgoing_message
 from .serializers import (
+    ChatAutopilotSerializer,
     ChatSerializer,
     MessageSerializer,
     OutgoingMessageSerializer,
@@ -171,6 +172,26 @@ class ChatReadView(APIView):
 
 class ChatDetailView(APIView):
     permission_classes = [IsAuthenticated]
+
+    def patch(self, request, chat_id):
+        serializer = ChatAutopilotSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'message': 'Validation failed',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        chat.ai_autopilot_enabled = serializer.validated_data[
+            'ai_autopilot_enabled'
+        ]
+        chat.save(update_fields=('ai_autopilot_enabled', 'updated_at'))
+        return Response(ChatSerializer(chat).data)
 
     def delete(self, request, chat_id):
         try:

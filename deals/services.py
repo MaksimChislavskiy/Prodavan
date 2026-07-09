@@ -158,7 +158,15 @@ def create_deal(*, workspace, user, data, idempotency_key, changed_by_type=Chang
     return body, status.HTTP_201_CREATED
 
 
-def update_deal(*, workspace, user, deal_id, submitted_version, data):
+def update_deal(
+    *,
+    workspace,
+    user,
+    deal_id,
+    submitted_version,
+    data,
+    changed_by_type=ChangedByType.USER,
+):
     with transaction.atomic():
         deal = Deal.objects.select_for_update().select_related('contact', 'stage').filter(
             id=deal_id,
@@ -215,7 +223,8 @@ def update_deal(*, workspace, user, deal_id, submitted_version, data):
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.UPDATED,
-            changed_by=user,
+            changed_by_type=changed_by_type,
+            changed_by=user if changed_by_type == ChangedByType.USER else None,
             changes=changes,
             correlation_id=correlation_id,
         )
