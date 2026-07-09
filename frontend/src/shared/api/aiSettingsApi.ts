@@ -66,6 +66,11 @@ export type ApiKnowledgeFilesResponse = {
   storage: ApiKnowledgeStorage
 }
 
+export type ApiKnowledgeFilesUploadResponse = {
+  files: ApiKnowledgeDocument[]
+  accepted: number
+}
+
 export function getAiSettings() {
   return apiRequest<ApiAiSettings>('/api/ai/settings')
 }
@@ -84,4 +89,17 @@ export function getKnowledgeFiles(page = 1, pageSize = 50) {
   })
 
   return apiRequest<ApiKnowledgeFilesResponse>(`/api/ai/knowledge-base/files?${params.toString()}`)
+}
+
+export function uploadKnowledgeFiles(files: File[]) {
+  const formData = new FormData()
+
+  files.forEach((file) => {
+    formData.append('files', file)
+  })
+
+  return apiRequest<ApiKnowledgeFilesUploadResponse>('/api/ai/knowledge-base/files', {
+    method: 'POST',
+    body: formData,
+  })
 }
