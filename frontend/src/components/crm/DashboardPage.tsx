@@ -64,6 +64,37 @@ export function DashboardPage() {
         </p>
       </section>
 
+      <section className="dashboard-onboarding" aria-label="Первичная настройка CRM">
+        <article className="dashboard-onboarding__card">
+          <p className="dashboard-onboarding__eyebrow">Первый шаг</p>
+          <h2 className="dashboard-onboarding__title">Загрузите Базу знаний для обучения AI</h2>
+          <p className="dashboard-onboarding__text">
+            Для быстрого и эффективного управления внутренними процессами и работы с клиентами.
+          </p>
+
+          <button className="dashboard-onboarding__primary-button" type="button">
+            Загрузить
+          </button>
+        </article>
+
+        <article className="dashboard-onboarding__card dashboard-onboarding__card--video">
+          <p className="dashboard-onboarding__eyebrow">Инструкция</p>
+          <h2 className="dashboard-onboarding__title">
+            Краткое видео и инструкция для простой и быстрой настройки AI в CRM
+          </h2>
+
+          <div className="dashboard-onboarding__actions">
+            <button className="dashboard-onboarding__primary-button" type="button">
+              ▶ Смотреть
+            </button>
+
+            <button className="dashboard-onboarding__secondary-button" type="button">
+              Читать инструкцию
+            </button>
+          </div>
+        </article>
+      </section>
+
       <section className="today-panel" aria-labelledby="today-panel-title">
         <div className="today-panel__header">
           <div>
