@@ -1,18 +1,48 @@
-import { useEffect } from 'react';
-import { CrmLayout } from '../components/crm/CrmLayout';
+import { useEffect, useState } from 'react'
+import { CrmLayout } from '../components/crm/CrmLayout'
+import { refreshSession } from '../shared/api/authApi'
 
-const MOCK_IS_AUTHORIZED = true;
+type AuthStatus = 'checking' | 'authorized' | 'unauthorized'
 
 export function CrmAppPage() {
-  useEffect(() => {
-    if (!MOCK_IS_AUTHORIZED) {
-      window.location.href = '/';
-    }
-  }, []);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
 
-  if (!MOCK_IS_AUTHORIZED) {
-    return null;
+  useEffect(() => {
+    let isMounted = true
+
+    async function checkSession() {
+      try {
+        await refreshSession()
+
+        if (isMounted) {
+          setAuthStatus('authorized')
+        }
+      } catch {
+        if (isMounted) {
+          setAuthStatus('unauthorized')
+          window.location.href = '/'
+        }
+      }
+    }
+
+    void checkSession()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  if (authStatus === 'checking') {
+    return (
+      <div style={{ padding: 32, fontFamily: 'Inter, Arial, sans-serif' }}>
+        Проверяем сессию...
+      </div>
+    )
   }
 
-  return <CrmLayout />;
+  if (authStatus === 'unauthorized') {
+    return null
+  }
+
+  return <CrmLayout />
 }
