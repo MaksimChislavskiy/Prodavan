@@ -476,6 +476,13 @@ def _create_deal_if_needed(event, analysis):
         if response_status == status.HTTP_201_CREATED:
             usage.deals_created += 1
             usage.save(update_fields=('deals_created',))
+            now = timezone.now()
+            Contact.objects.filter(
+                id=contact.id,
+                workspace=event.workspace,
+                is_deleted=False,
+            ).update(last_ai_deal_created_at=now, updated_at=now)
+            contact.last_ai_deal_created_at = now
         deal = Deal.objects.filter(id=body.get('id')).first()
         result = _record_action(
             event,
@@ -694,12 +701,20 @@ def _active_deal_for_contact(workspace, contact):
 
 
 def _ai_deal_created_recently(workspace, contact):
+    if contact is None:
+        return False
+    recent_after = timezone.now() - timedelta(hours=24)
+    if (
+        contact.last_ai_deal_created_at is not None
+        and contact.last_ai_deal_created_at >= recent_after
+    ):
+        return True
     return DealHistory.objects.filter(
         workspace=workspace,
         deal__contact=contact,
         event_type=DealEvent.CREATED,
         changed_by_type=ChangedByType.AI,
-        created_at__gte=timezone.now() - timedelta(hours=24),
+        created_at__gte=recent_after,
     ).exists()
 
 

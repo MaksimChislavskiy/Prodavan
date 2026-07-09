@@ -155,6 +155,7 @@ class ContactApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['ai_insights']['needs'], 'CRM для продаж')
         self.assertEqual(response.data['ai_insights']['probability'], 70)
+        self.assertIn('last_ai_deal_created_at', response.data)
 
     def test_ai_insights_endpoint_returns_normalized_payload(self):
         contact = Contact.objects.create(

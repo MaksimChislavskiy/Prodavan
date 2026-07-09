@@ -45,6 +45,7 @@ class Contact(TimestampMixin):
     telegram_chat_id = models.BigIntegerField(null=True, blank=True)
     telegram_username = models.CharField(max_length=32, null=True, blank=True)
     ai_insights = models.JSONField(default=default_ai_insights, blank=True)
+    last_ai_deal_created_at = models.DateTimeField(null=True, blank=True)
     is_deleted = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 

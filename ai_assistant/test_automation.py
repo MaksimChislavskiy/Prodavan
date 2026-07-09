@@ -135,6 +135,7 @@ class AIAutomationTests(TestCase):
             DealHistory.objects.get(deal=deal).changed_by_type,
             ChangedByType.AI,
         )
+        self.assertIsNotNone(self.contact.last_ai_deal_created_at)
         task = Task.objects.get(workspace=self.workspace, contact=self.contact)
         self.assertEqual(task.title, 'Связаться с клиентом')
         self.assertEqual(task.deal_id, deal.id)
@@ -171,6 +172,28 @@ class AIAutomationTests(TestCase):
 
         self.assertEqual(Deal.objects.count(), 1)
         self.assertEqual(Task.objects.count(), 1)
+
+    def test_recent_ai_deal_timestamp_blocks_duplicate_deal_creation(self):
+        self.contact.last_ai_deal_created_at = timezone.now() - timedelta(hours=1)
+        self.contact.save(update_fields=('last_ai_deal_created_at', 'updated_at'))
+        message = self.incoming('Хочу купить ещё один проект.')
+        analyzer = DummyAnalyzer({
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Повторная заявка',
+            },
+        })
+
+        outcome = process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        self.assertEqual(outcome, 'completed')
+        self.assertFalse(Deal.objects.exists())
+        action = AIProcessedEvent.objects.get(
+            event=message.ai_automation_event,
+            action_type=AutomationActionType.DEAL_CREATE,
+        )
+        self.assertEqual(action.result['status'], 'skipped_recent_ai_deal')
 
     def test_daily_limits_skip_mutations(self):
         AIUsageDaily.objects.create(
