@@ -4,7 +4,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import AISettings, AIUsageDaily, AutopilotMode
+from .models import (
+    AISettings,
+    AIUsageDaily,
+    AutopilotMode,
+    KnowledgeDocument,
+)
 
 
 AI_LIMITS = {
@@ -103,3 +108,23 @@ class AISettingsUpdateSerializer(serializers.Serializer):
                 },
             )
         return super().to_internal_value(data)
+
+
+class KnowledgeDocumentSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='original_name')
+    size = serializers.IntegerField(source='size_bytes')
+    uploaded_at = serializers.DateTimeField(source='created_at')
+
+    class Meta:
+        model = KnowledgeDocument
+        fields = (
+            'id',
+            'name',
+            'size',
+            'mime_type',
+            'status',
+            'error_reason',
+            'processing_attempts',
+            'uploaded_at',
+            'processed_at',
+        )

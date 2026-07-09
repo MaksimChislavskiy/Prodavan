@@ -122,6 +122,8 @@ def update_contact(
 
 
 def delete_contact(*, workspace, user, contact_id, audit_context=None):
+    from tasks.services import detach_tasks_for_contacts
+
     with transaction.atomic():
         contact = Contact.objects.select_for_update().filter(
             id=contact_id,
@@ -145,9 +147,15 @@ def delete_contact(*, workspace, user, contact_id, audit_context=None):
             contact_id=contact.id,
             context=audit_context,
         )
+        detach_tasks_for_contacts(
+            workspace=workspace,
+            contact_ids=[contact.id],
+        )
 
 
 def bulk_delete_contacts(*, workspace, user, contact_ids, audit_context=None):
+    from tasks.services import detach_tasks_for_contacts
+
     with transaction.atomic():
         contacts = {
             contact.id: contact
@@ -178,6 +186,10 @@ def bulk_delete_contacts(*, workspace, user, contact_ids, audit_context=None):
                 id__in=active_ids,
                 is_deleted=False,
             ).update(is_deleted=True, deleted_at=now, updated_at=now)
+            detach_tasks_for_contacts(
+                workspace=workspace,
+                contact_ids=active_ids,
+            )
         _audit(
             workspace=workspace,
             user=user,
