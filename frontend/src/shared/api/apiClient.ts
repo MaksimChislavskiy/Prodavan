@@ -42,10 +42,12 @@ async function makeApiRequest<TResponse>(
 
 async function fetchWithAuth(path: string, options: ApiRequestOptions) {
   const token = getAccessToken()
+  const body = options.body
+  const isFormDataBody = typeof FormData !== 'undefined' && body instanceof FormData
 
   const headers = new Headers(options.headers)
 
-  if (options.body !== undefined) {
+  if (body !== undefined && !isFormDataBody) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -56,9 +58,17 @@ async function fetchWithAuth(path: string, options: ApiRequestOptions) {
   return fetch(path, {
     method: options.method ?? 'GET',
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: body !== undefined ? getRequestBody(body, isFormDataBody) : undefined,
     credentials: 'include',
   })
+}
+
+function getRequestBody(body: unknown, isFormDataBody: boolean) {
+  if (isFormDataBody) {
+    return body as FormData
+  }
+
+  return JSON.stringify(body)
 }
 
 async function refreshAccessToken() {
@@ -93,6 +103,18 @@ function isRefreshSessionResponse(data: unknown): data is RefreshSessionResponse
 }
 
 function getApiErrorMessage(data: unknown, status: number) {
+  if (
+    data &&
+    typeof data === 'object' &&
+    'error' in data &&
+    data.error &&
+    typeof data.error === 'object' &&
+    'message' in data.error &&
+    typeof data.error.message === 'string'
+  ) {
+    return data.error.message
+  }
+
   if (
     data &&
     typeof data === 'object' &&
