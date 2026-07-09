@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { apiRequest } from './shared/api/apiClient'
+import { setAccessToken } from './shared/api/authToken'
 import './LoginModal.css'
 
 type LoginModalProps = {
@@ -8,8 +10,16 @@ type LoginModalProps = {
   onOpenReset?: (email?: string) => void
 }
 
-const MOCK_LOGIN_EMAIL = 'dvhjkdsvbksdskj@mail.ru'
-const MOCK_LOGIN_PASSWORD = 'vsdfjksfksdks'
+type LoginResponse = {
+  access_token: string
+  user: {
+    id: string
+    name: string
+    surname: string
+    email: string
+    role: string
+  }
+}
 
 function LoginModal({
   initialEmail = '',
@@ -23,6 +33,7 @@ function LoginModal({
   const [password, setPassword] = useState('')
   const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [loginError, setLoginError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
@@ -51,19 +62,33 @@ function LoginModal({
     }
   }
 
-  const handleLoginSubmit = () => {
+  const handleLoginSubmit = async () => {
     const normalizedEmail = email.trim()
 
-    if (
-      normalizedEmail === MOCK_LOGIN_EMAIL &&
-      password === MOCK_LOGIN_PASSWORD
-    ) {
-      setLoginError('')
-      window.location.href = '/app'
+    if (!normalizedEmail || !password) {
+      setLoginError('Введите e-mail и пароль')
       return
     }
 
-    setLoginError('Неверный e-mail или пароль')
+    try {
+      setIsSubmitting(true)
+      setLoginError('')
+
+      const data = await apiRequest<LoginResponse>('/api/auth/login', {
+        method: 'POST',
+        body: {
+          email: normalizedEmail,
+          password,
+        },
+      })
+
+      setAccessToken(data.access_token)
+      window.location.href = '/app'
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Не удалось выполнить вход')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -114,7 +139,7 @@ function LoginModal({
           className="loginModalForm"
           onSubmit={(event) => {
             event.preventDefault()
-            handleLoginSubmit()
+            void handleLoginSubmit()
           }}
         >
           <label className="loginField">
@@ -123,6 +148,7 @@ function LoginModal({
               type="email"
               placeholder="Введите e-mail"
               value={email}
+              disabled={isSubmitting}
               onChange={(event) => {
                 setEmail(event.target.value)
                 setLoginError('')
@@ -139,6 +165,7 @@ function LoginModal({
                   type={isPasswordVisible ? 'text' : 'password'}
                   placeholder="Введите пароль"
                   value={password}
+                  disabled={isSubmitting}
                   onChange={(event) => {
                     setPassword(event.target.value)
                     setLoginError('')
@@ -149,6 +176,7 @@ function LoginModal({
                   className="loginPasswordToggle"
                   type="button"
                   aria-label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                  disabled={isSubmitting}
                   onClick={() => setIsPasswordVisible((value) => !value)}
                 >
                   {isPasswordVisible ? <EyeIcon /> : <EyeSlashIcon />}
@@ -159,6 +187,7 @@ function LoginModal({
             <button
               className="loginForgotButton"
               type="button"
+              disabled={isSubmitting}
               onClick={() => onOpenReset?.(email)}
             >
               Забыли пароль?
@@ -168,14 +197,14 @@ function LoginModal({
           {loginError && <p className="loginErrorMessage">{loginError}</p>}
 
           <div className="loginActionsBlock">
-            <button className="loginSubmitButton" type="submit">
-              Войти
+            <button className="loginSubmitButton" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Входим...' : 'Войти'}
             </button>
 
             <div className="loginRegisterLink">
               <span>Нет аккаунта?</span>
 
-              <button type="button" onClick={onOpenRegister}>
+              <button type="button" disabled={isSubmitting} onClick={onOpenRegister}>
                 Зарегистрироваться
               </button>
             </div>
