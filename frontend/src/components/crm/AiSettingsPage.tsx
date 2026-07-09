@@ -14,6 +14,10 @@ import './AiSettingsPageRefresh.css'
 
 const MAX_INSTRUCTION_LENGTH = 5000
 const KNOWLEDGE_PAGE_SIZE = 50
+const MAX_KNOWLEDGE_FILE_SIZE = 20 * 1024 * 1024
+const MAX_KNOWLEDGE_FILES_PER_UPLOAD = 20
+const ALLOWED_KNOWLEDGE_FILE_EXTENSIONS = ['pdf', 'txt', 'docx', 'csv']
+const KNOWLEDGE_FILE_ACCEPT = '.pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 type AiSettingsState = {
   settings: ApiAiSettings | null
@@ -228,6 +232,20 @@ export function AiSettingsPage() {
   const handleKnowledgeFilesUpload = async (files: File[]) => {
     if (files.length === 0 || isKnowledgeUploading) return
 
+    const validationError = validateKnowledgeFiles(files)
+
+    if (validationError) {
+      setIsKnowledgeDragActive(false)
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(validationError)
+
+      if (knowledgeFileInputRef.current) {
+        knowledgeFileInputRef.current.value = ''
+      }
+
+      return
+    }
+
     setIsKnowledgeUploading(true)
     setIsKnowledgeDragActive(false)
     setKnowledgeUploadStatus('idle')
@@ -397,7 +415,7 @@ export function AiSettingsPage() {
             className="ai-settings-file-input"
             ref={knowledgeFileInputRef}
             type="file"
-            accept=".pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept={KNOWLEDGE_FILE_ACCEPT}
             multiple
             onChange={(event) => void handleKnowledgeFilesUpload(Array.from(event.target.files ?? []))}
           />
@@ -511,6 +529,35 @@ export function AiSettingsPage() {
       )}
     </main>
   )
+}
+
+function validateKnowledgeFiles(files: File[]) {
+  if (files.length > MAX_KNOWLEDGE_FILES_PER_UPLOAD) {
+    return `За один раз можно загрузить не больше ${MAX_KNOWLEDGE_FILES_PER_UPLOAD} файлов.`
+  }
+
+  for (const file of files) {
+    const extension = getFileExtension(file.name)
+
+    if (!ALLOWED_KNOWLEDGE_FILE_EXTENSIONS.includes(extension)) {
+      return `Файл «${file.name}» имеет неподдерживаемый формат. Разрешены только PDF, TXT, DOCX, CSV.`
+    }
+
+    if (file.size === 0) {
+      return `Файл «${file.name}» пустой.`
+    }
+
+    if (file.size > MAX_KNOWLEDGE_FILE_SIZE) {
+      return `Файл «${file.name}» больше 20 МБ.`
+    }
+  }
+
+  return ''
+}
+
+function getFileExtension(fileName: string) {
+  const parts = fileName.toLowerCase().split('.')
+  return parts.length > 1 ? parts.at(-1) ?? '' : ''
 }
 
 function formatFileSize(size: number) {
