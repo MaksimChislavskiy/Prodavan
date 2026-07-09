@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react'
 import logoFull from '../../assets/brand/logo-full.svg'
 import { DashboardPage } from './DashboardPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
+import {
+  createAiChatSession,
+  sendAiChatMessage,
+  type AiChatContext,
+} from '../../shared/api/aiChatApi'
 import './CrmLayout.css'
 
 type SidebarIconName =
@@ -222,8 +227,38 @@ export function CrmLayout() {
   const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false)
   const [aiSearchQuery, setAiSearchQuery] = useState('')
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([])
+  const [aiSessionId, setAiSessionId] = useState<string | null>(null)
+  const [isAiAnswerLoading, setIsAiAnswerLoading] = useState(false)
 
   const currentSection = crmSections[activeSection]
+
+  const getAiContext = (): AiChatContext => {
+    if (activeSection === 'ai') {
+      return {
+        page: 'dashboard',
+        entity_id: null,
+      }
+    }
+
+    if (activeSection === 'settings') {
+      return {
+        page: 'settings',
+        entity_id: null,
+      }
+    }
+
+    if (activeSection === 'chat') {
+      return {
+        page: 'chat',
+        entity_id: null,
+      }
+    }
+
+    return {
+      page: activeSection,
+      entity_id: null,
+    }
+  }
 
   useEffect(() => {
     const handlePopState = () => {
@@ -238,50 +273,89 @@ export function CrmLayout() {
     }
   }, [])
 
-    const addAiMockExchange = (message: string) => {
-      const normalizedMessage = message.trim()
+  const sendAiMessage = async (message: string) => {
+    const normalizedMessage = message.trim()
 
-      if (!normalizedMessage) {
-        return
+    if (!normalizedMessage || isAiAnswerLoading) {
+      return
+    }
+
+    const context = getAiContext()
+    const localMessageId = `${Date.now()}-${Math.random()}`
+
+    setAiMessages((currentMessages) => [
+      ...currentMessages,
+      {
+        id: `user-message-${localMessageId}`,
+        role: 'user',
+        text: normalizedMessage,
+      },
+    ])
+
+    setIsAiAnswerLoading(true)
+
+    try {
+      let currentSessionId = aiSessionId
+
+      if (!currentSessionId) {
+        const session = await createAiChatSession(context)
+        currentSessionId = session.session_id
+        setAiSessionId(session.session_id)
       }
 
-      const messageId = `${Date.now()}-${Math.random()}`
+      const response = await sendAiChatMessage({
+        sessionId: currentSessionId,
+        message: normalizedMessage,
+        context,
+      })
+
+      const answerText = response.message.content.trim()
+        || 'AI не смог сформулировать ответ. Попробуйте переформулировать запрос.'
 
       setAiMessages((currentMessages) => [
         ...currentMessages,
         {
-          id: `user-message-${messageId}`,
-          role: 'user',
-          text: normalizedMessage,
-        },
-        {
-          id: `assistant-message-${messageId}`,
+          id: response.message.id,
           role: 'assistant',
-          text: 'Пока это демонстрационный ответ. Позже здесь будет настоящий ответ AI из backend.',
+          text: answerText,
         },
       ])
+    } catch (error) {
+      setAiMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `assistant-error-${localMessageId}`,
+          role: 'assistant',
+          text: error instanceof Error
+            ? error.message
+            : 'Не удалось получить ответ. Повторите попытку позже.',
+        },
+      ])
+    } finally {
+      setIsAiAnswerLoading(false)
+    }
+  }
+
+  const openAiAssistant = (prompt = '') => {
+    const normalizedPrompt = prompt.trim()
+
+    setIsAiAssistantOpen(true)
+
+    if (normalizedPrompt) {
+      void sendAiMessage(normalizedPrompt)
+    }
+  }
+
+  const openSection = (href: string) => {
+    if (href === '/app/ai') {
+      openAiAssistant()
+      return
     }
 
-    const openAiAssistant = (prompt = '') => {
-      const normalizedPrompt = prompt.trim()
-
-      if (normalizedPrompt) {
-        addAiMockExchange(normalizedPrompt)
-      }
-
-      setIsAiAssistantOpen(true)
-    }
-
-    const openSection = (href: string) => {
-      if (href === '/app/ai') {
-        openAiAssistant()
-        return
-      }
-
-      window.history.pushState(null, '', href)
-      setActiveSection(getSectionFromPath(href))
-      window.scrollTo(0, 0)
-    }
+    window.history.pushState(null, '', href)
+    setActiveSection(getSectionFromPath(href))
+    window.scrollTo(0, 0)
+  }
 
   return (
     <div className="crm-shell">
@@ -387,7 +461,10 @@ export function CrmLayout() {
         {isAiAssistantOpen && (
           <AiAssistantModal
             messages={aiMessages}
-            onSendMessage={addAiMockExchange}
+            isLoading={isAiAnswerLoading}
+            onSendMessage={(message) => {
+              void sendAiMessage(message)
+            }}
             onClose={() => setIsAiAssistantOpen(false)}
           />
         )}

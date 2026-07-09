@@ -9,30 +9,17 @@ export type AiChatMessage = {
 
 type AiAssistantModalProps = {
   messages: AiChatMessage[]
+  isLoading: boolean
   onSendMessage: (message: string) => void
   onClose: () => void
 }
 
-const mockTasks = [
-  {
-    title: 'Подписать договор',
-    company: 'ООО "Тормонт"',
-    meta: '350 000 ₽ · Связанный объект: сделка №809',
-    isOverdue: true,
-  },
-  {
-    title: 'Встреча с клиентом',
-    company: 'ООО "Тормонт"',
-    meta: '600 000 ₽ · Связанный объект: контакт: Иванов П.А.',
-  },
-  {
-    title: 'Позвонить',
-    company: 'ООО "Заря"',
-    meta: '450 000 ₽ · Связанный объект: сделка №789',
-  },
-]
-
-export function AiAssistantModal({ messages, onSendMessage, onClose }: AiAssistantModalProps) {
+export function AiAssistantModal({
+  messages,
+  isLoading,
+  onSendMessage,
+  onClose,
+}: AiAssistantModalProps) {
   const [messageText, setMessageText] = useState('')
 
   const hasMessages = messages.length > 0
@@ -40,7 +27,7 @@ export function AiAssistantModal({ messages, onSendMessage, onClose }: AiAssista
   const handleSubmit = () => {
     const normalizedMessage = messageText.trim()
 
-    if (!normalizedMessage) {
+    if (!normalizedMessage || isLoading) {
       return
     }
 
@@ -86,25 +73,11 @@ export function AiAssistantModal({ messages, onSendMessage, onClose }: AiAssista
                 </div>
               ))}
 
-              <div className="ai-assistant-task-list">
-                {mockTasks.map((task) => (
-                  <article className="ai-assistant-task" key={task.title}>
-                    <div className="ai-assistant-task__top">
-                      <div>
-                        <h3>{task.title}</h3>
-                        {task.isOverdue && <span>просрочено</span>}
-                      </div>
-
-                      <button type="button" aria-label="Действия с задачей">
-                        ⋮
-                      </button>
-                    </div>
-
-                    <p className="ai-assistant-task__company">{task.company}</p>
-                    <p className="ai-assistant-task__meta">{task.meta}</p>
-                  </article>
-                ))}
-              </div>
+              {isLoading && (
+                <div className="ai-assistant-message ai-assistant-message--anna ai-assistant-message--loading">
+                  AI анализирует запрос...
+                </div>
+              )}
             </>
           ) : (
             <div className="ai-assistant-empty-state">
@@ -114,8 +87,7 @@ export function AiAssistantModal({ messages, onSendMessage, onClose }: AiAssista
 
               <h3>Здравствуйте, я Анна AI</h3>
               <p>
-                Задайте вопрос по CRM, задачам, сделкам, клиентам или базе знаний. Позже здесь будет
-                отображаться история диалога.
+                Задайте вопрос по CRM, задачам, сделкам, клиентам или базе знаний.
               </p>
             </div>
           )}
@@ -133,10 +105,11 @@ export function AiAssistantModal({ messages, onSendMessage, onClose }: AiAssista
             placeholder="Сообщение"
             aria-label="Сообщение для Анны AI"
             value={messageText}
+            disabled={isLoading}
             onChange={(event) => setMessageText(event.target.value)}
           />
 
-          <button type="submit" aria-label="Отправить сообщение">
+          <button type="submit" aria-label="Отправить сообщение" disabled={isLoading}>
             ↗
           </button>
         </form>

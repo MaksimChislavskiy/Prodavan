@@ -235,3 +235,18 @@
   font-size: 14px;
   line-height: 1.55;
 }
+
+.ai-assistant-message--loading {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.ai-assistant-input-row input:disabled {
+  cursor: not-allowed;
+  color: #7b8da8;
+}
+
+.ai-assistant-input-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
