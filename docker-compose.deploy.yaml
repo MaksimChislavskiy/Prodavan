@@ -47,7 +47,9 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
       - prodavan_media:/media:ro
       - prodavan_static:/static:ro
     depends_on:
