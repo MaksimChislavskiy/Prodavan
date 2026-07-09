@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import { getAiSettings, type ApiAiSettings } from '../../shared/api/aiSettingsApi'
+import {
+  getAiSettings,
+  updateAiSettings,
+  type ApiAiSettings,
+} from '../../shared/api/aiSettingsApi'
 import './AiSettingsPage.css'
+
+const MAX_INSTRUCTION_LENGTH = 5000
 
 type AiSettingsState = {
   settings: ApiAiSettings | null
@@ -8,12 +14,19 @@ type AiSettingsState = {
   error: string
 }
 
+type SaveStatus = 'idle' | 'success' | 'error'
+
 export function AiSettingsPage() {
   const [state, setState] = useState<AiSettingsState>({
     settings: null,
     isLoading: true,
     error: '',
   })
+  const [instruction, setInstruction] = useState('')
+  const [initialInstruction, setInitialInstruction] = useState('')
+  const [isInstructionSaving, setIsInstructionSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [saveMessage, setSaveMessage] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -28,6 +41,8 @@ export function AiSettingsPage() {
             isLoading: false,
             error: '',
           })
+          setInstruction(settings.instruction)
+          setInitialInstruction(settings.instruction)
         }
       } catch (error) {
         if (isMounted) {
@@ -71,6 +86,44 @@ export function AiSettingsPage() {
   }
 
   const { settings } = state
+  const isInstructionChanged = instruction !== initialInstruction
+  const isInstructionTooLong = instruction.length > MAX_INSTRUCTION_LENGTH
+  const canSaveInstruction =
+    isInstructionChanged && !isInstructionTooLong && !isInstructionSaving
+
+  const handleInstructionSave = async () => {
+    if (!canSaveInstruction) {
+      return
+    }
+
+    setIsInstructionSaving(true)
+    setSaveStatus('idle')
+    setSaveMessage('')
+
+    try {
+      const updatedSettings = await updateAiSettings({
+        version: settings.version,
+        instruction,
+      })
+
+      setState({
+        settings: updatedSettings,
+        isLoading: false,
+        error: '',
+      })
+      setInstruction(updatedSettings.instruction)
+      setInitialInstruction(updatedSettings.instruction)
+      setSaveStatus('success')
+      setSaveMessage('Инструкция сохранена')
+    } catch (error) {
+      setSaveStatus('error')
+      setSaveMessage(
+        error instanceof Error ? error.message : 'Не удалось сохранить инструкцию',
+      )
+    } finally {
+      setIsInstructionSaving(false)
+    }
+  }
 
   return (
     <main className="ai-settings-page">
@@ -79,14 +132,52 @@ export function AiSettingsPage() {
 
         <textarea
           className="ai-settings-instruction-input"
-          value={settings.instruction}
+          value={instruction}
           placeholder="Введите инструкцию для AI-помощника"
-          readOnly
+          maxLength={MAX_INSTRUCTION_LENGTH + 1}
           rows={1}
+          onChange={(event) => {
+            setInstruction(event.target.value)
+            setSaveStatus('idle')
+            setSaveMessage('')
+          }}
         />
 
-        <button className="ai-settings-save-button" type="button" disabled>
-          Сохранить
+        <div className="ai-settings-instruction-footer">
+          <span
+            className={[
+              'ai-settings-instruction-counter',
+              isInstructionTooLong ? 'ai-settings-instruction-counter--error' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {instruction.length}/{MAX_INSTRUCTION_LENGTH}
+          </span>
+
+          {saveMessage && (
+            <span
+              className={[
+                'ai-settings-save-message',
+                saveStatus === 'error' ? 'ai-settings-save-message--error' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {saveMessage}
+            </span>
+          )}
+        </div>
+
+        <button
+          className="ai-settings-save-button"
+          type="button"
+          disabled={!canSaveInstruction}
+          onClick={() => {
+            void handleInstructionSave()
+          }}
+        >
+          {isInstructionSaving ? 'Сохраняем...' : 'Сохранить'}
         </button>
       </section>
 
