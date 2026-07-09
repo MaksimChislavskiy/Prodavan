@@ -33,6 +33,12 @@ export type ApiAiChatResponse = {
   message: ApiAiChatMessage
 }
 
+export type ApiAiChatHistoryResponse = {
+  messages: ApiAiChatMessage[]
+  next_cursor: string | null
+  has_more: boolean
+}
+
 export function createAiChatSession(context: AiChatContext) {
   return apiRequest<ApiAiChatSessionResponse>('/api/ai/chat/session', {
     method: 'POST',
@@ -40,6 +46,10 @@ export function createAiChatSession(context: AiChatContext) {
       context,
     },
   })
+}
+
+export function getAiChatHistory(limit = 20) {
+  return apiRequest<ApiAiChatHistoryResponse>(`/api/ai/chat/history?limit=${limit}`)
 }
 
 export function sendAiChatMessage(params: {

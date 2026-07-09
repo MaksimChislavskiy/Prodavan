@@ -4,8 +4,10 @@ import { DashboardPage } from './DashboardPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
+  getAiChatHistory,
   sendAiChatMessage,
   type AiChatContext,
+  type ApiAiChatMessage,
 } from '../../shared/api/aiChatApi'
 import './CrmLayout.css'
 
@@ -229,6 +231,8 @@ export function CrmLayout() {
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([])
   const [aiSessionId, setAiSessionId] = useState<string | null>(null)
   const [isAiAnswerLoading, setIsAiAnswerLoading] = useState(false)
+  const [isAiHistoryLoaded, setIsAiHistoryLoaded] = useState(false)
+  const [isAiHistoryLoading, setIsAiHistoryLoading] = useState(false)
 
   const currentSection = crmSections[activeSection]
 
@@ -273,10 +277,69 @@ export function CrmLayout() {
     }
   }, [])
 
-  const sendAiMessage = async (message: string) => {
+  const mapApiMessageToAiMessage = (message: ApiAiChatMessage): AiChatMessage => {
+    const text = message.content.trim()
+
+    return {
+      id: message.id,
+      role: message.role,
+      text: text || 'Сообщение пока обрабатывается.',
+    }
+  }
+
+  const loadAiHistory = async (): Promise<string | null> => {
+    if (isAiHistoryLoaded || isAiHistoryLoading) {
+      return aiSessionId
+    }
+
+    if (aiMessages.length > 0) {
+      setIsAiHistoryLoaded(true)
+      return aiSessionId
+    }
+
+    setIsAiHistoryLoading(true)
+
+    try {
+      const response = await getAiChatHistory(20)
+
+      const historyMessages = [...response.messages]
+        .reverse()
+        .map(mapApiMessageToAiMessage)
+
+      setAiMessages(historyMessages)
+
+      const latestSessionId = response.messages[0]?.session_id ?? null
+
+      if (latestSessionId) {
+        setAiSessionId(latestSessionId)
+      }
+
+      setIsAiHistoryLoaded(true)
+
+      return latestSessionId
+    } catch (error) {
+      setAiMessages([
+        {
+          id: 'ai-history-load-error',
+          role: 'assistant',
+          text: error instanceof Error
+            ? error.message
+            : 'Не удалось загрузить историю AI-чата.',
+        },
+      ])
+
+      setIsAiHistoryLoaded(true)
+
+      return null
+    } finally {
+      setIsAiHistoryLoading(false)
+    }
+  }
+
+  const sendAiMessage = async (message: string, sessionIdOverride?: string | null) => {
     const normalizedMessage = message.trim()
 
-    if (!normalizedMessage || isAiAnswerLoading) {
+    if (!normalizedMessage || isAiAnswerLoading || isAiHistoryLoading) {
       return
     }
 
@@ -295,7 +358,7 @@ export function CrmLayout() {
     setIsAiAnswerLoading(true)
 
     try {
-      let currentSessionId = aiSessionId
+      let currentSessionId = sessionIdOverride ?? aiSessionId
 
       if (!currentSessionId) {
         const session = await createAiChatSession(context)
@@ -342,8 +405,15 @@ export function CrmLayout() {
     setIsAiAssistantOpen(true)
 
     if (normalizedPrompt) {
-      void sendAiMessage(normalizedPrompt)
+      void (async () => {
+        const historySessionId = await loadAiHistory()
+        await sendAiMessage(normalizedPrompt, historySessionId)
+      })()
+
+      return
     }
+
+    void loadAiHistory()
   }
 
   const openSection = (href: string) => {
@@ -461,7 +531,7 @@ export function CrmLayout() {
         {isAiAssistantOpen && (
           <AiAssistantModal
             messages={aiMessages}
-            isLoading={isAiAnswerLoading}
+            isLoading={isAiAnswerLoading || isAiHistoryLoading}
             onSendMessage={(message) => {
               void sendAiMessage(message)
             }}
