@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import RegisterModal from './RegisterModal'
 import LoginModal from './LoginModal'
 import PasswordResetModal from './PasswordResetModal'
+import { CrmAppPage } from './pages/CrmAppPage'
 import heroImage1 from './assets/landing/hero-1.png'
 import heroImage2 from './assets/landing/hero-2.png'
 import heroImage3 from './assets/landing/hero-3.png'
@@ -237,6 +238,12 @@ function App() {
   const openResetModal = (initialEmail = '') => {
     setResetInitialEmail(initialEmail)
     setAuthModal('reset')
+  }
+
+  const isCrmRoute = window.location.pathname.startsWith('/app')
+
+  if (isCrmRoute) {
+    return <CrmAppPage />
   }
 
   return (
