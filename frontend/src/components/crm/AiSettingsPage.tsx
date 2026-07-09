@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  deleteKnowledgeFile,
   getAiSettings,
   getKnowledgeFiles,
   updateAiSettings,
@@ -54,6 +55,7 @@ export function AiSettingsPage() {
   const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false)
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
   const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
+  const [deletingKnowledgeFileId, setDeletingKnowledgeFileId] = useState<string | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -227,6 +229,18 @@ export function AiSettingsPage() {
     setIsAutopilotConfirmOpen(true)
   }
 
+  const refreshKnowledgeFiles = async () => {
+    const knowledgeResponse = await getKnowledgeFiles(1, 50)
+
+    setKnowledgeState({
+      files: knowledgeResponse.files,
+      total: knowledgeResponse.total,
+      storage: knowledgeResponse.storage,
+      isLoading: false,
+      error: '',
+    })
+  }
+
   const handleKnowledgeFilesUpload = async (files: File[]) => {
     if (files.length === 0 || isKnowledgeUploading) {
       return
@@ -238,15 +252,7 @@ export function AiSettingsPage() {
 
     try {
       const uploadResponse = await uploadKnowledgeFiles(files)
-      const knowledgeResponse = await getKnowledgeFiles(1, 50)
-
-      setKnowledgeState({
-        files: knowledgeResponse.files,
-        total: knowledgeResponse.total,
-        storage: knowledgeResponse.storage,
-        isLoading: false,
-        error: '',
-      })
+      await refreshKnowledgeFiles()
       setKnowledgeUploadStatus('success')
       setKnowledgeUploadMessage(`Загружено файлов: ${uploadResponse.accepted}`)
     } catch (error) {
@@ -260,6 +266,36 @@ export function AiSettingsPage() {
       if (knowledgeFileInputRef.current) {
         knowledgeFileInputRef.current.value = ''
       }
+    }
+  }
+
+  const handleKnowledgeFileDelete = async (file: ApiKnowledgeDocument) => {
+    if (deletingKnowledgeFileId) {
+      return
+    }
+
+    const isConfirmed = window.confirm(`Удалить файл «${file.name}» из базы знаний?`)
+
+    if (!isConfirmed) {
+      return
+    }
+
+    setDeletingKnowledgeFileId(file.id)
+    setKnowledgeUploadStatus('idle')
+    setKnowledgeUploadMessage('')
+
+    try {
+      await deleteKnowledgeFile(file.id)
+      await refreshKnowledgeFiles()
+      setKnowledgeUploadStatus('success')
+      setKnowledgeUploadMessage('Файл удалён')
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error ? error.message : 'Не удалось удалить файл',
+      )
+    } finally {
+      setDeletingKnowledgeFileId(null)
     }
   }
 
@@ -447,7 +483,16 @@ export function AiSettingsPage() {
                         </span>
                       </td>
                       <td>
-                        <span className="ai-settings-table-muted">позже</span>
+                        <button
+                          className="ai-settings-table-action-button"
+                          type="button"
+                          disabled={deletingKnowledgeFileId === file.id}
+                          onClick={() => {
+                            void handleKnowledgeFileDelete(file)
+                          }}
+                        >
+                          {deletingKnowledgeFileId === file.id ? 'Удаляем...' : 'Удалить'}
+                        </button>
                       </td>
                     </tr>
                   ))}
