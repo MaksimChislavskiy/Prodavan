@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   getAiSettings,
   getKnowledgeFiles,
   updateAiSettings,
+  uploadKnowledgeFiles,
   type ApiAiSettings,
   type ApiKnowledgeDocument,
   type ApiKnowledgeFilesResponse,
@@ -28,6 +29,7 @@ type KnowledgeFilesState = {
 type SaveStatus = 'idle' | 'success' | 'error'
 
 export function AiSettingsPage() {
+  const knowledgeFileInputRef = useRef<HTMLInputElement | null>(null)
   const [state, setState] = useState<AiSettingsState>({
     settings: null,
     isLoading: true,
@@ -49,6 +51,9 @@ export function AiSettingsPage() {
   const [autopilotStatus, setAutopilotStatus] = useState<SaveStatus>('idle')
   const [autopilotMessage, setAutopilotMessage] = useState('')
   const [isAutopilotConfirmOpen, setIsAutopilotConfirmOpen] = useState(false)
+  const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false)
+  const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
+  const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -222,6 +227,42 @@ export function AiSettingsPage() {
     setIsAutopilotConfirmOpen(true)
   }
 
+  const handleKnowledgeFilesUpload = async (files: File[]) => {
+    if (files.length === 0 || isKnowledgeUploading) {
+      return
+    }
+
+    setIsKnowledgeUploading(true)
+    setKnowledgeUploadStatus('idle')
+    setKnowledgeUploadMessage('')
+
+    try {
+      const uploadResponse = await uploadKnowledgeFiles(files)
+      const knowledgeResponse = await getKnowledgeFiles(1, 50)
+
+      setKnowledgeState({
+        files: knowledgeResponse.files,
+        total: knowledgeResponse.total,
+        storage: knowledgeResponse.storage,
+        isLoading: false,
+        error: '',
+      })
+      setKnowledgeUploadStatus('success')
+      setKnowledgeUploadMessage(`Загружено файлов: ${uploadResponse.accepted}`)
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error ? error.message : 'Не удалось загрузить файлы',
+      )
+    } finally {
+      setIsKnowledgeUploading(false)
+
+      if (knowledgeFileInputRef.current) {
+        knowledgeFileInputRef.current.value = ''
+      }
+    }
+  }
+
   return (
     <main className="ai-settings-page">
       <section className="ai-settings-card ai-settings-card--instruction">
@@ -336,10 +377,39 @@ export function AiSettingsPage() {
             ↥
           </span>
           <span>Чтобы загрузить документ, перетащите их сюда или нажмите</span>
-          <button className="ai-settings-upload-box__button" type="button">
-            Загрузить⌄
+          <input
+            className="ai-settings-file-input"
+            ref={knowledgeFileInputRef}
+            type="file"
+            accept=".pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            multiple
+            onChange={(event) => {
+              const selectedFiles = Array.from(event.target.files ?? [])
+              void handleKnowledgeFilesUpload(selectedFiles)
+            }}
+          />
+          <button
+            className="ai-settings-upload-box__button"
+            type="button"
+            disabled={isKnowledgeUploading}
+            onClick={() => knowledgeFileInputRef.current?.click()}
+          >
+            {isKnowledgeUploading ? 'Загружаем...' : 'Загрузить⌄'}
           </button>
         </div>
+
+        {knowledgeUploadMessage && (
+          <p
+            className={[
+              'ai-settings-upload-message',
+              knowledgeUploadStatus === 'error' ? 'ai-settings-upload-message--error' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {knowledgeUploadMessage}
+          </p>
+        )}
 
         <div className="ai-settings-knowledge-list">
           {knowledgeState.isLoading ? (
