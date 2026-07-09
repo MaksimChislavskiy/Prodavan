@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     AIAuditLog,
     AIAutomationEvent,
+    AIAutopilotJob,
     AIChatInsight,
     AISettings,
     AIUsageDaily,
@@ -104,6 +105,35 @@ class AIProcessedEventAdmin(admin.ModelAdmin):
         'result',
         'created_at',
         'expires_at',
+    )
+
+
+@admin.register(AIAutopilotJob)
+class AIAutopilotJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'workspace',
+        'chat',
+        'mode',
+        'status',
+        'attempts',
+        'available_at',
+        'processed_at',
+    )
+    list_filter = ('mode', 'status', 'failure_type')
+    search_fields = ('id', 'trigger_message__text', 'last_error')
+    readonly_fields = (
+        'id',
+        'workspace',
+        'chat',
+        'trigger_message',
+        'reply_message',
+        'attempts',
+        'batched_message_ids',
+        'sources',
+        'result',
+        'created_at',
+        'updated_at',
     )
 
 

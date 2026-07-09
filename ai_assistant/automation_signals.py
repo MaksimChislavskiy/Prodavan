@@ -4,6 +4,7 @@ from django.dispatch import receiver
 from messaging.models import Message
 
 from .automation import enqueue_automation_event
+from .autopilot import schedule_autopilot_for_message
 
 
 @receiver(
@@ -15,3 +16,4 @@ def enqueue_message_automation(sender, instance, created, **kwargs):
     if not created:
         return
     enqueue_automation_event(instance)
+    schedule_autopilot_for_message(instance)

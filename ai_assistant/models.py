@@ -72,11 +72,21 @@ class AutomationActionType(models.TextChoices):
     DEAL_ENRICHMENT = 'deal_enrichment', 'Обогащение сделки'
     TASK_CREATE = 'task_create', 'Создание задачи'
     INSIGHT = 'insight', 'Инсайт по чату'
+    AUTOPILOT_REPLY = 'autopilot_reply', 'Ответ автопилота'
 
 
 class AutomationFailureType(models.TextChoices):
     TECHNICAL = 'technical', 'Техническая ошибка'
     BUSINESS = 'business', 'Бизнес-ошибка'
+
+
+class AutopilotJobStatus(models.TextChoices):
+    PENDING = 'pending', 'Ожидает обработки'
+    PROCESSING = 'processing', 'Обрабатывается'
+    SENT = 'sent', 'Отправлено'
+    SKIPPED = 'skipped', 'Пропущено'
+    FAILED = 'failed', 'Ошибка'
+    CANCELLED = 'cancelled', 'Отменено'
 
 
 def knowledge_document_upload_to(instance, filename):
@@ -288,6 +298,71 @@ class AIChatInsight(models.Model):
             models.Index(
                 fields=('chat', '-created_at'),
                 name='ai_insight_chat_created_idx',
+            ),
+        ]
+
+
+class AIAutopilotJob(TimestampMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        'workspaces.Workspace',
+        on_delete=models.CASCADE,
+        related_name='ai_autopilot_jobs',
+    )
+    chat = models.ForeignKey(
+        'messaging.Chat',
+        on_delete=models.CASCADE,
+        related_name='ai_autopilot_jobs',
+    )
+    trigger_message = models.OneToOneField(
+        'messaging.Message',
+        on_delete=models.CASCADE,
+        related_name='ai_autopilot_job',
+    )
+    reply_message = models.OneToOneField(
+        'messaging.Message',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ai_autopilot_reply_job',
+    )
+    mode = models.CharField(max_length=16, choices=AutopilotMode.choices)
+    status = models.CharField(
+        max_length=16,
+        choices=AutopilotJobStatus.choices,
+        default=AutopilotJobStatus.PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    available_at = models.DateTimeField(default=timezone.now, db_index=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    failure_type = models.CharField(
+        max_length=16,
+        choices=AutomationFailureType.choices,
+        blank=True,
+        default='',
+    )
+    last_error = models.TextField(blank=True, default='')
+    batched_message_ids = models.JSONField(default=list, blank=True)
+    sources = models.JSONField(default=list, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'ai_autopilot_job'
+        ordering = ('available_at', 'created_at', 'id')
+        indexes = [
+            models.Index(
+                fields=('workspace', 'status', 'available_at'),
+                name='ai_autopilot_queue_idx',
+            ),
+            models.Index(
+                fields=('chat', 'status', 'available_at'),
+                name='ai_autopilot_chat_idx',
+            ),
+            models.Index(
+                fields=('chat', '-processed_at'),
+                name='ai_autopilot_done_idx',
             ),
         ]
 
