@@ -104,13 +104,15 @@
 }
 
 .ai-settings-save-message,
-.ai-settings-autopilot-message {
+.ai-settings-autopilot-message,
+.ai-settings-upload-message {
   color: #118a3b;
 }
 
 .ai-settings-instruction-counter--error,
 .ai-settings-save-message--error,
-.ai-settings-autopilot-message--error {
+.ai-settings-autopilot-message--error,
+.ai-settings-upload-message--error {
   color: #e20f0f;
 }
 
@@ -227,6 +229,10 @@
   line-height: 1;
 }
 
+.ai-settings-file-input {
+  display: none;
+}
+
 .ai-settings-upload-box__button {
   padding: 0;
   border: 0;
@@ -238,6 +244,18 @@
   text-decoration: underline;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.ai-settings-upload-box__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-settings-upload-message {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
 }
 
 .ai-settings-knowledge-list {
