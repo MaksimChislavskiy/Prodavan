@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project \
-    && uv pip install "psycopg[binary]>=3.2,<4"
+    && uv pip install "django>=4.2.30,<5.0" "psycopg[binary]>=3.2,<4"
 
 COPY . .
 
