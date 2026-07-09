@@ -29,6 +29,21 @@ export type ApiAiSettings = {
   current_usage: ApiAiSettingsCurrentUsage
 }
 
+export type UpdateAiSettingsPayload = {
+  version: number
+  instruction?: string
+  autopilot_enabled?: boolean
+  autopilot_mode?: ApiAutopilotMode
+  autopilot_delay?: number
+}
+
 export function getAiSettings() {
   return apiRequest<ApiAiSettings>('/api/ai/settings')
+}
+
+export function updateAiSettings(payload: UpdateAiSettingsPayload) {
+  return apiRequest<ApiAiSettings>('/api/ai/settings', {
+    method: 'PATCH',
+    body: payload,
+  })
 }
