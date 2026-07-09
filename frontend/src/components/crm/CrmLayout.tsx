@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import logoFull from '../../assets/brand/logo-full.svg'
 import { DashboardPage } from './DashboardPage'
+import { AiAssistantModal } from './AiAssistantModal'
 import './CrmLayout.css'
 
 type SidebarIconName =
@@ -218,6 +219,7 @@ export function CrmLayout() {
   const [activeSection, setActiveSection] = useState<CrmSectionId>(() =>
     getSectionFromPath(window.location.pathname),
   )
+  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false)
 
   const currentSection = crmSections[activeSection]
 
@@ -234,11 +236,16 @@ export function CrmLayout() {
     }
   }, [])
 
-  const openSection = (href: string) => {
-    window.history.pushState(null, '', href)
-    setActiveSection(getSectionFromPath(href))
-    window.scrollTo(0, 0)
-  }
+    const openSection = (href: string) => {
+      if (href === '/app/ai') {
+        setIsAiAssistantOpen(true)
+        return
+      }
+
+      window.history.pushState(null, '', href)
+      setActiveSection(getSectionFromPath(href))
+      window.scrollTo(0, 0)
+    }
 
   return (
     <div className="crm-shell">
@@ -280,7 +287,13 @@ export function CrmLayout() {
 
       <div className="crm-main">
         <header className="crm-topbar">
-          <form className="crm-ai-search" onSubmit={(event) => event.preventDefault()}>
+          <form
+            className="crm-ai-search"
+            onSubmit={(event) => {
+              event.preventDefault()
+              setIsAiAssistantOpen(true)
+            }}
+          >
             <span className="crm-ai-search__icon" aria-hidden="true">
               ✨
             </span>
@@ -290,6 +303,7 @@ export function CrmLayout() {
               placeholder="Спросите AI"
               aria-label="Спросить AI"
               maxLength={200}
+              onFocus={() => setIsAiAssistantOpen(true)}
             />
             <button className="crm-ai-search__button" type="submit" aria-label="Отправить запрос AI">
               ↵
@@ -331,6 +345,10 @@ export function CrmLayout() {
             </>
           )}
         </main>
+
+        {isAiAssistantOpen && (
+          <AiAssistantModal onClose={() => setIsAiAssistantOpen(false)} />
+        )}
       </div>
     </div>
   )
