@@ -20,7 +20,8 @@
 }
 
 .ai-settings-refresh-button:disabled,
-.ai-settings-reset-button:disabled {
+.ai-settings-reset-button:disabled,
+.ai-settings-guide-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
