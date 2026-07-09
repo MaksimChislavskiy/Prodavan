@@ -536,9 +536,9 @@ export function AiSettingsPage() {
             <span aria-hidden="true">▶</span>
             Смотреть обучающее видео
           </button>
-          <a className="ai-settings-guide-link" href="/static/ai_setup_guide.pdf" target="_blank" rel="noreferrer">
+          <button className="ai-settings-guide-link" type="button" disabled>
             Читать инструкцию
-          </a>
+          </button>
         </div>
       </section>
 
