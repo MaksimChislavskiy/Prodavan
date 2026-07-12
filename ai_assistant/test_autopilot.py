@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from contacts.models import Contact
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
+from tasks.models import Task
 from users.models import User
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 
@@ -185,6 +186,35 @@ class AIAutopilotTests(TestCase):
         )
         job.refresh_from_db()
         self.assertEqual(job.result['reason'], 'no_relevant_knowledge')
+
+    def test_no_relevant_knowledge_after_three_customer_messages_escalates_to_task(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        self.incoming('Есть вопрос.')
+        self.incoming('Вы тут?')
+        message = self.incoming('Очень жду ответа.')
+        job = message.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
+
+        outcome = process_autopilot_job(
+            job.id,
+            retrieval_func=lambda **kwargs: [],
+            completion_client=FakeCompletionClient(),
+            now=now,
+        )
+
+        self.assertEqual(outcome, 'skipped')
+        task = Task.objects.get(workspace=self.workspace)
+        self.assertTrue(task.created_by_ai)
+        self.assertEqual(task.contact_id, self.contact.id)
+        self.assertEqual(task.title, 'Срочно: клиент ожидает ответа')
+        self.assertIn('no_relevant_knowledge', task.description)
+        usage = AIUsageDaily.objects.get(workspace=self.workspace)
+        self.assertEqual(usage.tasks_created, 1)
+        job.refresh_from_db()
+        self.assertEqual(job.result['escalation']['status'], 'created')
+        self.assertEqual(job.result['escalation']['task_id'], str(task.id))
 
     def test_daily_limit_skips_before_generation(self):
         self.enable_autopilot(mode=AutopilotMode.ALWAYS)

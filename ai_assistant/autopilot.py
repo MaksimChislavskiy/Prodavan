@@ -10,6 +10,8 @@ from messaging.models import Chat, ChatAuditAction, Message, MessageSenderType, 
 from messaging.realtime import broadcast_workspace_event
 from messaging.serializers import MessageSerializer
 from messaging.services import write_chat_audit
+from tasks.models import DueDateType, TaskSource
+from tasks.services import TaskServiceError, create_task
 from users.models import User
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 
@@ -42,6 +44,12 @@ BATCHING_WINDOW = timedelta(seconds=10)
 PROCESSED_EVENT_RETENTION = timedelta(hours=24)
 RETRY_DELAYS = (1, 5, 15)
 EVENT_CHAT_MESSAGE_RECEIVED = 'chat_message_received'
+ESCALATION_CUSTOMER_MESSAGES = 3
+ESCALATION_SKIP_REASONS = {
+    'no_relevant_knowledge',
+    'empty_ai_response',
+    'consecutive_reply_limit',
+}
 
 
 class AutopilotSkip(Exception):
@@ -486,12 +494,18 @@ def _mark_skipped(job_id, error):
     now = timezone.now()
     with transaction.atomic():
         job = AIAutopilotJob.objects.select_for_update().get(id=job_id)
+        escalation = _maybe_create_escalation_task(job=job, reason=error.code)
         job.status = AutopilotJobStatus.SKIPPED
         job.processed_at = now
         job.locked_at = None
         job.failure_type = ''
         job.last_error = error.code
-        job.result = {'status': 'skipped', 'reason': error.code, **error.details}
+        job.result = {
+            'status': 'skipped',
+            'reason': error.code,
+            **error.details,
+            'escalation': escalation,
+        }
         job.save(update_fields=(
             'status',
             'processed_at',
@@ -577,6 +591,78 @@ def _record_processed_action(job, result):
             'expires_at': timezone.now() + PROCESSED_EVENT_RETENTION,
         },
     )
+
+
+def _maybe_create_escalation_task(*, job, reason):
+    if reason not in ESCALATION_SKIP_REASONS:
+        return {'status': 'skipped_not_escalation_reason', 'reason': reason}
+
+    consecutive_count = _consecutive_customer_messages(job.chat)
+    if consecutive_count < ESCALATION_CUSTOMER_MESSAGES:
+        return {
+            'status': 'skipped_not_enough_customer_messages',
+            'customer_messages': consecutive_count,
+        }
+
+    usage = _usage_for_update(job.workspace)
+    if usage.tasks_created >= AI_LIMITS['daily_task_creation']:
+        return {'status': 'skipped_daily_task_limit'}
+
+    latest_text = (job.trigger_message.text or '').strip()[:500]
+    try:
+        body, response_status = create_task(
+            workspace=job.workspace,
+            user=None,
+            data={
+                'title': 'Срочно: клиент ожидает ответа',
+                'description': (
+                    'Автопилот не смог подготовить ответ. '
+                    f'Причина: {reason}. '
+                    f'Последнее сообщение клиента: {latest_text}'
+                )[:1000],
+                'due_date': None,
+                'due_date_type': DueDateType.NONE,
+                'contact_id': job.chat.contact_id,
+                'deal_id': None,
+                'comment': 'Создана AI из чата: клиент ожидает ответа',
+            },
+            idempotency_key=_escalation_task_key(job.trigger_message_id),
+            source=TaskSource.AI,
+        )
+    except TaskServiceError as error:
+        return {'status': 'failed', 'error': error.code}
+
+    if response_status == 201:
+        usage.tasks_created += 1
+        usage.save(update_fields=('tasks_created',))
+    return {
+        'status': 'created' if response_status == 201 else 'reused',
+        'task_id': str(body.get('id')),
+        'response_status': response_status,
+        'customer_messages': consecutive_count,
+    }
+
+
+def _consecutive_customer_messages(chat):
+    count = 0
+    for message in Message.objects.filter(
+        chat=chat,
+        is_deleted=False,
+    ).order_by('-created_at', '-id')[:20]:
+        if (
+            message.sender_type == MessageSenderType.CONTACT
+            and not message.sent_by_ai
+        ):
+            count += 1
+            continue
+        break
+    return count
+
+
+def _escalation_task_key(message_id):
+    return hashlib.sha256(
+        f'{message_id}:autopilot_escalation_task'.encode(),
+    ).hexdigest()
 
 
 def _effective_autopilot_enabled(chat, settings_object):
