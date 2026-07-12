@@ -9,7 +9,7 @@ from tasks.models import Task
 from users.models import User
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 
-from .autopilot import process_autopilot_job
+from .autopilot import process_autopilot_job, process_pending_autopilot_jobs
 from .chat_client import ChatCompletionResult
 from .models import (
     AIAutopilotJob,
@@ -250,3 +250,21 @@ class AIAutopilotTests(TestCase):
         self.incoming('Не отвечай автоматически.')
 
         self.assertFalse(AIAutopilotJob.objects.exists())
+
+    def test_pending_autopilot_processing_cleans_expired_processed_events(self):
+        message = self.incoming('Старая обработка.')
+        event = message.ai_automation_event
+        AIProcessedEvent.objects.create(
+            workspace=self.workspace,
+            event=event,
+            chat=self.chat,
+            action_type=AutomationActionType.AUTOPILOT_REPLY,
+            idempotency_key='expired-autopilot-action',
+            result={'status': 'sent'},
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        result = process_pending_autopilot_jobs(limit=1)
+
+        self.assertEqual(result['cleaned'], 1)
+        self.assertFalse(AIProcessedEvent.objects.exists())

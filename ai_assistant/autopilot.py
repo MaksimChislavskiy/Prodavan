@@ -155,6 +155,7 @@ def process_pending_autopilot_jobs(
     now=None,
 ):
     now = now or timezone.now()
+    cleaned = cleanup_expired_processed_events(now=now)
     job_ids = list(
         AIAutopilotJob.objects.filter(
             status=AutopilotJobStatus.PENDING,
@@ -170,6 +171,7 @@ def process_pending_autopilot_jobs(
         'failed': 0,
         'cancelled': 0,
         'rescheduled': 0,
+        'cleaned': cleaned,
     }
     for job_id in job_ids:
         outcome = process_autopilot_job(
@@ -183,6 +185,11 @@ def process_pending_autopilot_jobs(
         if outcome in result:
             result[outcome] += 1
     return result
+
+
+def cleanup_expired_processed_events(now=None):
+    now = now or timezone.now()
+    return AIProcessedEvent.objects.filter(expires_at__lte=now).delete()[0]
 
 
 def process_autopilot_job(
