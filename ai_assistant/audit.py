@@ -73,6 +73,27 @@ def audit_autopilot_job(job):
     return log
 
 
+def audit_automation_failure(*, event, error_text, failure_type):
+    log = _create_log(
+        workspace=event.workspace,
+        chat=event.chat,
+        message=event.message,
+        action_type='automation_failure',
+        trigger=event.event_type,
+        correlation_id=event.id,
+        raw_message=event.message.text,
+        ai_response=event.analysis,
+        details={
+            'status': 'failed',
+            'failure_type': failure_type,
+            'error': error_text,
+        },
+    )
+    if log is not None:
+        _notify_grouped(workspace_id=event.workspace_id, logs=[log])
+    return log
+
+
 def _create_log(
     *,
     workspace,

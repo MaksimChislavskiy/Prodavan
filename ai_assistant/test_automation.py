@@ -16,6 +16,8 @@ from .automation import (
 )
 from .models import (
     AIChatInsight,
+    AIAutomationAuditAction,
+    AIAutomationAuditLog,
     AIAutomationEvent,
     AIProcessedEvent,
     AIUsageDaily,
@@ -271,6 +273,7 @@ class AIAutomationTests(TestCase):
         self.assertEqual(event.attempts, 1)
         self.assertEqual(event.failure_type, AutomationFailureType.TECHNICAL)
         self.assertGreater(event.available_at, timezone.now())
+        self.assertFalse(AIAutomationAuditLog.objects.exists())
 
     def test_business_error_fails_without_retry(self):
         message = self.incoming('Проверь business error.')
@@ -283,6 +286,34 @@ class AIAutomationTests(TestCase):
         self.assertEqual(event.status, AutomationEventStatus.FAILED)
         self.assertEqual(event.attempts, 1)
         self.assertEqual(event.failure_type, AutomationFailureType.BUSINESS)
+
+        log = AIAutomationAuditLog.objects.get()
+        self.assertEqual(log.action, AIAutomationAuditAction.AI_ACTION_FAILED)
+        self.assertEqual(log.action_type, 'automation_failure')
+        self.assertEqual(log.details['failure_type'], AutomationFailureType.BUSINESS)
+        self.assertIn('invalid json', log.details['error'])
+        self.assertEqual(log.message_id, message.id)
+
+    def test_final_technical_error_is_audited_after_retries(self):
+        message = self.incoming('Проверь final technical error.')
+        event_id = message.ai_automation_event.id
+        AIAutomationEvent.objects.filter(id=event_id).update(attempts=3)
+        analyzer = DummyAnalyzer(error=AutomationTechnicalError('timeout'))
+
+        outcome = process_automation_event(event_id, analyzer=analyzer)
+
+        event = AIAutomationEvent.objects.get(id=event_id)
+        self.assertEqual(outcome, 'failed')
+        self.assertEqual(event.status, AutomationEventStatus.FAILED)
+        self.assertEqual(event.attempts, 4)
+        self.assertEqual(event.failure_type, AutomationFailureType.TECHNICAL)
+
+        log = AIAutomationAuditLog.objects.get()
+        self.assertEqual(log.action, AIAutomationAuditAction.AI_ACTION_FAILED)
+        self.assertEqual(log.action_type, 'automation_failure')
+        self.assertEqual(log.details['failure_type'], AutomationFailureType.TECHNICAL)
+        self.assertIn('timeout', log.details['error'])
+        self.assertEqual(log.message_id, message.id)
 
     def test_context_uses_last_five_messages(self):
         messages = [self.incoming(f'Сообщение {index}') for index in range(6)]

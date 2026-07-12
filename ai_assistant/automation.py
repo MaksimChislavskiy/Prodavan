@@ -22,7 +22,7 @@ from tasks.dates import normalize_due_date
 from tasks.models import DueDateType, Task, TaskSource
 from tasks.services import TaskServiceError, create_task
 
-from .audit import audit_automation_event
+from .audit import audit_automation_event, audit_automation_failure
 from .chat_client import (
     ChatCompletionClient,
     ChatConfigurationError,
@@ -309,17 +309,24 @@ def _last_context_messages(chat, message):
 
 
 def _mark_business_failure(event_id, error):
+    error_text = _error_text(error)
     AIAutomationEvent.objects.filter(id=event_id).update(
         status=AutomationEventStatus.FAILED,
         processed_at=timezone.now(),
         locked_at=None,
         failure_type=AutomationFailureType.BUSINESS,
-        last_error=_error_text(error),
+        last_error=error_text,
+    )
+    audit_automation_failure(
+        event=_event_for_failure_audit(event_id),
+        error_text=error_text,
+        failure_type=AutomationFailureType.BUSINESS,
     )
 
 
 def _mark_technical_failure(event_id, error):
     now = timezone.now()
+    error_text = _error_text(error)
     with transaction.atomic():
         event = AIAutomationEvent.objects.select_for_update().get(id=event_id)
         if event.attempts <= len(RETRY_DELAYS):
@@ -332,7 +339,7 @@ def _mark_technical_failure(event_id, error):
             outcome = 'failed'
         event.locked_at = None
         event.failure_type = AutomationFailureType.TECHNICAL
-        event.last_error = _error_text(error)
+        event.last_error = error_text
         event.save(update_fields=(
             'status',
             'available_at',
@@ -342,7 +349,24 @@ def _mark_technical_failure(event_id, error):
             'last_error',
             'updated_at',
         ))
+    if outcome == 'failed':
+        audit_automation_failure(
+            event=_event_for_failure_audit(event_id),
+            error_text=error_text,
+            failure_type=AutomationFailureType.TECHNICAL,
+        )
     return outcome
+
+
+def _event_for_failure_audit(event_id):
+    return (
+        AIAutomationEvent.objects.select_related(
+            'workspace',
+            'chat',
+            'message',
+        )
+        .get(id=event_id)
+    )
 
 
 def _apply_actions(event, analysis):
