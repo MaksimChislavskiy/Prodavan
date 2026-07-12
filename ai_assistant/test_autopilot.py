@@ -1,5 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -11,6 +13,7 @@ from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceInteg
 
 from .autopilot import process_autopilot_job, process_pending_autopilot_jobs
 from .chat_client import ChatCompletionResult
+from .limits import AI_LIMITS
 from .models import (
     AIAutopilotJob,
     AIProcessedEvent,
@@ -19,6 +22,7 @@ from .models import (
     AutopilotJobStatus,
     AutopilotMode,
     AutomationActionType,
+    AutomationFailureType,
 )
 from .retrieval import RetrievedChunk
 
@@ -55,6 +59,7 @@ def fake_source():
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class AIAutopilotTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             email='owner@example.com',
             password='StrongPass1',
@@ -241,6 +246,31 @@ class AIAutopilotTests(TestCase):
         self.assertIsNone(completion.messages)
         job.refresh_from_db()
         self.assertEqual(job.result['reason'], 'workspace_daily_reply_limit')
+
+    def test_workspace_ai_rate_limit_reschedules_before_generation(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        message = self.incoming('Когда работаете?')
+        job = message.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
+        completion = FakeCompletionClient()
+
+        with patch.dict(AI_LIMITS, {'workspace_ai_requests_per_minute': 0}):
+            outcome = process_autopilot_job(
+                job.id,
+                retrieval_func=lambda **kwargs: [fake_source()],
+                completion_client=completion,
+                now=now,
+            )
+
+        self.assertEqual(outcome, 'rescheduled')
+        self.assertIsNone(completion.messages)
+        job.refresh_from_db()
+        self.assertEqual(job.status, AutopilotJobStatus.PENDING)
+        self.assertEqual(job.failure_type, AutomationFailureType.TECHNICAL)
+        self.assertEqual(job.last_error, 'ai_rate_limit_exceeded')
+        self.assertGreater(job.available_at, now)
 
     def test_chat_override_disables_autopilot(self):
         self.enable_autopilot(mode=AutopilotMode.ALWAYS)

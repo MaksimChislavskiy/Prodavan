@@ -1,5 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -10,10 +12,13 @@ from tasks.models import Task
 from users.models import User
 
 from .automation import (
+    AutomationAnalysisClient,
     AutomationBusinessError,
     AutomationTechnicalError,
     process_automation_event,
 )
+from .chat_client import ChatCompletionResult
+from .limits import AI_LIMITS
 from .models import (
     AIChatInsight,
     AIAutomationAuditAction,
@@ -43,12 +48,31 @@ class DummyAnalyzer:
         return self.payload
 
 
+class FakeCompletionClient:
+    def __init__(self, content='{}'):
+        self.content = content
+        self.calls = 0
+
+    def complete(self, messages):
+        self.calls += 1
+        return ChatCompletionResult(
+            content=self.content,
+            model_name='test-model',
+            provider='test-provider',
+            prompt_tokens=1,
+            completion_tokens=1,
+            total_tokens=2,
+            processing_time_ms=10,
+        )
+
+
 @override_settings(
     PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
     AI_AUTOMATION_CONFIDENCE_THRESHOLD=0.7,
 )
 class AIAutomationTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             email='owner@example.com',
             password='StrongPass1',
@@ -314,6 +338,25 @@ class AIAutomationTests(TestCase):
         self.assertEqual(log.details['failure_type'], AutomationFailureType.TECHNICAL)
         self.assertIn('timeout', log.details['error'])
         self.assertEqual(log.message_id, message.id)
+
+    def test_analysis_client_respects_workspace_ai_rate_limit(self):
+        message = self.incoming('Проверь rate limit.')
+        event = AIAutomationEvent.objects.get(message=message)
+        client = FakeCompletionClient()
+        analyzer = AutomationAnalysisClient(chat_client=client)
+
+        with patch.dict(AI_LIMITS, {'workspace_ai_requests_per_minute': 1}):
+            self.assertEqual(
+                analyzer.analyze(event=event, context_messages=[]),
+                {},
+            )
+            with self.assertRaisesMessage(
+                AutomationTechnicalError,
+                'ai_rate_limit_exceeded',
+            ):
+                analyzer.analyze(event=event, context_messages=[])
+
+        self.assertEqual(client.calls, 1)
 
     def test_context_uses_last_five_messages(self):
         messages = [self.incoming(f'Сообщение {index}') for index in range(6)]

@@ -21,6 +21,7 @@ from .models import (
     AIChatSession,
     AIChatSessionStatus,
 )
+from .rate_limits import AIRateLimitExceeded, consume_workspace_ai_request
 from .retrieval import retrieve_knowledge
 
 
@@ -28,6 +29,7 @@ GENERIC_FAILURE = 'Не удалось получить ответ. Повтор
 TIMEOUT_FAILURE = 'Время ожидания ответа истекло. Попробуйте повторить запрос.'
 EMPTY_FAILURE = 'AI не смог сформулировать ответ. Попробуйте переформулировать запрос.'
 TOO_MANY_FAILURE = 'Слишком много запросов. Подождите, пока завершится текущий.'
+RATE_LIMIT_FAILURE = 'Превышен лимит AI-запросов. Попробуйте через минуту.'
 NO_KNOWLEDGE_RESPONSE = (
     'В базе знаний не найдено достаточно информации для ответа. '
     'Попробуйте переформулировать вопрос или загрузите подходящий документ.'
@@ -280,6 +282,7 @@ def _generate_answer(
     completion_client=None,
 ):
     try:
+        consume_workspace_ai_request(user_message.workspace_id)
         sources = retrieve_knowledge(
             workspace=user_message.workspace,
             query=user_message.content,
@@ -307,6 +310,19 @@ def _generate_answer(
             'AI_TIMEOUT',
             TIMEOUT_FAILURE,
             status_code=504,
+            message_object=message,
+        )
+    except AIRateLimitExceeded:
+        message = _mark_failure(
+            assistant_message=assistant_message,
+            status_value=AIChatMessageStatus.FAILED,
+            content=RATE_LIMIT_FAILURE,
+            error_code='ai_rate_limit_exceeded',
+        )
+        raise AIChatServiceError(
+            'AI_RATE_LIMIT_EXCEEDED',
+            RATE_LIMIT_FAILURE,
+            status_code=429,
             message_object=message,
         )
     except EmptyChatResponseError:

@@ -37,6 +37,7 @@ from .models import (
     AutomationEventStatus,
     AutomationFailureType,
 )
+from .rate_limits import AIRateLimitExceeded, consume_workspace_ai_request
 from .retrieval import retrieve_knowledge
 
 
@@ -397,6 +398,7 @@ def _generate_reply(*, job, context_messages, sources, completion_client=None):
         f'Источники базы знаний:\n{source_context}'
     )
     try:
+        consume_workspace_ai_request(job.workspace_id)
         client = completion_client or ChatCompletionClient()
         result = client.complete([
             {'role': 'system', 'content': system_prompt},
@@ -411,6 +413,8 @@ def _generate_reply(*, job, context_messages, sources, completion_client=None):
                 ),
             },
         ])
+    except AIRateLimitExceeded as error:
+        raise AutopilotTechnicalError('ai_rate_limit_exceeded') from error
     except ChatConfigurationError as error:
         raise AutopilotBusinessError('ai_not_configured') from error
     except EmptyChatResponseError as error:

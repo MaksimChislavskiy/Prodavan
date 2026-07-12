@@ -41,6 +41,7 @@ from .models import (
     AutomationEventStatus,
     AutomationFailureType,
 )
+from .rate_limits import AIRateLimitExceeded, consume_workspace_ai_request
 
 
 EVENT_CHAT_MESSAGE_RECEIVED = 'chat_message_received'
@@ -65,6 +66,7 @@ class AutomationAnalysisClient:
 
     def analyze(self, *, event, context_messages):
         try:
+            consume_workspace_ai_request(event.workspace_id)
             result = self.chat_client.complete([
                 {
                     'role': 'system',
@@ -106,6 +108,8 @@ class AutomationAnalysisClient:
             raise AutomationBusinessError(
                 'AI chat client is not configured.',
             ) from error
+        except AIRateLimitExceeded as error:
+            raise AutomationTechnicalError('ai_rate_limit_exceeded') from error
         except (ChatTimeoutError, EmptyChatResponseError, ChatServiceError) as error:
             raise AutomationTechnicalError(str(error) or type(error).__name__) from error
 

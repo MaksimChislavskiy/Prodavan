@@ -16,6 +16,7 @@ from .chat_client import (
     ChatTimeoutError,
     sanitize_ai_content,
 )
+from .limits import AI_LIMITS
 from .models import (
     AIChatMessage,
     AIChatMessageStatus,
@@ -326,6 +327,35 @@ class AIChatApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.data['message']['error'], 'too_many_requests')
         self.assertEqual(AIChatMessage.objects.count(), 8)
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_workspace_ai_rate_limit_returns_429_and_saves_history(
+        self,
+        client_class,
+        retrieve,
+    ):
+        session = self._session()
+        access = self._login()
+
+        with patch.dict(AI_LIMITS, {'workspace_ai_requests_per_minute': 0}):
+            response = self.client.post(
+                self.chat_url,
+                self._payload(session),
+                format='json',
+                **self._auth(access),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.data['error']['code'], 'AI_RATE_LIMIT_EXCEEDED')
+        self.assertEqual(
+            response.data['message']['error'],
+            'ai_rate_limit_exceeded',
+        )
+        self.assertEqual(response.data['message']['status'], 'failed')
+        self.assertEqual(AIChatMessage.objects.count(), 2)
+        retrieve.assert_not_called()
+        client_class.assert_not_called()
 
     def test_close_session_is_idempotent(self):
         session = self._session()
