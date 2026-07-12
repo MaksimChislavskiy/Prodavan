@@ -19,7 +19,7 @@ from deals.models import ChangedByType, Deal, DealEvent, DealHistory
 from deals.services import CRMServiceError, create_deal, update_deal
 from messaging.models import Message, MessageSenderType
 from tasks.dates import normalize_due_date
-from tasks.models import DueDateType, TaskSource
+from tasks.models import DueDateType, Task, TaskSource
 from tasks.services import TaskServiceError, create_task
 
 from .audit import audit_automation_event
@@ -572,7 +572,7 @@ def _create_task_if_needed(event, analysis, deal):
                 'due_date_type': due_date_type,
                 'contact_id': event.chat.contact_id,
                 'deal_id': deal.id if deal else None,
-                'comment': _text(task_data.get('comment'), 500),
+                'comment': 'Создана AI из чата',
             },
             idempotency_key=idempotency_key,
             source=TaskSource.AI,
@@ -719,10 +719,11 @@ def _ai_deal_created_recently(workspace, contact):
 
 
 def _tasks_created_for_chat_24h(chat):
-    return AIProcessedEvent.objects.filter(
-        chat=chat,
-        action_type=AutomationActionType.TASK_CREATE,
-        result__status='created',
+    return Task.objects.filter(
+        workspace=chat.workspace,
+        contact=chat.contact,
+        created_by_ai=True,
+        is_deleted=False,
         created_at__gte=timezone.now() - timedelta(hours=24),
     ).count()
 

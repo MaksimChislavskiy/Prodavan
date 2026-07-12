@@ -140,6 +140,7 @@ class AIAutomationTests(TestCase):
         self.assertEqual(task.title, 'Связаться с клиентом')
         self.assertEqual(task.deal_id, deal.id)
         self.assertTrue(task.created_by_ai)
+        self.assertEqual(task.comment, 'Создана AI из чата')
         usage = AIUsageDaily.objects.get(workspace=self.workspace)
         self.assertEqual(usage.deals_created, 1)
         self.assertEqual(usage.tasks_created, 1)
@@ -230,15 +231,15 @@ class AIAutomationTests(TestCase):
 
     def test_task_creation_respects_chat_24h_limit(self):
         for index in range(5):
-            old_message = self.incoming(f'old {index}')
-            AIProcessedEvent.objects.create(
+            task = Task.objects.create(
                 workspace=self.workspace,
-                event=old_message.ai_automation_event,
-                chat=self.chat,
-                action_type=AutomationActionType.TASK_CREATE,
-                idempotency_key=f'key-{index}',
-                result={'status': 'created', 'task_id': str(index)},
-                expires_at=timezone.now() + timedelta(hours=24),
+                contact=self.contact,
+                title=f'AI задача {index}',
+                created_by_ai=True,
+                comment='Создана AI из чата',
+            )
+            Task.objects.filter(id=task.id).update(
+                created_at=timezone.now() - timedelta(hours=1),
             )
         message = self.incoming('Создай ещё задачу.')
         analyzer = DummyAnalyzer({
@@ -251,7 +252,7 @@ class AIAutomationTests(TestCase):
 
         process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
 
-        self.assertFalse(Task.objects.exists())
+        self.assertEqual(Task.objects.count(), 5)
         task_action = AIProcessedEvent.objects.get(
             event=message.ai_automation_event,
             action_type=AutomationActionType.TASK_CREATE,
