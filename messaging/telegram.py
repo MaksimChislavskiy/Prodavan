@@ -4,6 +4,8 @@ from django.utils import timezone
 
 from contacts.models import Contact
 from contacts.services import create_contact
+from notifications.models import NotificationType
+from notifications.services import create_workspace_notification
 from workspaces.models import TelegramWebhookLog
 
 from .models import Chat, ChatAuditAction, Message, MessageSenderType
@@ -21,6 +23,13 @@ MEDIA_LABELS = (
     ('sticker', '[Стикер]'),
     ('animation', '[Анимация]'),
 )
+
+
+def _incoming_notification_text(contact, text):
+    preview = ' '.join((text or '').split())
+    if len(preview) > 160:
+        preview = f'{preview[:157]}...'
+    return f'{contact.name}: {preview}' if preview else f'{contact.name}: новое сообщение'
 
 
 def _message_text(message):
@@ -169,6 +178,16 @@ def process_telegram_webhook_log(log_id):
             chat_id=chat.id,
             message_id=incoming.id,
             details={'update_id': webhook_log.update_id},
+        )
+        create_workspace_notification(
+            workspace=webhook_log.workspace,
+            type=NotificationType.CHAT_NEW_MESSAGE,
+            title='Новое сообщение клиента',
+            content=_incoming_notification_text(contact, text),
+            link=f'/chat/{chat.id}',
+            entity_type='chat',
+            entity_id=str(chat.id),
+            now=now,
         )
         if chat_created:
             chat_payload = {

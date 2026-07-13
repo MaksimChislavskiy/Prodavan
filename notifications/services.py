@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from messaging.realtime import broadcast_user_event
+from users.models import User
 
 from .models import Notification
 
@@ -108,6 +109,32 @@ def create_notification(
         return notification
 
 
+def create_workspace_notification(
+    *,
+    workspace,
+    type,
+    title,
+    content,
+    link='',
+    entity_type='',
+    entity_id='',
+    now=None,
+):
+    return [
+        create_notification(
+            user=user,
+            type=type,
+            title=title,
+            content=content,
+            link=link,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            now=now,
+        )
+        for user in _active_workspace_users(workspace)
+    ]
+
+
 def mark_notification_read(*, user, notification_id):
     with transaction.atomic():
         notification = _notification_for_update(user=user, notification_id=notification_id)
@@ -187,6 +214,15 @@ def _recent_duplicate(*, user, type, entity_type, entity_id, now):
         .order_by('-created_at', '-id')
         .first()
     )
+
+
+def _active_workspace_users(workspace):
+    workspace_id = getattr(workspace, 'id', workspace)
+    return User.objects.filter(
+        workspace_id=workspace_id,
+        is_active=True,
+        is_deleted=False,
+    ).order_by('created_at', 'id')
 
 
 def _notification_for_update(*, user, notification_id):

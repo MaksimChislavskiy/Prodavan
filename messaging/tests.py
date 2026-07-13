@@ -7,6 +7,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from contacts.models import Contact
+from notifications.models import Notification, NotificationType
 from users.models import User
 from workspaces.models import TelegramWebhookLog
 from workspaces.crypto import encrypt_integration_secret
@@ -137,6 +138,53 @@ class MessagingTests(TestCase):
                 message_identifier=message.id,
             ).exists(),
         )
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
+        self.assertEqual(notification.entity_type, 'chat')
+        self.assertEqual(notification.entity_id, str(chat.id))
+        self.assertEqual(notification.link, f'/chat/{chat.id}')
+        self.assertIn('Пётр Петров', notification.content)
+        self.assertIn('Здравствуйте', notification.content)
+
+    def test_incoming_message_notifies_active_workspace_users_only(self):
+        teammate = User.objects.create_user(
+            email='teammate@example.com',
+            password='StrongPass1',
+            first_name='Анна',
+            last_name='Иванова',
+            is_confirmed=True,
+            workspace=self.user.workspace,
+        )
+        other = User.objects.create_user(
+            email='other-workspace@example.com',
+            password='StrongPass1',
+            first_name='Олег',
+            last_name='Другой',
+            is_confirmed=True,
+        )
+        webhook_log = self._webhook_log(text='Нужна консультация')
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        notifications = Notification.objects.order_by('user__email')
+        self.assertEqual(notifications.count(), 2)
+        self.assertEqual(
+            {item.user_id for item in notifications},
+            {self.user.id, teammate.id},
+        )
+        self.assertFalse(Notification.objects.filter(user=other).exists())
+
+    def test_incoming_messages_are_aggregated_per_chat_for_one_minute(self):
+        first = self._webhook_log(update_id=101, text='Первое сообщение')
+        second = self._webhook_log(update_id=102, text='Второе сообщение')
+
+        process_telegram_webhook_log(first.id)
+        process_telegram_webhook_log(second.id)
+
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
+        self.assertIn('Второе сообщение', notification.content)
+        self.assertEqual(Message.objects.count(), 2)
 
     @patch('messaging.telegram.broadcast_workspace_event')
     def test_incoming_message_schedules_realtime_events(self, broadcast):
