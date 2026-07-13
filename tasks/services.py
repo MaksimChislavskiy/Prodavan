@@ -81,7 +81,7 @@ def _record_event(
 ):
     context = context or {}
     correlation_id = correlation_id or uuid.uuid4()
-    TaskHistory.objects.create(
+    history = TaskHistory.objects.create(
         workspace=task.workspace,
         task=task,
         event=event,
@@ -93,6 +93,15 @@ def _record_event(
         user_agent=context.get('user_agent', ''),
         correlation_id=correlation_id,
     )
+    previous = (
+        TaskHistory.objects.filter(task=task)
+        .exclude(id=history.id)
+        .order_by('-created_at')
+        .first()
+    )
+    if previous is not None and history.created_at <= previous.created_at:
+        history.created_at = previous.created_at + timedelta(microseconds=1)
+        history.save(update_fields=('created_at',))
     TaskAuditLog.objects.create(
         workspace=task.workspace,
         task_identifier=task.id,

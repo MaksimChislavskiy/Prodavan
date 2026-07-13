@@ -50,6 +50,20 @@ def _event(workspace_id, event, correlation_id, **data):
     )
 
 
+def _record_history(**kwargs):
+    history = DealHistory.objects.create(**kwargs)
+    previous = (
+        DealHistory.objects.filter(deal=history.deal)
+        .exclude(id=history.id)
+        .order_by('-created_at')
+        .first()
+    )
+    if previous is not None and history.created_at <= previous.created_at:
+        history.created_at = previous.created_at + timedelta(microseconds=1)
+        history.save(update_fields=('created_at',))
+    return history
+
+
 def _active_contact(workspace, contact_id, *, required=False):
     if contact_id is None:
         if required:
@@ -134,7 +148,7 @@ def create_deal(*, workspace, user, data, idempotency_key, changed_by_type=Chang
             comment=data.get('comment'),
         )
         correlation_id = uuid.uuid4()
-        DealHistory.objects.create(
+        _record_history(
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.CREATED,
@@ -219,7 +233,7 @@ def update_deal(
             'contact', 'name', 'amount', 'comment', 'version', 'updated_at',
         ))
         correlation_id = uuid.uuid4()
-        DealHistory.objects.create(
+        _record_history(
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.UPDATED,
@@ -285,7 +299,7 @@ def move_deal(*, workspace, user, deal_id, stage_id, submitted_version, idempote
             deal.version += 1
             deal.save(update_fields=('stage', 'version', 'updated_at'))
             correlation_id = uuid.uuid4()
-            DealHistory.objects.create(
+            _record_history(
                 workspace=workspace,
                 deal=deal,
                 event_type=DealEvent.STAGE_CHANGED,
@@ -336,7 +350,7 @@ def delete_deal(*, workspace, user, deal_id):
             deal_ids=[deal.id],
         )
         correlation_id = uuid.uuid4()
-        DealHistory.objects.create(
+        _record_history(
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.DELETED,
@@ -503,7 +517,7 @@ def delete_stage(*, workspace, stage_id, submitted_version):
             deal.stage = system_stage
             deal.version += 1
             deal.save(update_fields=('stage', 'version', 'updated_at'))
-            DealHistory.objects.create(
+            _record_history(
                 workspace=workspace,
                 deal=deal,
                 event_type=DealEvent.STAGE_CHANGED,
