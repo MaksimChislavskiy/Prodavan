@@ -1,0 +1,175 @@
+.deals-page {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 24px;
+}
+
+.deals-board {
+  position: relative;
+  width: max-content;
+  min-width: 2140px;
+  min-height: 620px;
+}
+
+.deals-board__stages {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.deals-stage {
+  box-sizing: border-box;
+  width: 340px;
+  height: 40px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 10px;
+  background: #ecf4ff;
+  color: #0b2b55;
+}
+
+.deals-stage__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.deals-stage__title {
+  font-size: 14px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.deals-stage__count {
+  box-sizing: border-box;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.3px solid #0b2b55;
+  border-radius: 4px;
+  color: #000000;
+  font-size: 12px;
+  line-height: 15px;
+}
+
+.deals-stage__add {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 24px;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+.deals-board__cards {
+  position: relative;
+  height: 140px;
+  margin-top: 10px;
+}
+
+.deals-card {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  width: 200px;
+  height: 115px;
+  padding: 10px 20px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0b2b55;
+}
+
+.deals-card--new {
+  left: 0;
+}
+
+.deals-card--processed {
+  left: 220px;
+}
+
+.deals-card--contract {
+  left: 440px;
+}
+
+.deals-card--payment {
+  left: 660px;
+}
+
+.deals-card__header {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deals-card__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.deals-card__menu {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 24px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.deals-card__line {
+  width: 160px;
+  height: 0;
+  margin-top: 10px;
+  border-top: 0.3px solid #0b2b55;
+}
+
+.deals-card__body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.deals-card__customer {
+  max-width: 160px;
+  overflow: hidden;
+  color: #0b2b55;
+  font-size: 12px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deals-card__amount,
+.deals-card__date {
+  color: #0b2b55;
+  font-size: 10px;
+  line-height: 12px;
+}
+
+@media (max-width: 900px) {
+  .deals-board {
+    min-width: 1120px;
+  }
+}
