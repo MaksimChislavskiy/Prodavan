@@ -7,7 +7,7 @@ from config.asgi import application
 from users.models import User
 from users.services import issue_token_pair
 
-from .realtime import workspace_group_name
+from .realtime import user_group_name, workspace_group_name
 
 
 TEST_CHANNEL_LAYERS = {
@@ -52,6 +52,28 @@ class RealtimeChatTests(TransactionTestCase):
         payload = {'event': 'message_read', 'chat_id': 'chat-id'}
         await get_channel_layer().group_send(
             workspace_group_name(self.user.workspace_id),
+            {'type': 'chat.event', 'payload': payload},
+        )
+        self.assertEqual(await communicator.receive_json_from(), payload)
+        await communicator.disconnect()
+
+    def test_connected_user_receives_personal_notification_event(self):
+        async_to_sync(self._personal_notification_scenario)()
+
+    async def _personal_notification_scenario(self):
+        communicator = WebsocketCommunicator(
+            application,
+            f'/ws/chat?token={self.access_token}',
+            headers=self._headers(),
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        payload = {
+            'event': 'notification_created',
+            'payload': {'id': 'notification-id'},
+        }
+        await get_channel_layer().group_send(
+            user_group_name(self.user.id),
             {'type': 'chat.event', 'payload': payload},
         )
         self.assertEqual(await communicator.receive_json_from(), payload)

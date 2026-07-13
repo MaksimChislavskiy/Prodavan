@@ -2,7 +2,7 @@ import json
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from .realtime import workspace_group_name
+from .realtime import user_group_name, workspace_group_name
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -12,7 +12,12 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=1008)
             return
         self.group_name = workspace_group_name(user.workspace_id)
+        self.user_group_name = user_group_name(user.id)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.channel_layer.group_add(
+            self.user_group_name,
+            self.channel_name,
+        )
         await self.accept(
             subprotocol=self.scope.get('accepted_subprotocol'),
         )
@@ -22,6 +27,12 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         if group_name:
             await self.channel_layer.group_discard(
                 group_name,
+                self.channel_name,
+            )
+        user_group = getattr(self, 'user_group_name', None)
+        if user_group:
+            await self.channel_layer.group_discard(
+                user_group,
                 self.channel_name,
             )
 

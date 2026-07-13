@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'deals.apps.DealsConfig',
     'tasks.apps.TasksConfig',
     'messaging',
+    'notifications',
     'ai_assistant.apps.AiAssistantConfig',
 ]
 
