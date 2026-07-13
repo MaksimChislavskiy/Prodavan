@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import logoFull from '../../assets/brand/logo-full.svg'
 import { DashboardPage } from './DashboardPage'
 import { AiSettingsPage } from './AiSettingsPage'
+import { DealsPage } from './DealsPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
@@ -30,7 +31,7 @@ type CrmSectionId =
   | 'settings'
   | 'chat'
 
-type PlaceholderSectionId = Exclude<CrmSectionId, 'dashboard' | 'ai'>
+type PlaceholderSectionId = Exclude<CrmSectionId, 'dashboard' | 'ai' | 'deals'>
 
 type NavigationItem = {
   id: CrmSectionId
@@ -61,17 +62,6 @@ const navigationItems: NavigationItem[] = [
 ]
 
 const placeholderSections: Record<PlaceholderSectionId, CrmPlaceholderSection> = {
-  deals: {
-    eyebrow: 'CRM',
-    title: 'Сделки',
-    text:
-      'Здесь позже появится канбан-доска сделок: этапы продаж, карточки сделок, создание и перемещение между колонками.',
-    widgets: [
-      { value: '0', label: 'Активных сделок' },
-      { value: '0 ₽', label: 'Сумма в работе' },
-      { value: 'mock', label: 'Канбан позже' },
-    ],
-  },
   contacts: {
     eyebrow: 'CRM',
     title: 'Контакты',
@@ -182,7 +172,7 @@ function SidebarIcon({ name }: { name: SidebarIconName }) {
 }
 
 function isPlaceholderSection(section: CrmSectionId): section is PlaceholderSectionId {
-  return section !== 'dashboard' && section !== 'ai'
+  return section !== 'dashboard' && section !== 'ai' && section !== 'deals'
 }
 
 export function CrmLayout() {
@@ -260,7 +250,6 @@ export function CrmLayout() {
 
     try {
       const response = await getAiChatHistory(20)
-
       const historyMessages = [...response.messages]
         .reverse()
         .map(mapApiMessageToAiMessage)
@@ -276,7 +265,6 @@ export function CrmLayout() {
       }
 
       setIsAiHistoryLoaded(true)
-
       return latestSessionId
     } catch (error) {
       setAiMessages([
@@ -290,11 +278,9 @@ export function CrmLayout() {
           createdAt: new Date().toISOString(),
         },
       ])
-
       setIsAiHistoryLoaded(true)
       setAiHistoryCursor(null)
       setHasMoreAiHistory(false)
-
       return null
     } finally {
       setIsAiHistoryLoading(false)
@@ -315,7 +301,6 @@ export function CrmLayout() {
 
     try {
       const response = await getAiChatHistory(20, aiHistoryCursor)
-
       const olderMessages = [...response.messages]
         .reverse()
         .map(mapApiMessageToAiMessage)
@@ -468,6 +453,10 @@ export function CrmLayout() {
 
     if (activeSection === 'ai') {
       return <AiSettingsPage />
+    }
+
+    if (activeSection === 'deals') {
+      return <DealsPage />
     }
 
     if (!isPlaceholderSection(activeSection)) {
