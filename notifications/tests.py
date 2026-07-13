@@ -5,10 +5,12 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from tasks.models import DueDateType, Task, TaskStatus
 from users.models import User
 
 from .models import Notification, NotificationType
 from .services import create_notification
+from .task_deadlines import create_task_deadline_notifications
 
 
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
@@ -205,3 +207,146 @@ class NotificationsApiTests(TestCase):
         second.refresh_from_db()
         self.assertEqual(second.title, 'AI обновил задачу')
         self.assertEqual(second.content, 'Второй текст')
+
+
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class TaskDeadlineNotificationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='owner@example.com',
+            password='StrongPass1',
+            first_name='Иван',
+            last_name='Иванов',
+            is_confirmed=True,
+        )
+        self.workspace = self.user.workspace
+        self.workspace.timezone = 'Europe/Moscow'
+        self.workspace.save(update_fields=('timezone', 'updated_at'))
+        self.teammate = User.objects.create_user(
+            email='teammate@example.com',
+            password='StrongPass2',
+            first_name='Пётр',
+            last_name='Петров',
+            workspace=self.workspace,
+            is_confirmed=True,
+        )
+        self.inactive = User.objects.create_user(
+            email='inactive@example.com',
+            password='StrongPass3',
+            first_name='Сидор',
+            last_name='Сидоров',
+            workspace=self.workspace,
+            is_confirmed=True,
+            is_active=False,
+        )
+        self.deleted = User.objects.create_user(
+            email='deleted@example.com',
+            password='StrongPass4',
+            first_name='Анна',
+            last_name='Петрова',
+            workspace=self.workspace,
+            is_confirmed=True,
+            is_deleted=True,
+        )
+
+    def _task(self, **overrides):
+        defaults = {
+            'workspace': self.workspace,
+            'title': 'Позвонить клиенту',
+            'due_date': timezone.now(),
+            'due_date_type': DueDateType.DATE,
+            'status': TaskStatus.NEW,
+        }
+        defaults.update(overrides)
+        return Task.objects.create(**defaults)
+
+    def test_creates_date_due_soon_and_overdue_notifications_once_per_day(self):
+        now = timezone.now()
+        due_today = self._task(
+            title='Позвонить клиенту',
+            due_date=now,
+            due_date_type=DueDateType.DATE,
+        )
+        overdue = self._task(
+            title='Выставить счёт',
+            due_date=now - timedelta(days=2),
+            due_date_type=DueDateType.DATE,
+        )
+        done = self._task(
+            title='Уже выполнено',
+            due_date=now - timedelta(days=2),
+            due_date_type=DueDateType.DATE,
+            status=TaskStatus.DONE,
+        )
+
+        counters = create_task_deadline_notifications(now=now)
+        repeated = create_task_deadline_notifications(now=now + timedelta(minutes=10))
+
+        self.assertEqual(counters['due_soon_tasks'], 1)
+        self.assertEqual(counters['overdue_tasks'], 1)
+        self.assertEqual(counters['notifications_created'], 4)
+        self.assertEqual(repeated['notifications_created'], 0)
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.TASK_DUE_SOON,
+                entity_id=str(due_today.id),
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.TASK_OVERDUE,
+                entity_id=str(overdue.id),
+            ).count(),
+            2,
+        )
+        self.assertFalse(
+            Notification.objects.filter(entity_id=str(done.id)).exists(),
+        )
+        self.assertFalse(
+            Notification.objects.filter(user=self.inactive).exists(),
+        )
+        self.assertFalse(
+            Notification.objects.filter(user=self.deleted).exists(),
+        )
+
+    def test_datetime_due_soon_uses_one_hour_window(self):
+        now = timezone.now()
+        due_soon = self._task(
+            title='Отправить КП',
+            due_date=now + timedelta(minutes=30),
+            due_date_type=DueDateType.DATETIME,
+        )
+        due_later = self._task(
+            title='Созвон через два часа',
+            due_date=now + timedelta(hours=2),
+            due_date_type=DueDateType.DATETIME,
+        )
+        overdue = self._task(
+            title='Ответить клиенту',
+            due_date=now - timedelta(minutes=1),
+            due_date_type=DueDateType.DATETIME,
+        )
+
+        counters = create_task_deadline_notifications(now=now)
+
+        self.assertEqual(counters['due_soon_tasks'], 1)
+        self.assertEqual(counters['overdue_tasks'], 1)
+        self.assertEqual(counters['notifications_created'], 4)
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.TASK_DUE_SOON,
+                entity_id=str(due_soon.id),
+            ).count(),
+            2,
+        )
+        self.assertFalse(
+            Notification.objects.filter(entity_id=str(due_later.id)).exists(),
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.TASK_OVERDUE,
+                entity_id=str(overdue.id),
+            ).count(),
+            2,
+        )
