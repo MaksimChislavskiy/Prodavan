@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 
 from contacts.models import Contact
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
+from notifications.models import Notification, NotificationType
 from users.models import User
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 
@@ -137,6 +138,24 @@ class AIAuditApiTests(TestCase):
         self.assertIn(AIAutomationAuditAction.AI_CONTACT_UPDATED, actions)
         self.assertIn(AIAutomationAuditAction.AI_DEAL_CREATED, actions)
         self.assertIn(AIAutomationAuditAction.AI_TASK_CREATED, actions)
+        notifications = list(Notification.objects.order_by('type'))
+        self.assertEqual(len(notifications), 3)
+        self.assertEqual(
+            {item.type for item in notifications},
+            {
+                NotificationType.AI_DEAL_CREATED,
+                NotificationType.AI_TASK_CREATED,
+                NotificationType.CONTACT_AI_UPDATED,
+            },
+        )
+        self.assertEqual(
+            {item.user_id for item in notifications},
+            {self.user.id},
+        )
+        self.assertIn(
+            f'/contacts/{self.contact.id}',
+            {item.link for item in notifications},
+        )
         access = self._login()
         response = self.client.get(self.audit_url, **self._auth(access))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -161,6 +180,24 @@ class AIAuditApiTests(TestCase):
             {item['action_type'] for item in deal_response.data['logs']},
             {'deal_create', 'deal_enrichment'},
         )
+
+    def test_skipped_decisions_do_not_create_user_notifications(self):
+        message = self.incoming('Просто спасибо.')
+        analyzer = DummyAnalyzer({
+            'deal': {
+                'interest_confidence': 0.1,
+                'create': False,
+            },
+            'task': {
+                'confidence': 0.1,
+                'create': False,
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        self.assertTrue(AIAutomationAuditLog.objects.exists())
+        self.assertFalse(Notification.objects.exists())
 
     def test_endpoint_exposes_audit_request_metadata(self):
         log = AIAutomationAuditLog.objects.create(

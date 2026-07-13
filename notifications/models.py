@@ -12,6 +12,7 @@ class NotificationType(models.TextChoices):
     DEAL_ATTENTION = 'deal_attention', 'Сделка требует внимания'
     CONTACT_AI_CREATED = 'ai_contact_created', 'AI создал контакт'
     CONTACT_AI_UPDATED = 'ai_contact_updated', 'AI обновил контакт'
+    AI_DEAL_UPDATED = 'ai_deal_updated', 'AI обновил сделку'
     TASK_DUE_SOON = 'task_due_soon', 'Приближается срок задачи'
     TASK_OVERDUE = 'task_overdue', 'Задача просрочена'
     CHAT_NEW_MESSAGE = 'chat_new_message', 'Новое сообщение клиента'
@@ -20,6 +21,8 @@ class NotificationType(models.TextChoices):
     AI_DEAL_CREATED = 'ai_deal_created', 'AI создал сделку'
     AI_TASK_CREATED = 'ai_task_created', 'AI создал задачу'
     AI_INSIGHT_EXTRACTED = 'ai_insight_extracted', 'AI нашёл важную информацию'
+    AI_AUTOPILOT_SENT = 'ai_autopilot_sent', 'Автопилот отправил ответ'
+    AI_LIMIT_REACHED = 'ai_limit_reached', 'AI достиг лимита'
     AI_ACTION_FAILED = 'ai_action_failed', 'Ошибка AI-действия'
 
 

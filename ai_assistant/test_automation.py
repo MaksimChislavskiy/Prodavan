@@ -8,6 +8,7 @@ from django.utils import timezone
 from contacts.models import Contact
 from deals.models import ChangedByType, Deal, DealHistory, SalesStage
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
+from notifications.models import Notification, NotificationType
 from tasks.models import Task
 from users.models import User
 
@@ -317,6 +318,12 @@ class AIAutomationTests(TestCase):
         self.assertEqual(log.details['failure_type'], AutomationFailureType.BUSINESS)
         self.assertIn('invalid json', log.details['error'])
         self.assertEqual(log.message_id, message.id)
+        notification = Notification.objects.get()
+        self.assertEqual(notification.type, NotificationType.AI_ACTION_FAILED)
+        self.assertEqual(notification.entity_type, 'chat')
+        self.assertEqual(notification.entity_id, str(self.chat.id))
+        self.assertEqual(notification.link, f'/chat/{self.chat.id}')
+        self.assertIn('invalid json', notification.content)
 
     def test_final_technical_error_is_audited_after_retries(self):
         message = self.incoming('Проверь final technical error.')
@@ -338,6 +345,9 @@ class AIAutomationTests(TestCase):
         self.assertEqual(log.details['failure_type'], AutomationFailureType.TECHNICAL)
         self.assertIn('timeout', log.details['error'])
         self.assertEqual(log.message_id, message.id)
+        notification = Notification.objects.get()
+        self.assertEqual(notification.type, NotificationType.AI_ACTION_FAILED)
+        self.assertIn('timeout', notification.content)
 
     def test_analysis_client_respects_workspace_ai_rate_limit(self):
         message = self.incoming('Проверь rate limit.')

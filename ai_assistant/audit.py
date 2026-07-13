@@ -3,6 +3,8 @@ import json
 from django.db import transaction
 
 from messaging.realtime import broadcast_workspace_event
+from notifications.models import NotificationType
+from notifications.services import create_notification
 from users.models import User
 
 from .models import (
@@ -28,6 +30,19 @@ ACTION_BY_SUCCESS = {
     AutomationActionType.TASK_CREATE: AIAutomationAuditAction.AI_TASK_CREATED,
     AutomationActionType.INSIGHT: AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED,
     AutomationActionType.AUTOPILOT_REPLY: AIAutomationAuditAction.AI_AUTOPILOT_SENT,
+}
+
+
+NOTIFICATION_BY_ACTION = {
+    AIAutomationAuditAction.AI_CONTACT_CREATED: NotificationType.CONTACT_AI_CREATED,
+    AIAutomationAuditAction.AI_CONTACT_UPDATED: NotificationType.CONTACT_AI_UPDATED,
+    AIAutomationAuditAction.AI_DEAL_CREATED: NotificationType.AI_DEAL_CREATED,
+    AIAutomationAuditAction.AI_DEAL_UPDATED: NotificationType.AI_DEAL_UPDATED,
+    AIAutomationAuditAction.AI_TASK_CREATED: NotificationType.AI_TASK_CREATED,
+    AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED: NotificationType.AI_INSIGHT_EXTRACTED,
+    AIAutomationAuditAction.AI_AUTOPILOT_SENT: NotificationType.AI_AUTOPILOT_SENT,
+    AIAutomationAuditAction.AI_LIMIT_REACHED: NotificationType.AI_LIMIT_REACHED,
+    AIAutomationAuditAction.AI_ACTION_FAILED: NotificationType.AI_ACTION_FAILED,
 }
 
 
@@ -173,6 +188,7 @@ def _confidence_for_action(analysis, action_type):
 
 
 def _notify_grouped(*, workspace_id, logs):
+    _create_persistent_notifications(logs)
     payload = {
         'event': 'ai_actions_notification',
         'correlation_id': str(logs[0].correlation_id),
@@ -190,6 +206,126 @@ def _notify_grouped(*, workspace_id, logs):
         ],
     }
     transaction.on_commit(lambda: broadcast_workspace_event(workspace_id, payload))
+
+
+def _create_persistent_notifications(logs):
+    users = list(_notification_users(logs[0].workspace_id))
+    if not users:
+        return
+    for log in logs:
+        payload = _notification_for_log(log)
+        if payload is None:
+            continue
+        for user in users:
+            create_notification(user=user, **payload)
+
+
+def _notification_for_log(log):
+    notification_type = NOTIFICATION_BY_ACTION.get(log.action)
+    if notification_type is None:
+        return None
+    entity_type, entity_id = _notification_entity(log)
+    link = _notification_link(entity_type, entity_id)
+    title = _notification_title(log.action)
+    content = _notification_content(log, entity_type=entity_type)
+    return {
+        'type': notification_type,
+        'title': title,
+        'content': content,
+        'link': link,
+        'entity_type': entity_type,
+        'entity_id': entity_id,
+    }
+
+
+def _notification_entity(log):
+    details = log.details if isinstance(log.details, dict) else {}
+    if log.action in {
+        AIAutomationAuditAction.AI_CONTACT_CREATED,
+        AIAutomationAuditAction.AI_CONTACT_UPDATED,
+    }:
+        contact_id = details.get('contact_id') or getattr(log.chat, 'contact_id', None)
+        return 'contact', str(contact_id) if contact_id else ''
+    if log.action in {
+        AIAutomationAuditAction.AI_DEAL_CREATED,
+        AIAutomationAuditAction.AI_DEAL_UPDATED,
+    }:
+        return 'deal', str(details.get('deal_id') or '')
+    if log.action == AIAutomationAuditAction.AI_TASK_CREATED:
+        return 'task', str(details.get('task_id') or '')
+    if log.action in {
+        AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED,
+        AIAutomationAuditAction.AI_AUTOPILOT_SENT,
+        AIAutomationAuditAction.AI_LIMIT_REACHED,
+        AIAutomationAuditAction.AI_ACTION_FAILED,
+    }:
+        return 'chat', str(log.chat_id) if log.chat_id else ''
+    return '', ''
+
+
+def _notification_link(entity_type, entity_id):
+    if not entity_type or not entity_id:
+        return ''
+    if entity_type == 'chat':
+        return f'/chat/{entity_id}'
+    return f'/{entity_type}s/{entity_id}'
+
+
+def _notification_title(action):
+    return {
+        AIAutomationAuditAction.AI_CONTACT_CREATED: 'AI создал контакт',
+        AIAutomationAuditAction.AI_CONTACT_UPDATED: 'AI обновил контакт',
+        AIAutomationAuditAction.AI_DEAL_CREATED: 'AI создал сделку',
+        AIAutomationAuditAction.AI_DEAL_UPDATED: 'AI обновил сделку',
+        AIAutomationAuditAction.AI_TASK_CREATED: 'AI создал задачу',
+        AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED: 'AI нашёл инсайт',
+        AIAutomationAuditAction.AI_AUTOPILOT_SENT: 'Автопилот ответил клиенту',
+        AIAutomationAuditAction.AI_LIMIT_REACHED: 'AI достиг лимита',
+        AIAutomationAuditAction.AI_ACTION_FAILED: 'Ошибка AI-действия',
+    }[action]
+
+
+def _notification_content(log, *, entity_type):
+    details = log.details if isinstance(log.details, dict) else {}
+    contact_name = ''
+    if log.chat_id and getattr(log.chat, 'contact', None) is not None:
+        contact_name = log.chat.contact.name
+    if not contact_name:
+        contact_name = 'клиента'
+
+    if log.action == AIAutomationAuditAction.AI_TASK_CREATED:
+        return f'AI создал задачу по переписке с {contact_name}.'
+    if log.action == AIAutomationAuditAction.AI_DEAL_CREATED:
+        return f'AI создал сделку по переписке с {contact_name}.'
+    if log.action == AIAutomationAuditAction.AI_CONTACT_UPDATED:
+        fields = details.get('fields') or []
+        if fields:
+            return f'AI обновил данные контакта: {", ".join(fields)[:120]}.'
+        return f'AI обновил данные контакта {contact_name}.'
+    if log.action == AIAutomationAuditAction.AI_DEAL_UPDATED:
+        fields = details.get('fields') or []
+        if fields:
+            return f'AI обновил сделку: {", ".join(fields)[:120]}.'
+        return f'AI обновил сделку по переписке с {contact_name}.'
+    if log.action == AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED:
+        return f'AI обнаружил важную информацию в переписке с {contact_name}.'
+    if log.action == AIAutomationAuditAction.AI_AUTOPILOT_SENT:
+        return f'Автопилот отправил ответ клиенту {contact_name}.'
+    if log.action == AIAutomationAuditAction.AI_LIMIT_REACHED:
+        reason = details.get('reason') or details.get('status') or 'limit'
+        return f'AI не выполнил действие из-за лимита: {reason}.'
+    if log.action == AIAutomationAuditAction.AI_ACTION_FAILED:
+        error = details.get('error') or 'неизвестная ошибка'
+        return f'AI-действие завершилось ошибкой: {str(error)[:160]}.'
+    return f'AI выполнил действие для {entity_type or "CRM"}.'
+
+
+def _notification_users(workspace_id):
+    return User.objects.filter(
+        workspace_id=workspace_id,
+        is_active=True,
+        is_deleted=False,
+    ).order_by('created_at', 'id')
 
 
 def _workspace_actor_user(workspace):
