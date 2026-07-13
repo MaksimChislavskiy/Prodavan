@@ -5,11 +5,14 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from contacts.models import Contact
 from deals.models import Deal, SalesStage
+from messaging.models import Chat, Message, MessageSenderType, MessageStatus
 from tasks.models import DueDateType, Task, TaskStatus
 from users.models import User
 
 from .deal_attention import create_deal_attention_notifications
+from .missed_chat_messages import create_missed_chat_notifications
 from .models import Notification, NotificationType
 from .services import create_notification
 from .task_deadlines import create_task_deadline_notifications
@@ -492,3 +495,153 @@ class DealAttentionNotificationTests(TestCase):
         self.assertFalse(
             Notification.objects.filter(entity_id=str(deleted_deal.id)).exists(),
         )
+
+
+@override_settings(
+    PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+    CHAT_MISSED_AFTER_MINUTES=15,
+)
+class MissedChatMessageNotificationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='chat-owner@example.com',
+            password='StrongPass1',
+            first_name='Иван',
+            last_name='Иванов',
+            is_confirmed=True,
+        )
+        self.workspace = self.user.workspace
+        self.teammate = User.objects.create_user(
+            email='chat-teammate@example.com',
+            password='StrongPass2',
+            first_name='Пётр',
+            last_name='Петров',
+            workspace=self.workspace,
+            is_confirmed=True,
+        )
+        self.inactive = User.objects.create_user(
+            email='chat-inactive@example.com',
+            password='StrongPass3',
+            first_name='Сидор',
+            last_name='Сидоров',
+            workspace=self.workspace,
+            is_confirmed=True,
+            is_active=False,
+        )
+        self.contact = Contact.objects.create(
+            workspace=self.workspace,
+            name='Анна Клиентова',
+        )
+        self.chat = Chat.objects.create(
+            workspace=self.workspace,
+            contact=self.contact,
+        )
+
+    def _message(self, *, created_at, chat=None, **overrides):
+        defaults = {
+            'chat': chat or self.chat,
+            'sender_type': MessageSenderType.CONTACT,
+            'sender_id': self.contact.id,
+            'text': 'Когда сможете ответить?',
+            'status': None,
+            'read_at': None,
+        }
+        defaults.update(overrides)
+        message = Message.objects.create(**defaults)
+        Message.objects.filter(id=message.id).update(created_at=created_at)
+        message.refresh_from_db()
+        return message
+
+    def test_notifies_active_users_once_for_same_unread_period(self):
+        now = timezone.now()
+        self._message(
+            created_at=now - timedelta(minutes=20),
+            text='Первое сообщение',
+        )
+        self._message(
+            created_at=now - timedelta(minutes=5),
+            text='Есть новости?',
+        )
+
+        counters = create_missed_chat_notifications(now=now)
+        repeated = create_missed_chat_notifications(
+            now=now + timedelta(minutes=5),
+        )
+
+        self.assertEqual(counters['missed_chats'], 1)
+        self.assertEqual(counters['unread_messages'], 2)
+        self.assertEqual(counters['notifications_created'], 2)
+        self.assertEqual(repeated['notifications_created'], 0)
+        notifications = Notification.objects.filter(
+            type=NotificationType.CHAT_MISSED_MESSAGE,
+            entity_id=str(self.chat.id),
+        )
+        self.assertEqual(notifications.count(), 2)
+        self.assertEqual(
+            {item.user_id for item in notifications},
+            {self.user.id, self.teammate.id},
+        )
+        self.assertFalse(notifications.filter(user=self.inactive).exists())
+        notification = notifications.filter(user=self.user).get()
+        self.assertEqual(notification.entity_type, 'chat')
+        self.assertEqual(notification.link, f'/chat/{self.chat.id}')
+        self.assertIn('Непрочитанных сообщений', notification.content)
+        self.assertIn('Есть новости?', notification.content)
+
+    def test_new_unread_period_can_create_another_notification(self):
+        now = timezone.now()
+        first_message = self._message(
+            created_at=now - timedelta(minutes=20),
+        )
+        create_missed_chat_notifications(now=now)
+        Message.objects.filter(id=first_message.id).update(read_at=now)
+        second_message = self._message(
+            created_at=now + timedelta(minutes=1),
+            text='Новое обращение',
+        )
+
+        counters = create_missed_chat_notifications(
+            now=second_message.created_at + timedelta(minutes=20),
+        )
+
+        self.assertEqual(counters['notifications_created'], 2)
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.CHAT_MISSED_MESSAGE,
+                entity_id=str(self.chat.id),
+            ).count(),
+            4,
+        )
+
+    def test_ignores_read_deleted_outgoing_and_deleted_chat_messages(self):
+        now = timezone.now()
+        old = now - timedelta(minutes=30)
+        self._message(created_at=old, read_at=now)
+        self._message(created_at=old, is_deleted=True)
+        self._message(
+            created_at=old,
+            sender_type=MessageSenderType.USER,
+            sender_id=self.user.id,
+            status=MessageStatus.SENT,
+        )
+        deleted_contact = Contact.objects.create(
+            workspace=self.workspace,
+            name='Клиент удалённого чата',
+        )
+        deleted_chat = Chat.objects.create(
+            workspace=self.workspace,
+            contact=deleted_contact,
+            is_deleted=True,
+            deleted_at=now,
+        )
+        self._message(
+            chat=deleted_chat,
+            created_at=old,
+            sender_id=deleted_contact.id,
+        )
+
+        counters = create_missed_chat_notifications(now=now)
+
+        self.assertEqual(counters['missed_chats'], 0)
+        self.assertEqual(counters['notifications_created'], 0)
+        self.assertFalse(Notification.objects.exists())
