@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
@@ -30,6 +33,18 @@ def _incoming_notification_text(contact, text):
     if len(preview) > 160:
         preview = f'{preview[:157]}...'
     return f'{contact.name}: {preview}' if preview else f'{contact.name}: новое сообщение'
+
+
+def _returned_notification_text(contact, text):
+    preview = _incoming_notification_text(contact, text)
+    return f'{preview} Клиент снова вышел на связь.'
+
+
+def _client_returned(*, previous_message_at, now):
+    if previous_message_at is None:
+        return False
+    threshold = timedelta(days=settings.CHAT_RETURNED_AFTER_DAYS)
+    return now - previous_message_at >= threshold
 
 
 def _message_text(message):
@@ -150,6 +165,7 @@ def process_telegram_webhook_log(log_id):
                 chat_id=chat.id,
                 details={'contact_id': str(contact.id), 'source': 'telegram'},
             )
+        previous_message_at = chat.last_message_at
 
         text = _message_text(message)
         incoming = Message.objects.create(
@@ -179,11 +195,28 @@ def process_telegram_webhook_log(log_id):
             message_id=incoming.id,
             details={'update_id': webhook_log.update_id},
         )
+        client_returned = not chat_created and _client_returned(
+            previous_message_at=previous_message_at,
+            now=now,
+        )
+        notification_type = (
+            NotificationType.CHAT_RETURNED
+            if client_returned
+            else NotificationType.CHAT_NEW_MESSAGE
+        )
         create_workspace_notification(
             workspace=webhook_log.workspace,
-            type=NotificationType.CHAT_NEW_MESSAGE,
-            title='Новое сообщение клиента',
-            content=_incoming_notification_text(contact, text),
+            type=notification_type,
+            title=(
+                'Клиент вернулся'
+                if client_returned
+                else 'Новое сообщение клиента'
+            ),
+            content=(
+                _returned_notification_text(contact, text)
+                if client_returned
+                else _incoming_notification_text(contact, text)
+            ),
             link=f'/chat/{chat.id}',
             entity_type='chat',
             entity_id=str(chat.id),

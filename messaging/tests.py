@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
@@ -33,6 +34,7 @@ from .telegram import process_telegram_webhook_log
 
 @override_settings(
     PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+    CHAT_RETURNED_AFTER_DAYS=7,
 )
 class MessagingTests(TestCase):
     login_url = '/api/auth/login'
@@ -185,6 +187,67 @@ class MessagingTests(TestCase):
         self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
         self.assertIn('Второе сообщение', notification.content)
         self.assertEqual(Message.objects.count(), 2)
+
+    def test_old_chat_creates_client_returned_notification(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Пётр Петров',
+            telegram_user_id=777000,
+            telegram_chat_id=777000,
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            last_message='До связи',
+            last_message_at=timezone.now() - timedelta(days=8),
+        )
+        webhook_log = self._webhook_log(
+            update_id=103,
+            text='Я снова вернулся к вопросу',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_RETURNED)
+        self.assertEqual(notification.title, 'Клиент вернулся')
+        self.assertEqual(notification.entity_id, str(chat.id))
+        self.assertEqual(notification.link, f'/chat/{chat.id}')
+        self.assertIn('Пётр Петров', notification.content)
+        self.assertIn('снова вышел на связь', notification.content)
+        self.assertFalse(
+            Notification.objects.filter(
+                type=NotificationType.CHAT_NEW_MESSAGE,
+            ).exists(),
+        )
+
+    def test_recent_existing_chat_keeps_new_message_notification(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Пётр Петров',
+            telegram_user_id=777000,
+            telegram_chat_id=777000,
+        )
+        Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            last_message='Недавнее сообщение',
+            last_message_at=timezone.now() - timedelta(days=6),
+        )
+        webhook_log = self._webhook_log(
+            update_id=104,
+            text='Продолжим обсуждение',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
+        self.assertFalse(
+            Notification.objects.filter(
+                type=NotificationType.CHAT_RETURNED,
+            ).exists(),
+        )
 
     @patch('messaging.telegram.broadcast_workspace_event')
     def test_incoming_message_schedules_realtime_events(self, broadcast):
