@@ -5,9 +5,11 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from deals.models import Deal, SalesStage
 from tasks.models import DueDateType, Task, TaskStatus
 from users.models import User
 
+from .deal_attention import create_deal_attention_notifications
 from .models import Notification, NotificationType
 from .services import create_notification
 from .task_deadlines import create_task_deadline_notifications
@@ -261,7 +263,7 @@ class TaskDeadlineNotificationTests(TestCase):
         return Task.objects.create(**defaults)
 
     def test_creates_date_due_soon_and_overdue_notifications_once_per_day(self):
-        now = timezone.now()
+        now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
         due_today = self._task(
             title='Позвонить клиенту',
             due_date=now,
@@ -349,4 +351,144 @@ class TaskDeadlineNotificationTests(TestCase):
                 entity_id=str(overdue.id),
             ).count(),
             2,
+        )
+
+
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class DealAttentionNotificationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='deal-owner@example.com',
+            password='StrongPass1',
+            first_name='Иван',
+            last_name='Иванов',
+            is_confirmed=True,
+        )
+        self.workspace = self.user.workspace
+        self.workspace.timezone = 'Europe/Moscow'
+        self.workspace.save(update_fields=('timezone', 'updated_at'))
+        self.teammate = User.objects.create_user(
+            email='deal-teammate@example.com',
+            password='StrongPass2',
+            first_name='Пётр',
+            last_name='Петров',
+            workspace=self.workspace,
+            is_confirmed=True,
+        )
+        self.inactive = User.objects.create_user(
+            email='deal-inactive@example.com',
+            password='StrongPass3',
+            first_name='Сидор',
+            last_name='Сидоров',
+            workspace=self.workspace,
+            is_confirmed=True,
+            is_active=False,
+        )
+        self.stage = SalesStage.objects.get(
+            workspace=self.workspace,
+            is_system=True,
+        )
+        self.deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=self.stage,
+            name='Внедрение CRM',
+        )
+
+    def _task(self, *, deal=None, **overrides):
+        defaults = {
+            'workspace': self.workspace,
+            'deal': self.deal if deal is None else deal,
+            'title': 'Отправить коммерческое предложение',
+            'due_date': timezone.now() - timedelta(days=1),
+            'due_date_type': DueDateType.DATE,
+            'status': TaskStatus.NEW,
+        }
+        defaults.update(overrides)
+        return Task.objects.create(**defaults)
+
+    def test_notifies_once_per_deal_and_local_day(self):
+        now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        self._task(
+            title='Отправить КП',
+            due_date=now - timedelta(days=2),
+        )
+        self._task(
+            title='Позвонить клиенту',
+            due_date=now - timedelta(days=1),
+        )
+        self._task(
+            title='Задача на сегодня',
+            due_date=now,
+        )
+        self._task(
+            title='Выполненная задача',
+            due_date=now - timedelta(days=3),
+            status=TaskStatus.DONE,
+        )
+
+        counters = create_deal_attention_notifications(now=now)
+        repeated = create_deal_attention_notifications(
+            now=now + timedelta(minutes=10),
+        )
+
+        self.assertEqual(counters['deals_requiring_attention'], 1)
+        self.assertEqual(counters['overdue_tasks'], 2)
+        self.assertEqual(counters['notifications_created'], 2)
+        self.assertEqual(repeated['notifications_created'], 0)
+        notifications = Notification.objects.filter(
+            type=NotificationType.DEAL_ATTENTION,
+            entity_id=str(self.deal.id),
+        )
+        self.assertEqual(notifications.count(), 2)
+        self.assertEqual(
+            {item.user_id for item in notifications},
+            {self.user.id, self.teammate.id},
+        )
+        self.assertFalse(notifications.filter(user=self.inactive).exists())
+        notification = notifications.filter(user=self.user).get()
+        self.assertEqual(notification.entity_type, 'deal')
+        self.assertEqual(notification.link, f'/deals/{self.deal.id}')
+        self.assertIn('просрочено задач: 2', notification.content)
+
+    def test_ignores_deleted_deals_and_notifies_again_next_day(self):
+        now = timezone.now()
+        deleted_deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=self.stage,
+            name='Удалённая сделка',
+            is_deleted=True,
+            deleted_at=now,
+        )
+        self._task(
+            deal=deleted_deal,
+            due_date=now - timedelta(minutes=5),
+            due_date_type=DueDateType.DATETIME,
+        )
+        self._task(
+            due_date=now - timedelta(minutes=5),
+            due_date_type=DueDateType.DATETIME,
+        )
+
+        first = create_deal_attention_notifications(now=now)
+        next_day = create_deal_attention_notifications(
+            now=now + timedelta(days=1),
+        )
+
+        self.assertEqual(first['deals_requiring_attention'], 1)
+        self.assertEqual(first['notifications_created'], 2)
+        self.assertEqual(next_day['notifications_created'], 2)
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.DEAL_ATTENTION,
+                entity_id=str(self.deal.id),
+            ).count(),
+            4,
+        )
+        notification = Notification.objects.filter(
+            user=self.user,
+            type=NotificationType.DEAL_ATTENTION,
+        ).first()
+        self.assertIn('просрочена задача', notification.content)
+        self.assertFalse(
+            Notification.objects.filter(entity_id=str(deleted_deal.id)).exists(),
         )
