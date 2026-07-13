@@ -8,6 +8,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from contacts.models import Contact
+from deals.models import Deal, SalesStage
 from users.models import User
 
 from .chat_client import (
@@ -162,6 +164,131 @@ class AIChatApiTests(TestCase):
         session = AIChatSession.objects.get(id=response.data['session_id'])
         self.assertEqual(session.context_page, 'contacts')
         self.assertEqual(session.message_count, 0)
+
+    def test_foreign_deal_context_is_hidden_on_session_creation(self):
+        other = User.objects.create_user(
+            email='deal-context-other@example.com',
+            password='StrongPass2',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        other_stage = SalesStage.objects.get(
+            workspace=other.workspace,
+            is_system=True,
+        )
+        foreign_deal = Deal.objects.create(
+            workspace=other.workspace,
+            stage=other_stage,
+            name='Чужая сделка',
+        )
+        access = self._login()
+
+        response = self.client.post(
+            self.session_url,
+            {
+                'context': {
+                    'page': 'deals',
+                    'entity_id': str(foreign_deal.id),
+                },
+            },
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(
+            AIChatSession.objects.filter(workspace=self.user.workspace).exists(),
+        )
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_deal_context_is_included_in_model_prompt(
+        self,
+        client_class,
+        retrieve,
+    ):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Анна Клиентова',
+            company='ООО Ромашка',
+            phone='+79991234567',
+            email='anna@example.com',
+            telegram='@anna_client',
+        )
+        stage = SalesStage.objects.get(
+            workspace=self.user.workspace,
+            is_system=True,
+        )
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            contact=contact,
+            name='Внедрение CRM',
+            amount='150000.00',
+        )
+        session = self._session()
+        fake_client = FakeCompletionClient()
+        client_class.return_value = fake_client
+        retrieve.return_value = []
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'deals', 'entity_id': str(deal.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn('Данные CRM-контекста (JSON)', system_prompt)
+        self.assertIn(str(deal.id), system_prompt)
+        self.assertIn('Внедрение CRM', system_prompt)
+        self.assertIn('Новый лид', system_prompt)
+        self.assertIn('150000.00', system_prompt)
+        self.assertIn('Анна Клиентова', system_prompt)
+        self.assertIn('anna@example.com', system_prompt)
+        client_class.assert_called_once()
+
+    def test_deleted_deal_context_is_rejected_before_saving_messages(self):
+        stage = SalesStage.objects.get(
+            workspace=self.user.workspace,
+            is_system=True,
+        )
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            name='Удалённая сделка',
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        session = self._session()
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'deals', 'entity_id': str(deal.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(AIChatMessage.objects.exists())
 
     @patch('ai_assistant.chat_services.retrieve_knowledge')
     @patch('ai_assistant.chat_services.ChatCompletionClient')
