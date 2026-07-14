@@ -1,106 +1,233 @@
+import { useEffect, useState } from 'react'
+import {
+  getKanban,
+  type ApiKanbanDeal,
+  type ApiKanbanResponse,
+} from '../../shared/api/dealsApi'
 import './DealsPage.css'
 
-type DealStage = {
-  id: string
-  title: string
-  count: number
+type DealsPageState = {
+  data: ApiKanbanResponse | null
+  isLoading: boolean
+  error: string
 }
 
-type DealCard = {
-  id: string
-  stageId: string
-  title: string
-  customer: string
-  amount: string
-  date: string
+const initialState: DealsPageState = {
+  data: null,
+  isLoading: true,
+  error: '',
 }
-
-const stages: DealStage[] = [
-  { id: 'new', title: 'Новый лид', count: 1 },
-  { id: 'processed', title: 'Обработан', count: 1 },
-  { id: 'contract', title: 'Оформление', count: 1 },
-  { id: 'payment', title: 'Оплата', count: 1 },
-  { id: 'completed', title: 'Завершено', count: 0 },
-  { id: 'add', title: '+', count: 0 },
-]
-
-const deals: DealCard[] = [
-  {
-    id: 'deal-1',
-    stageId: 'new',
-    title: 'Сделка',
-    customer: 'Петр',
-    amount: '560 000 ₽',
-    date: '03.03.2026',
-  },
-  {
-    id: 'deal-2',
-    stageId: 'processed',
-    title: 'Сделка',
-    customer: 'Василиса',
-    amount: '5 000 000 ₽',
-    date: '07.03.2026',
-  },
-  {
-    id: 'deal-3',
-    stageId: 'contract',
-    title: 'Сделка',
-    customer: 'Компания Energy star',
-    amount: '1 000 000 ₽',
-    date: '03.03.2026',
-  },
-  {
-    id: 'deal-4',
-    stageId: 'payment',
-    title: 'Сделка',
-    customer: 'Сергей',
-    amount: '700 000 ₽',
-    date: '03.03.2026',
-  },
-]
 
 export function DealsPage() {
+  const [state, setState] = useState<DealsPageState>(initialState)
+  const [requestVersion, setRequestVersion] = useState(0)
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadKanban() {
+      setState((currentState) => ({
+        ...currentState,
+        isLoading: true,
+        error: '',
+      }))
+
+      try {
+        const data = await getKanban()
+
+        if (!isMounted) {
+          return
+        }
+
+        setState({
+          data,
+          isLoading: false,
+          error: '',
+        })
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setState({
+          data: null,
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Не удалось загрузить сделки',
+        })
+      }
+    }
+
+    void loadKanban()
+
+    return () => {
+      isMounted = false
+    }
+  }, [requestVersion])
+
+  if (state.isLoading) {
+    return <DealsSkeleton />
+  }
+
+  if (state.error || !state.data) {
+    return (
+      <section className="deals-state-card" aria-live="polite">
+        <h1 className="deals-state-card__title">Не удалось загрузить сделки</h1>
+        <p className="deals-state-card__text">{state.error}</p>
+        <button
+          className="deals-state-card__button"
+          type="button"
+          onClick={() => setRequestVersion((currentVersion) => currentVersion + 1)}
+        >
+          Повторить
+        </button>
+      </section>
+    )
+  }
+
   return (
     <section className="deals-page" aria-label="Сделки">
-      <div className="deals-board">
-        <div className="deals-board__stages" aria-label="Этапы воронки">
-          {stages.map((stage) => (
-            <article className="deals-stage" key={stage.id}>
-              <div className="deals-stage__meta">
-                <span className="deals-stage__title">{stage.title}</span>
-                {stage.id !== 'add' && <span className="deals-stage__count">{stage.count}</span>}
-              </div>
+      <div className="deals-board" aria-label="Воронка сделок">
+        {state.data.stages.map((stage) => {
+          const stageDeals = state.data?.deals[stage.id] ?? []
 
-              {stage.id === 'new' && (
-                <button className="deals-stage__add" type="button" aria-label="Добавить сделку">
-                  +
-                </button>
-              )}
+          return (
+            <article className="deals-column" key={stage.id}>
+              <header className="deals-stage">
+                <div className="deals-stage__meta">
+                  <span className="deals-stage__title" title={stage.name}>
+                    {stage.name}
+                  </span>
+                  <span className="deals-stage__count">{stage.deal_count}</span>
+                </div>
+
+                {stage.is_system ? (
+                  <button
+                    className="deals-stage__action deals-stage__action--add"
+                    type="button"
+                    aria-label="Добавить сделку"
+                    title="Создание сделки добавим следующим этапом"
+                    disabled
+                  >
+                    +
+                  </button>
+                ) : (
+                  <button
+                    className="deals-stage__action"
+                    type="button"
+                    aria-label={`Меню этапа ${stage.name}`}
+                    title="Управление этапом добавим позже"
+                    disabled
+                  >
+                    ⋮
+                  </button>
+                )}
+              </header>
+
+              <div className="deals-column__cards">
+                {stageDeals.map((deal) => (
+                  <DealCard deal={deal} key={deal.id} />
+                ))}
+              </div>
             </article>
-          ))}
-        </div>
+          )
+        })}
 
-        <div className="deals-board__cards" aria-label="Карточки сделок">
-          {deals.map((deal) => (
-            <article className={`deals-card deals-card--${deal.stageId}`} key={deal.id}>
-              <div className="deals-card__header">
-                <h2 className="deals-card__title">{deal.title}</h2>
-                <button className="deals-card__menu" type="button" aria-label="Меню сделки">
-                  ⋮
-                </button>
-              </div>
-
-              <div className="deals-card__line" />
-
-              <div className="deals-card__body">
-                <span className="deals-card__customer">{deal.customer}</span>
-                <span className="deals-card__amount">{deal.amount}</span>
-                <span className="deals-card__date">{deal.date}</span>
-              </div>
-            </article>
-          ))}
-        </div>
+        <article className="deals-column deals-column--add-stage">
+          <button
+            className="deals-add-stage"
+            type="button"
+            aria-label="Добавить этап"
+            title="Создание этапа добавим позже"
+            disabled
+          >
+            +
+          </button>
+        </article>
       </div>
     </section>
   )
+}
+
+function DealCard({ deal }: { deal: ApiKanbanDeal }) {
+  return (
+    <article className="deals-card">
+      <div className="deals-card__header">
+        <h2 className="deals-card__title" title={deal.name}>
+          {deal.name}
+        </h2>
+        <button
+          className="deals-card__menu"
+          type="button"
+          aria-label={`Меню сделки ${deal.name}`}
+          title="Действия со сделкой добавим позже"
+          disabled
+        >
+          ⋮
+        </button>
+      </div>
+
+      <div className="deals-card__line" />
+
+      <div className="deals-card__body">
+        <span className="deals-card__customer" title={getContactName(deal)}>
+          {getContactName(deal)}
+        </span>
+        <span className="deals-card__amount">{formatDealAmount(deal)}</span>
+        <span className="deals-card__date">{formatDealDate(deal.created_at)}</span>
+      </div>
+    </article>
+  )
+}
+
+function DealsSkeleton() {
+  return (
+    <section className="deals-page" aria-label="Загружаем сделки" aria-busy="true">
+      <div className="deals-board deals-board--skeleton">
+        {Array.from({ length: 4 }, (_, index) => (
+          <article className="deals-column" key={index}>
+            <div className="deals-skeleton deals-skeleton--stage" />
+            <div className="deals-skeleton deals-skeleton--card" />
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function getContactName(deal: ApiKanbanDeal) {
+  return deal.contact?.name || 'Контакт не указан'
+}
+
+function formatDealAmount(deal: ApiKanbanDeal) {
+  if (deal.amount === null) {
+    return 'Не указана'
+  }
+
+  const amount = Number(deal.amount)
+
+  if (!Number.isFinite(amount)) {
+    return `${deal.amount} ${deal.currency}`
+  }
+
+  const formattedAmount = new Intl.NumberFormat('ru-RU', {
+    maximumFractionDigits: 2,
+  }).format(amount)
+
+  return deal.currency === 'RUB'
+    ? `${formattedAmount} ₽`
+    : `${formattedAmount} ${deal.currency}`
+}
+
+function formatDealDate(date: string) {
+  const parsedDate = new Date(date)
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return 'Дата не указана'
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(parsedDate)
 }
