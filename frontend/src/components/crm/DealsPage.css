@@ -5,16 +5,17 @@
 }
 
 .deals-board {
-  position: relative;
   width: max-content;
-  min-width: 2140px;
+  min-width: 100%;
   min-height: 620px;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
 }
 
-.deals-board__stages {
-  display: flex;
-  align-items: center;
-  gap: 20px;
+.deals-column {
+  width: 340px;
+  flex: 0 0 340px;
 }
 
 .deals-stage {
@@ -33,15 +34,18 @@
 }
 
 .deals-stage__meta {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 0;
 }
 
 .deals-stage__title {
+  min-width: 0;
+  overflow: hidden;
   font-size: 14px;
   line-height: 17px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -60,52 +64,48 @@
   line-height: 15px;
 }
 
-.deals-stage__add {
+.deals-stage__action {
   width: 24px;
   height: 24px;
+  flex: 0 0 24px;
   padding: 0;
   border: 0;
   background: transparent;
   color: #0b2b55;
   font: inherit;
   font-size: 24px;
-  line-height: 24px;
-  cursor: pointer;
+  line-height: 22px;
 }
 
-.deals-board__cards {
-  position: relative;
-  height: 140px;
-  margin-top: 10px;
+.deals-stage__action--add {
+  line-height: 24px;
+}
+
+.deals-stage__action:disabled,
+.deals-card__menu:disabled,
+.deals-add-stage:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.deals-column__cards {
+  min-height: 540px;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .deals-card {
   box-sizing: border-box;
-  position: absolute;
-  top: 0;
   width: 200px;
-  height: 115px;
+  min-height: 115px;
   padding: 10px 20px;
   border: 0.3px solid #0b2b55;
   border-radius: 10px;
   background: #ffffff;
   color: #0b2b55;
-}
-
-.deals-card--new {
-  left: 0;
-}
-
-.deals-card--processed {
-  left: 220px;
-}
-
-.deals-card--contract {
-  left: 440px;
-}
-
-.deals-card--payment {
-  left: 660px;
 }
 
 .deals-card__header {
@@ -117,15 +117,20 @@
 }
 
 .deals-card__title {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: 14px;
   font-weight: 400;
   line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .deals-card__menu {
   width: 24px;
   height: 24px;
+  flex: 0 0 24px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -133,7 +138,6 @@
   font: inherit;
   font-size: 24px;
   line-height: 20px;
-  cursor: pointer;
 }
 
 .deals-card__line {
@@ -168,8 +172,101 @@
   line-height: 12px;
 }
 
+.deals-column--add-stage {
+  min-height: 40px;
+}
+
+.deals-add-stage {
+  box-sizing: border-box;
+  width: 340px;
+  height: 40px;
+  padding: 0;
+  border: 0.3px solid #0b2b55;
+  border-radius: 10px;
+  background: #ecf4ff;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 24px;
+  line-height: 40px;
+  text-align: center;
+}
+
+.deals-state-card {
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  padding: 30px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #0b2b55;
+}
+
+.deals-state-card__title {
+  margin: 0 0 12px;
+  font-size: 24px;
+  line-height: 29px;
+}
+
+.deals-state-card__text {
+  margin: 0 0 20px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.deals-state-card__button {
+  min-width: 130px;
+  height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 20px;
+  background: #0b2b55;
+  color: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.deals-board--skeleton {
+  min-width: 1420px;
+}
+
+.deals-skeleton {
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.65) 0%,
+    rgba(236, 244, 255, 0.95) 50%,
+    rgba(255, 255, 255, 0.65) 100%
+  );
+  background-size: 200% 100%;
+  animation: deals-skeleton-loading 1.4s ease-in-out infinite;
+}
+
+.deals-skeleton--stage {
+  width: 340px;
+  height: 40px;
+  border: 0.3px solid rgba(11, 43, 85, 0.35);
+}
+
+.deals-skeleton--card {
+  width: 200px;
+  height: 115px;
+  margin-top: 10px;
+  border: 0.3px solid rgba(11, 43, 85, 0.25);
+}
+
+@keyframes deals-skeleton-loading {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
+}
+
 @media (max-width: 900px) {
   .deals-board {
-    min-width: 1120px;
+    min-width: max-content;
   }
 }
