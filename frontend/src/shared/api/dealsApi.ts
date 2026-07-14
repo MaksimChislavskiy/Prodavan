@@ -27,11 +27,25 @@ export type ApiSalesStage = {
   deal_count: number
 }
 
+export type ApiCreatedSalesStage = Omit<ApiSalesStage, 'deal_count'>
+
 export type ApiKanbanResponse = {
   stages: ApiSalesStage[]
   deals: Record<string, ApiKanbanDeal[]>
 }
 
+export type CreateSalesStageRequest = {
+  name: string
+  order: number
+}
+
 export function getKanban() {
   return apiRequest<ApiKanbanResponse>('/api/crm/kanban')
+}
+
+export function createSalesStage(data: CreateSalesStageRequest) {
+  return apiRequest<ApiCreatedSalesStage>('/api/crm/stages', {
+    method: 'POST',
+    body: data,
+  })
 }
