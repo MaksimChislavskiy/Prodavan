@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import {
+  createSalesStage,
   getKanban,
   type ApiKanbanDeal,
   type ApiKanbanResponse,
@@ -21,6 +22,10 @@ const initialState: DealsPageState = {
 export function DealsPage() {
   const [state, setState] = useState<DealsPageState>(initialState)
   const [requestVersion, setRequestVersion] = useState(0)
+  const [isStageEditorOpen, setIsStageEditorOpen] = useState(false)
+  const [newStageName, setNewStageName] = useState('')
+  const [isStageSaving, setIsStageSaving] = useState(false)
+  const [stageCreateError, setStageCreateError] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -63,6 +68,94 @@ export function DealsPage() {
       isMounted = false
     }
   }, [requestVersion])
+
+  const openStageEditor = () => {
+    setNewStageName('')
+    setStageCreateError('')
+    setIsStageEditorOpen(true)
+  }
+
+  const closeStageEditor = () => {
+    if (isStageSaving) {
+      return
+    }
+
+    setIsStageEditorOpen(false)
+    setNewStageName('')
+    setStageCreateError('')
+  }
+
+  const handleStageCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!state.data || isStageSaving) {
+      return
+    }
+
+    const name = newStageName.trim()
+
+    if (!name) {
+      setStageCreateError('Введите название этапа.')
+      return
+    }
+
+    if (name.length > 100) {
+      setStageCreateError('Название этапа должно содержать не больше 100 символов.')
+      return
+    }
+
+    const normalizedName = normalizeStageName(name)
+    const isDuplicate = state.data.stages.some(
+      (stage) => normalizeStageName(stage.name) === normalizedName,
+    )
+
+    if (isDuplicate) {
+      setStageCreateError('Этап с таким названием уже существует.')
+      return
+    }
+
+    setIsStageSaving(true)
+    setStageCreateError('')
+
+    try {
+      const createdStage = await createSalesStage({
+        name,
+        order: state.data.stages.length + 1,
+      })
+
+      setState((currentState) => {
+        if (!currentState.data) {
+          return currentState
+        }
+
+        return {
+          ...currentState,
+          data: {
+            stages: [
+              ...currentState.data.stages,
+              {
+                ...createdStage,
+                deal_count: 0,
+              },
+            ].sort((firstStage, secondStage) => firstStage.order - secondStage.order),
+            deals: {
+              ...currentState.data.deals,
+              [createdStage.id]: [],
+            },
+          },
+        }
+      })
+
+      setIsStageEditorOpen(false)
+      setNewStageName('')
+    } catch (error) {
+      setStageCreateError(
+        error instanceof Error ? error.message : 'Не удалось создать этап.',
+      )
+    } finally {
+      setIsStageSaving(false)
+    }
+  }
 
   if (state.isLoading) {
     return <DealsSkeleton />
@@ -133,15 +226,66 @@ export function DealsPage() {
         })}
 
         <article className="deals-column deals-column--add-stage">
-          <button
-            className="deals-add-stage"
-            type="button"
-            aria-label="Добавить этап"
-            title="Создание этапа добавим позже"
-            disabled
-          >
-            +
-          </button>
+          {isStageEditorOpen ? (
+            <form className="deals-stage-create" onSubmit={(event) => void handleStageCreate(event)}>
+              <div className="deals-stage-create__row">
+                <input
+                  className="deals-stage-create__input"
+                  type="text"
+                  value={newStageName}
+                  maxLength={100}
+                  autoFocus
+                  placeholder="Название этапа"
+                  aria-label="Название нового этапа"
+                  disabled={isStageSaving}
+                  onChange={(event) => {
+                    setNewStageName(event.target.value)
+                    setStageCreateError('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      closeStageEditor()
+                    }
+                  }}
+                />
+
+                <button
+                  className="deals-stage-create__button deals-stage-create__button--save"
+                  type="submit"
+                  aria-label="Сохранить этап"
+                  disabled={isStageSaving || !newStageName.trim()}
+                >
+                  {isStageSaving ? '…' : '✓'}
+                </button>
+
+                <button
+                  className="deals-stage-create__button"
+                  type="button"
+                  aria-label="Отменить создание этапа"
+                  disabled={isStageSaving}
+                  onClick={closeStageEditor}
+                >
+                  ×
+                </button>
+              </div>
+
+              {stageCreateError && (
+                <p className="deals-stage-create__error" role="alert">
+                  {stageCreateError}
+                </p>
+              )}
+            </form>
+          ) : (
+            <button
+              className="deals-add-stage"
+              type="button"
+              aria-label="Добавить этап"
+              onClick={openStageEditor}
+            >
+              +
+            </button>
+          )}
         </article>
       </div>
     </section>
@@ -192,6 +336,10 @@ function DealsSkeleton() {
       </div>
     </section>
   )
+}
+
+function normalizeStageName(name: string) {
+  return name.trim().toLocaleLowerCase('ru-RU')
 }
 
 function getContactName(deal: ApiKanbanDeal) {
