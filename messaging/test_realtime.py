@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
@@ -7,12 +9,17 @@ from config.asgi import application
 from users.models import User
 from users.services import issue_token_pair
 
-from .realtime import workspace_group_name
+from .realtime import broadcast_workspace_event, workspace_group_name
 
 
 TEST_CHANNEL_LAYERS = {
     'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
 }
+
+
+class FailingChannelLayer:
+    async def group_send(self, group_name, message):
+        raise ConnectionError('Redis is unavailable')
 
 
 @override_settings(
@@ -116,3 +123,14 @@ class RealtimeChatTests(TransactionTestCase):
         self.assertEqual(response['event'], 'error')
         self.assertEqual(response['code'], 'unsupported_action')
         await communicator.disconnect()
+
+    def test_realtime_failure_does_not_break_completed_api_write(self):
+        with patch(
+            'messaging.realtime.get_channel_layer',
+            return_value=FailingChannelLayer(),
+        ):
+            with self.assertLogs('messaging.realtime', level='ERROR'):
+                broadcast_workspace_event(
+                    self.user.workspace_id,
+                    {'event': 'stage_created'},
+                )
