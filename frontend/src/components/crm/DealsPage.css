@@ -1,4 +1,7 @@
 .deals-page {
+  --deals-column-width: 264px;
+  --deals-column-gap: 16px;
+
   width: 100%;
   overflow-x: auto;
   padding-bottom: 24px;
@@ -10,17 +13,17 @@
   min-height: 620px;
   display: flex;
   align-items: flex-start;
-  gap: 20px;
+  gap: var(--deals-column-gap);
 }
 
 .deals-column {
-  width: 340px;
-  flex: 0 0 340px;
+  width: var(--deals-column-width);
+  flex: 0 0 var(--deals-column-width);
 }
 
 .deals-stage {
   box-sizing: border-box;
-  width: 340px;
+  width: var(--deals-column-width);
   height: 40px;
   padding: 0 10px;
   display: flex;
@@ -177,7 +180,7 @@
 
 .deals-add-stage {
   box-sizing: border-box;
-  width: 340px;
+  width: var(--deals-column-width);
   height: 40px;
   padding: 0;
   border: 0.3px solid #0b2b55;
@@ -196,12 +199,12 @@
 }
 
 .deals-stage-create {
-  width: 340px;
+  width: var(--deals-column-width);
 }
 
 .deals-stage-create__row {
   box-sizing: border-box;
-  width: 340px;
+  width: var(--deals-column-width);
   height: 40px;
   padding: 0 8px 0 10px;
   display: flex;
@@ -259,7 +262,7 @@
 }
 
 .deals-stage-create__error {
-  width: 340px;
+  width: var(--deals-column-width);
   margin: 6px 0 0;
   color: #e20f0f;
   font-size: 12px;
@@ -302,7 +305,7 @@
 }
 
 .deals-board--skeleton {
-  min-width: 1420px;
+  min-width: 1104px;
 }
 
 .deals-skeleton {
@@ -318,7 +321,7 @@
 }
 
 .deals-skeleton--stage {
-  width: 340px;
+  width: var(--deals-column-width);
   height: 40px;
   border: 0.3px solid rgba(11, 43, 85, 0.35);
 }
