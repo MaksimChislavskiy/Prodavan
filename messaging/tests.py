@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from contacts.models import Contact
 from notifications.models import Notification, NotificationType
-from users.models import User
+from users.models import User, UserRole
 from workspaces.models import TelegramWebhookLog
 from workspaces.crypto import encrypt_integration_secret
 from workspaces.models import (
@@ -537,6 +537,24 @@ class MessagingTests(TestCase):
     def test_temporary_delivery_error_retries_three_times(self):
         self._connect_telegram()
         _, chat = self._contact_and_chat()
+        admin = User.objects.create_user(
+            email='delivery-admin@example.com',
+            password='StrongPass2',
+            first_name='Анна',
+            last_name='Администратор',
+            workspace=self.user.workspace,
+            is_confirmed=True,
+            role=UserRole.ADMIN,
+        )
+        regular = User.objects.create_user(
+            email='delivery-user@example.com',
+            password='StrongPass3',
+            first_name='Пётр',
+            last_name='Пользователь',
+            workspace=self.user.workspace,
+            is_confirmed=True,
+            role=UserRole.USER,
+        )
         response = self._enqueue(chat)
         client = Mock()
         client.send_message.side_effect = TelegramApiUnavailable('offline')
@@ -565,6 +583,24 @@ class MessagingTests(TestCase):
         self.assertEqual(message.status, MessageStatus.FAILED)
         self.assertEqual(message.delivery_attempts, 3)
         self.assertIsNone(message.next_delivery_attempt_at)
+        notifications = Notification.objects.filter(
+            type=NotificationType.CHAT_MESSAGE_DELIVERY_FAILED,
+            entity_type='message',
+            entity_id=str(message.id),
+        )
+        self.assertEqual(
+            {notification.user_id for notification in notifications},
+            {self.user.id, admin.id},
+        )
+        self.assertFalse(notifications.filter(user=regular).exists())
+        notification = notifications.get(user=self.user)
+        self.assertEqual(notification.link, f'/chat/{chat.id}')
+        self.assertIn('не доставлено через Telegram', notification.content)
+
+        repeated = process_outgoing_message(message_id, client=client)
+
+        self.assertFalse(repeated)
+        self.assertEqual(notifications.count(), 2)
 
     def test_permanent_delivery_error_fails_without_retry(self):
         self._connect_telegram()
@@ -579,6 +615,13 @@ class MessagingTests(TestCase):
         self.assertEqual(message.status, MessageStatus.FAILED)
         self.assertEqual(message.delivery_attempts, 1)
         self.assertIsNone(message.next_delivery_attempt_at)
+        notification = Notification.objects.get(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE_DELIVERY_FAILED,
+            entity_type='message',
+            entity_id=str(message.id),
+        )
+        self.assertEqual(notification.link, f'/chat/{message.chat_id}')
 
     def test_outgoing_message_text_is_validated(self):
         self._connect_telegram()

@@ -18,6 +18,10 @@ class NotificationType(models.TextChoices):
     CHAT_NEW_MESSAGE = 'chat_new_message', 'Новое сообщение клиента'
     CHAT_RETURNED = 'chat_returned', 'Клиент вернулся'
     CHAT_MISSED_MESSAGE = 'chat_missed_message', 'Пропущено сообщение клиента'
+    CHAT_MESSAGE_DELIVERY_FAILED = (
+        'chat_message_delivery_failed',
+        'Ошибка доставки сообщения',
+    )
     AI_DEAL_CREATED = 'ai_deal_created', 'AI создал сделку'
     AI_TASK_CREATED = 'ai_task_created', 'AI создал задачу'
     AI_INSIGHT_EXTRACTED = 'ai_insight_extracted', 'AI нашёл важную информацию'

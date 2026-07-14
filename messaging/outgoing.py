@@ -5,6 +5,9 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
+from notifications.delivery_failures import (
+    create_delivery_failure_notifications,
+)
 from workspaces.crypto import IntegrationSecretError, decrypt_integration_secret
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 from workspaces.telegram import (
@@ -259,6 +262,7 @@ def process_outgoing_message(message_id, *, client=None, now=None):
             ),
         )
         if message.status == MessageStatus.FAILED:
+            create_delivery_failure_notifications(message)
             payload = {
                 'event': 'message_status_updated',
                 'chat_id': str(message.chat_id),
