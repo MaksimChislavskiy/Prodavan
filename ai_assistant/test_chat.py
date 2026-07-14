@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 
 from contacts.models import Contact
 from deals.models import Deal, SalesStage
+from tasks.models import DueDateType, Task, TaskStatus
 from users.models import User
 
 from .chat_client import (
@@ -378,6 +379,139 @@ class AIChatApiTests(TestCase):
                 'context': {
                     'page': 'contacts',
                     'entity_id': str(foreign_contact.id),
+                },
+            },
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(
+            AIChatSession.objects.filter(workspace=self.user.workspace).exists(),
+        )
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_task_context_includes_description_and_related_objects(
+        self,
+        client_class,
+        retrieve,
+    ):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Сергей Волков',
+            company='ООО Горизонт',
+            email='sergey@example.com',
+        )
+        stage = SalesStage.objects.get(
+            workspace=self.user.workspace,
+            is_system=True,
+        )
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            contact=contact,
+            name='Поставка оборудования',
+            amount='480000.00',
+        )
+        due_date = timezone.now() + timedelta(days=2)
+        task = Task.objects.create(
+            workspace=self.user.workspace,
+            title='Подготовить коммерческое предложение',
+            description='Рассчитать стоимость для двадцати рабочих мест',
+            due_date=due_date,
+            due_date_type=DueDateType.DATETIME,
+            status=TaskStatus.IN_PROGRESS,
+            contact=contact,
+            deal=deal,
+            comment='Согласовать скидку с руководителем',
+            created_by_user=self.user,
+        )
+        session = self._session()
+        fake_client = FakeCompletionClient()
+        client_class.return_value = fake_client
+        retrieve.return_value = []
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'tasks', 'entity_id': str(task.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn(str(task.id), system_prompt)
+        self.assertIn('Подготовить коммерческое предложение', system_prompt)
+        self.assertIn(
+            'Рассчитать стоимость для двадцати рабочих мест',
+            system_prompt,
+        )
+        self.assertIn('in_progress', system_prompt)
+        self.assertIn(due_date.isoformat(), system_prompt)
+        self.assertIn('Согласовать скидку с руководителем', system_prompt)
+        self.assertIn('Сергей Волков', system_prompt)
+        self.assertIn('sergey@example.com', system_prompt)
+        self.assertIn('Поставка оборудования', system_prompt)
+        self.assertIn('480000.00', system_prompt)
+        client_class.assert_called_once()
+
+    def test_deleted_task_context_is_rejected_before_saving_messages(self):
+        task = Task.objects.create(
+            workspace=self.user.workspace,
+            title='Удалённая задача',
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        session = self._session()
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'tasks', 'entity_id': str(task.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(AIChatMessage.objects.exists())
+
+    def test_foreign_task_context_is_hidden_on_session_creation(self):
+        other = User.objects.create_user(
+            email='task-context-other@example.com',
+            password='StrongPass2',
+            first_name='Олег',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        foreign_task = Task.objects.create(
+            workspace=other.workspace,
+            title='Чужая задача',
+            created_by_user=other,
+        )
+        access = self._login()
+
+        response = self.client.post(
+            self.session_url,
+            {
+                'context': {
+                    'page': 'tasks',
+                    'entity_id': str(foreign_task.id),
                 },
             },
             format='json',
