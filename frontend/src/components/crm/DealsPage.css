@@ -82,8 +82,7 @@
 }
 
 .deals-stage__action:disabled,
-.deals-card__menu:disabled,
-.deals-add-stage:disabled {
+.deals-card__menu:disabled {
   opacity: 1;
   cursor: default;
 }
@@ -189,6 +188,82 @@
   font-size: 24px;
   line-height: 40px;
   text-align: center;
+  cursor: pointer;
+}
+
+.deals-add-stage:hover {
+  background: #dfeeff;
+}
+
+.deals-stage-create {
+  width: 340px;
+}
+
+.deals-stage-create__row {
+  box-sizing: border-box;
+  width: 340px;
+  height: 40px;
+  padding: 0 8px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 10px;
+  background: #ecf4ff;
+}
+
+.deals-stage-create__input {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.deals-stage-create__input::placeholder {
+  color: rgba(11, 43, 85, 0.6);
+}
+
+.deals-stage-create__button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 20px;
+  line-height: 26px;
+  cursor: pointer;
+}
+
+.deals-stage-create__button:hover:not(:disabled) {
+  background: rgba(11, 43, 85, 0.08);
+}
+
+.deals-stage-create__button--save {
+  font-size: 17px;
+}
+
+.deals-stage-create__button:disabled,
+.deals-stage-create__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.deals-stage-create__error {
+  width: 340px;
+  margin: 6px 0 0;
+  color: #e20f0f;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .deals-state-card {
