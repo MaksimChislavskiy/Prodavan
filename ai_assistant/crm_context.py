@@ -2,6 +2,7 @@ import json
 
 from contacts.models import Contact
 from deals.models import Deal
+from messaging.models import Chat
 from tasks.models import Task
 
 from .models import AIChatContextPage
@@ -12,6 +13,8 @@ class CRMContextNotFound(Exception):
 
 
 MAX_RELATED_DEALS = 50
+MAX_CHAT_MESSAGES = 50
+MAX_CHAT_HISTORY_CHARS = 20_000
 
 
 def build_crm_context(session):
@@ -22,6 +25,8 @@ def build_crm_context(session):
         return _contact_context(session)
     if page == AIChatContextPage.TASKS and session.context_entity_id is not None:
         return _task_context(session)
+    if page == AIChatContextPage.CHAT and session.context_entity_id is not None:
+        return _chat_context(session)
     return _json_context({
         'page': page,
         'entity_id': (
@@ -184,6 +189,86 @@ def _task_context(session):
             'contact': contact,
             'deal': deal,
         },
+    })
+
+
+def _chat_context(session):
+    chat = (
+        Chat.objects.select_related('contact')
+        .filter(
+            id=session.context_entity_id,
+            workspace_id=session.workspace_id,
+            is_deleted=False,
+        )
+        .first()
+    )
+    if chat is None:
+        raise CRMContextNotFound
+
+    contact = None
+    if chat.contact.workspace_id == session.workspace_id:
+        contact = {
+            'id': str(chat.contact.id),
+            'name': chat.contact.name,
+            'company': chat.contact.company,
+            'phone': chat.contact.phone,
+            'email': chat.contact.email,
+            'telegram': chat.contact.telegram,
+            'is_deleted': chat.contact.is_deleted,
+        }
+
+    messages = chat.messages.filter(is_deleted=False).order_by(
+        '-created_at',
+        '-id',
+    )
+    message_count = messages.count()
+    remaining_chars = MAX_CHAT_HISTORY_CHARS
+    history = []
+    text_was_truncated = False
+    for message in messages[:MAX_CHAT_MESSAGES]:
+        if remaining_chars <= 0:
+            break
+        text = message.text
+        if len(text) > remaining_chars:
+            text = text[:remaining_chars]
+            text_was_truncated = True
+        history.append({
+            'id': str(message.id),
+            'sender_type': message.sender_type,
+            'sender_id': str(message.sender_id),
+            'text': text,
+            'text_truncated': len(text) < len(message.text),
+            'status': message.status,
+            'read_at': message.read_at.isoformat() if message.read_at else None,
+            'sent_by_ai': message.sent_by_ai,
+            'created_at': message.created_at.isoformat(),
+        })
+        remaining_chars -= len(text)
+        if text_was_truncated:
+            break
+    history.reverse()
+
+    return _json_context({
+        'page': AIChatContextPage.CHAT,
+        'entity_id': str(chat.id),
+        'chat': {
+            'id': str(chat.id),
+            'contact': contact,
+            'last_message': chat.last_message,
+            'last_message_at': (
+                chat.last_message_at.isoformat()
+                if chat.last_message_at is not None
+                else None
+            ),
+            'unread_count': chat.unread_count,
+            'ai_autopilot_enabled': chat.ai_autopilot_enabled,
+        },
+        'message_count': message_count,
+        'history_included_count': len(history),
+        'history_truncated': (
+            message_count > len(history) or text_was_truncated
+        ),
+        'history': history,
     })
 
 

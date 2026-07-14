@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 
 from contacts.models import Contact
 from deals.models import Deal, SalesStage
+from messaging.models import Chat, Message, MessageSenderType, MessageStatus
 from tasks.models import DueDateType, Task, TaskStatus
 from users.models import User
 
@@ -512,6 +513,249 @@ class AIChatApiTests(TestCase):
                 'context': {
                     'page': 'tasks',
                     'entity_id': str(foreign_task.id),
+                },
+            },
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(
+            AIChatSession.objects.filter(workspace=self.user.workspace).exists(),
+        )
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_chat_context_includes_contact_and_active_message_history(
+        self,
+        client_class,
+        retrieve,
+    ):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Елена Миронова',
+            company='ООО Альфа',
+            phone='+79995554433',
+            telegram='@elena_mironova',
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            last_message='Отправьте договор, пожалуйста',
+            last_message_at=timezone.now(),
+            unread_count=1,
+            ai_autopilot_enabled=False,
+        )
+        first = Message.objects.create(
+            chat=chat,
+            sender_type=MessageSenderType.USER,
+            sender_id=self.user.id,
+            text='Добрый день! Подготовили предложение.',
+            status=MessageStatus.DELIVERED,
+        )
+        Message.objects.create(
+            chat=chat,
+            sender_type=MessageSenderType.USER,
+            sender_id=self.user.id,
+            text='Удалённое сообщение не для модели',
+            status=MessageStatus.SENT,
+            is_deleted=True,
+        )
+        last = Message.objects.create(
+            chat=chat,
+            sender_type=MessageSenderType.CONTACT,
+            sender_id=contact.id,
+            text='Отправьте договор, пожалуйста',
+        )
+        session = self._session()
+        fake_client = FakeCompletionClient()
+        client_class.return_value = fake_client
+        retrieve.return_value = []
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'chat', 'entity_id': str(chat.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn(str(chat.id), system_prompt)
+        self.assertIn('Елена Миронова', system_prompt)
+        self.assertIn('ООО Альфа', system_prompt)
+        self.assertIn('@elena_mironova', system_prompt)
+        self.assertIn(str(first.id), system_prompt)
+        self.assertIn('Добрый день! Подготовили предложение.', system_prompt)
+        self.assertIn(str(last.id), system_prompt)
+        self.assertIn('Отправьте договор, пожалуйста', system_prompt)
+        self.assertNotIn('Удалённое сообщение не для модели', system_prompt)
+        history_start = system_prompt.index('"history":[')
+        self.assertLess(
+            system_prompt.index(
+                'Добрый день! Подготовили предложение.',
+                history_start,
+            ),
+            system_prompt.index(
+                'Отправьте договор, пожалуйста',
+                history_start,
+            ),
+        )
+        client_class.assert_called_once()
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_chat_context_limits_history_and_reports_truncation(
+        self,
+        client_class,
+        retrieve,
+    ):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Контакт с длинной историей',
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+        )
+        for index in range(51):
+            Message.objects.create(
+                chat=chat,
+                sender_type=MessageSenderType.CONTACT,
+                sender_id=contact.id,
+                text=f'Сообщение истории {index}',
+            )
+        session = self._session()
+        fake_client = FakeCompletionClient()
+        client_class.return_value = fake_client
+        retrieve.return_value = []
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'chat', 'entity_id': str(chat.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn('"message_count":51', system_prompt)
+        self.assertIn('"history_included_count":50', system_prompt)
+        self.assertIn('"history_truncated":true', system_prompt)
+        self.assertNotIn('Сообщение истории 0', system_prompt)
+        self.assertIn('Сообщение истории 50', system_prompt)
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_chat_context_limits_history_text_size(
+        self,
+        client_class,
+        retrieve,
+    ):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Контакт с длинным сообщением',
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+        )
+        Message.objects.create(
+            chat=chat,
+            sender_type=MessageSenderType.CONTACT,
+            sender_id=contact.id,
+            text=('x' * 20_100) + 'ХВОСТ_НЕ_ДОЛЖЕН_ПОПАСТЬ',
+        )
+        session = self._session()
+        fake_client = FakeCompletionClient()
+        client_class.return_value = fake_client
+        retrieve.return_value = []
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'chat', 'entity_id': str(chat.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn('"history_included_count":1', system_prompt)
+        self.assertIn('"history_truncated":true', system_prompt)
+        self.assertIn('"text_truncated":true', system_prompt)
+        self.assertNotIn('ХВОСТ_НЕ_ДОЛЖЕН_ПОПАСТЬ', system_prompt)
+
+    def test_deleted_chat_context_is_rejected_before_saving_messages(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Контакт удалённого чата',
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        session = self._session()
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'chat', 'entity_id': str(chat.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(AIChatMessage.objects.exists())
+
+    def test_foreign_chat_context_is_hidden_on_session_creation(self):
+        other = User.objects.create_user(
+            email='chat-context-other@example.com',
+            password='StrongPass2',
+            first_name='Ирина',
+            last_name='Петрова',
+            is_confirmed=True,
+        )
+        contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Чужой собеседник',
+        )
+        foreign_chat = Chat.objects.create(
+            workspace=other.workspace,
+            contact=contact,
+        )
+        access = self._login()
+
+        response = self.client.post(
+            self.session_url,
+            {
+                'context': {
+                    'page': 'chat',
+                    'entity_id': str(foreign_chat.id),
                 },
             },
             format='json',
