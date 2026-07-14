@@ -6,6 +6,7 @@ from messaging.models import Chat
 from tasks.models import Task
 
 from .models import AIChatContextPage
+from .workspace_context import build_workspace_context
 
 
 class CRMContextNotFound(Exception):
@@ -27,15 +28,7 @@ def build_crm_context(session):
         return _task_context(session)
     if page == AIChatContextPage.CHAT and session.context_entity_id is not None:
         return _chat_context(session)
-    return _json_context({
-        'page': page,
-        'entity_id': (
-            str(session.context_entity_id)
-            if session.context_entity_id is not None
-            else None
-        ),
-        'entity': None,
-    })
+    return _json_context(build_workspace_context(session, page))
 
 
 def _deal_context(session):

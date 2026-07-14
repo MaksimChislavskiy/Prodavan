@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 from contacts.models import Contact
 from deals.models import Deal, SalesStage
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
+from notifications.models import Notification, NotificationType
 from tasks.models import DueDateType, Task, TaskStatus
 from users.models import User
 
@@ -803,8 +804,93 @@ class AIChatApiTests(TestCase):
         self.assertIn('Компания работает ежедневно', system_prompt)
         self.assertNotIn('instruction', system_prompt.lower())
 
-    def test_no_relevant_knowledge_returns_safe_internal_answer(self):
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_dashboard_context_uses_workspace_summary_without_knowledge(
+        self,
+        client_class,
+        retrieve,
+    ):
+        stage = SalesStage.objects.get(
+            workspace=self.user.workspace,
+            is_system=True,
+        )
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Клиент общей сводки',
+            company='ООО Сводка',
+        )
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            contact=contact,
+            name='Сделка требует внимания',
+            amount='310000.00',
+        )
+        overdue_task = Task.objects.create(
+            workspace=self.user.workspace,
+            title='Просроченная задача общей сводки',
+            description='Связаться с клиентом',
+            due_date=timezone.now() - timedelta(days=1),
+            due_date_type=DueDateType.DATETIME,
+            contact=contact,
+            deal=deal,
+            created_by_user=self.user,
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            unread_count=3,
+        )
+        notification = Notification.objects.create(
+            workspace=self.user.workspace,
+            user=self.user,
+            type=NotificationType.DEAL_ATTENTION,
+            title='Важное уведомление сводки',
+            content='По сделке просрочена задача.',
+            link=f'/deals/{deal.id}',
+            entity_type='deal',
+            entity_id=str(deal.id),
+        )
+        deleted_contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Удалённый контакт сводки',
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            contact=deleted_contact,
+            name='Удалённая сделка сводки',
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        other = User.objects.create_user(
+            email='summary-other@example.com',
+            password='StrongPass2',
+            first_name='Чужой',
+            last_name='Пользователь',
+            is_confirmed=True,
+        )
+        other_stage = SalesStage.objects.get(
+            workspace=other.workspace,
+            is_system=True,
+        )
+        other_contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Чужой контакт сводки',
+        )
+        Deal.objects.create(
+            workspace=other.workspace,
+            stage=other_stage,
+            contact=other_contact,
+            name='Чужая сделка сводки',
+        )
         session = self._session()
+        fake_client = FakeCompletionClient('Ответ по общей CRM-сводке.')
+        client_class.return_value = fake_client
+        retrieve.return_value = []
         access = self._login()
 
         response = self.client.post(
@@ -815,10 +901,33 @@ class AIChatApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['message']['provider'], 'internal')
-        self.assertTrue(
-            response.data['message']['metadata']['no_relevant_knowledge'],
+        self.assertEqual(response.data['message']['provider'], 'test-provider')
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn('"scope":"workspace_summary"', system_prompt)
+        self.assertIn(
+            '"counts":{"chats":1,"contacts":1,"deals":1',
+            system_prompt,
         )
+        self.assertIn(
+            '"tasks":{"by_status":{"done":0,"in_progress":0,"new":1},'
+            '"total":1}',
+            system_prompt,
+        )
+        self.assertIn(str(contact.id), system_prompt)
+        self.assertIn(str(deal.id), system_prompt)
+        self.assertIn('Сделка требует внимания', system_prompt)
+        self.assertIn('"total_amount":"310000', system_prompt)
+        self.assertIn(str(overdue_task.id), system_prompt)
+        self.assertIn('Просроченная задача общей сводки', system_prompt)
+        self.assertIn('"overdue_task_count":1', system_prompt)
+        self.assertIn('"unread_chat_messages":3', system_prompt)
+        self.assertIn(str(notification.id), system_prompt)
+        self.assertIn('Важное уведомление сводки', system_prompt)
+        self.assertNotIn('Удалённый контакт сводки', system_prompt)
+        self.assertNotIn('Удалённая сделка сводки', system_prompt)
+        self.assertNotIn('Чужой контакт сводки', system_prompt)
+        self.assertNotIn('Чужая сделка сводки', system_prompt)
+        client_class.assert_called_once()
 
     @patch('ai_assistant.chat_services.retrieve_knowledge')
     @patch('ai_assistant.chat_services.ChatCompletionClient')

@@ -31,10 +31,6 @@ TIMEOUT_FAILURE = 'Время ожидания ответа истекло. По
 EMPTY_FAILURE = 'AI не смог сформулировать ответ. Попробуйте переформулировать запрос.'
 TOO_MANY_FAILURE = 'Слишком много запросов. Подождите, пока завершится текущий.'
 RATE_LIMIT_FAILURE = 'Превышен лимит AI-запросов. Попробуйте через минуту.'
-NO_KNOWLEDGE_RESPONSE = (
-    'В базе знаний не найдено достаточно информации для ответа. '
-    'Попробуйте переформулировать вопрос или загрузите подходящий документ.'
-)
 RETRY_COOLDOWN = timedelta(seconds=5)
 
 
@@ -244,26 +240,6 @@ def _mark_success(*, assistant_message, result, sources):
     return message
 
 
-def _mark_no_knowledge(assistant_message):
-    class InternalResult:
-        content = NO_KNOWLEDGE_RESPONSE
-        model_name = 'knowledge-base'
-        provider = 'internal'
-        prompt_tokens = 0
-        completion_tokens = 0
-        total_tokens = 0
-        processing_time_ms = 0
-
-    message = _mark_success(
-        assistant_message=assistant_message,
-        result=InternalResult(),
-        sources=[],
-    )
-    message.metadata = {'sources': [], 'no_relevant_knowledge': True}
-    message.save(update_fields=('metadata', 'updated_at'))
-    return message
-
-
 def _mark_failure(*, assistant_message, status_value, content, error_code):
     with transaction.atomic():
         message = AIChatMessage.objects.select_for_update().get(
@@ -297,8 +273,6 @@ def _generate_answer(
             query=user_message.content,
             embedding_client=embedding_client,
         )
-        if not sources and user_message.session.context_entity_id is None:
-            return _mark_no_knowledge(assistant_message)
         client = completion_client or ChatCompletionClient()
         result = client.complete(
             _build_model_messages(
