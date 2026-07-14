@@ -292,6 +292,109 @@ class AIChatApiTests(TestCase):
 
     @patch('ai_assistant.chat_services.retrieve_knowledge')
     @patch('ai_assistant.chat_services.ChatCompletionClient')
+    def test_contact_context_includes_card_and_related_active_deals(
+        self,
+        client_class,
+        retrieve,
+    ):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Мария Соколова',
+            company='ООО Вектор',
+            phone='+79990001122',
+            email='maria@example.com',
+            telegram='@maria_sokolova',
+            comment='Предпочитает общение в Telegram',
+            ai_insights={
+                'needs': 'Автоматизация продаж',
+                'probability': 75,
+            },
+        )
+        stage = SalesStage.objects.get(
+            workspace=self.user.workspace,
+            is_system=True,
+        )
+        active_deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            contact=contact,
+            name='Лицензии для отдела продаж',
+            amount='275000.00',
+        )
+        Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=stage,
+            contact=contact,
+            name='Удалённая связанная сделка',
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        session = self._session()
+        fake_client = FakeCompletionClient()
+        client_class.return_value = fake_client
+        retrieve.return_value = []
+        access = self._login()
+
+        response = self.client.post(
+            self.chat_url,
+            self._payload(
+                session,
+                context={'page': 'contacts', 'entity_id': str(contact.id)},
+            ),
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        system_prompt = fake_client.messages[0]['content']
+        self.assertIn(str(contact.id), system_prompt)
+        self.assertIn('Мария Соколова', system_prompt)
+        self.assertIn('ООО Вектор', system_prompt)
+        self.assertIn('maria@example.com', system_prompt)
+        self.assertIn('Автоматизация продаж', system_prompt)
+        self.assertIn(str(active_deal.id), system_prompt)
+        self.assertIn('Лицензии для отдела продаж', system_prompt)
+        self.assertIn('275000.00', system_prompt)
+        self.assertNotIn('Удалённая связанная сделка', system_prompt)
+        client_class.assert_called_once()
+
+    def test_foreign_contact_context_is_hidden_on_session_creation(self):
+        other = User.objects.create_user(
+            email='contact-context-other@example.com',
+            password='StrongPass2',
+            first_name='Анна',
+            last_name='Петрова',
+            is_confirmed=True,
+        )
+        foreign_contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Чужой контакт',
+        )
+        access = self._login()
+
+        response = self.client.post(
+            self.session_url,
+            {
+                'context': {
+                    'page': 'contacts',
+                    'entity_id': str(foreign_contact.id),
+                },
+            },
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data['error']['code'],
+            'CONTEXT_ENTITY_NOT_FOUND',
+        )
+        self.assertFalse(
+            AIChatSession.objects.filter(workspace=self.user.workspace).exists(),
+        )
+
+    @patch('ai_assistant.chat_services.retrieve_knowledge')
+    @patch('ai_assistant.chat_services.ChatCompletionClient')
     def test_send_uses_rag_saves_metrics_and_context(
         self,
         client_class,
