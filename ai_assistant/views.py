@@ -42,7 +42,12 @@ MAX_AI_SETTINGS_BODY_SIZE = 64 * 1024
 
 
 AUDIT_TYPE_FILTERS = {
-    'contact': {'action_type__in': [AutomationActionType.CONTACT_ENRICHMENT]},
+    'contact': {
+        'action_type__in': [
+            AutomationActionType.CONTACT_CREATE,
+            AutomationActionType.CONTACT_ENRICHMENT,
+        ],
+    },
     'deal': {
         'action_type__in': [
             AutomationActionType.DEAL_CREATE,

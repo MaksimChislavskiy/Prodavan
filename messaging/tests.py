@@ -8,8 +8,16 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from ai_assistant.automation import process_automation_event
+from ai_assistant.models import (
+    AIAutomationAuditAction,
+    AIAutomationAuditLog,
+    AutomationActionType,
+)
 from contacts.models import Contact, ContactAuditAction, ContactAuditLog
+from deals.models import Deal
 from notifications.models import Notification, NotificationType
+from tasks.models import Task
 from users.models import User, UserRole
 from workspaces.crypto import encrypt_integration_secret
 from workspaces.models import (
@@ -150,6 +158,11 @@ class MessagingTests(TestCase):
         self.assertEqual(chat.last_message, 'Здравствуйте')
         self.assertEqual(chat.unread_count, 1)
         message = Message.objects.get(chat=chat)
+        self.assertTrue(message.ai_automation_event.contact_created)
+        self.assertEqual(
+            contact_audit.correlation_id,
+            message.ai_automation_event.id,
+        )
         self.assertEqual(message.sender_type, MessageSenderType.CONTACT)
         self.assertIsNone(message.status)
         self.assertEqual(message.source_update_id, 100)
@@ -176,6 +189,76 @@ class MessagingTests(TestCase):
         self.assertEqual(notification.link, f'/chat/{chat.id}')
         self.assertIn('Пётр Петров', notification.content)
         self.assertIn('Здравствуйте', notification.content)
+
+    def test_first_message_groups_created_contact_deal_and_task(self):
+        webhook_log = self._webhook_log(
+            text='Здравствуйте, хочу CRM. Перезвоните мне.',
+        )
+        process_telegram_webhook_log(webhook_log.id)
+        message = Message.objects.get(source_update_id=webhook_log.update_id)
+        analyzer = Mock()
+        analyzer.analyze.return_value = {
+            'contact': {
+                'confidence': 0.95,
+                'fields': {'company': 'ООО Ромашка'},
+            },
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Интерес к CRM',
+            },
+            'task': {
+                'confidence': 0.95,
+                'create': True,
+                'title': 'Перезвонить клиенту',
+            },
+        }
+
+        outcome = process_automation_event(
+            message.ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        self.assertEqual(outcome, 'completed')
+        self.assertTrue(Deal.objects.filter(contact=message.chat.contact).exists())
+        self.assertTrue(Task.objects.filter(contact=message.chat.contact).exists())
+        actions = set(
+            AIAutomationAuditLog.objects.filter(
+                correlation_id=message.ai_automation_event.id,
+            ).values_list('action', flat=True),
+        )
+        self.assertTrue({
+            AIAutomationAuditAction.AI_CONTACT_CREATED,
+            AIAutomationAuditAction.AI_CONTACT_UPDATED,
+            AIAutomationAuditAction.AI_DEAL_CREATED,
+            AIAutomationAuditAction.AI_TASK_CREATED,
+        }.issubset(actions))
+        self.assertTrue(
+            AIAutomationAuditLog.objects.filter(
+                correlation_id=message.ai_automation_event.id,
+                action_type=AutomationActionType.CONTACT_CREATE,
+            ).exists(),
+        )
+        notification = Notification.objects.get(
+            type=NotificationType.AI_ACTIONS_GROUPED,
+        )
+        self.assertIn('• создан контакт', notification.content)
+        self.assertIn('• создана сделка', notification.content)
+        self.assertIn('• создана задача', notification.content)
+        self.assertNotIn('• обновлён контакт', notification.content)
+        response = self.client.get(
+            '/api/ai/audit',
+            {'type': 'contact'},
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item['action_type'] for item in response.data['logs']},
+            {
+                AutomationActionType.CONTACT_CREATE,
+                AutomationActionType.CONTACT_ENRICHMENT,
+            },
+        )
 
     def test_first_message_extracts_contact_phone_and_email(self):
         webhook_log = self._webhook_log(

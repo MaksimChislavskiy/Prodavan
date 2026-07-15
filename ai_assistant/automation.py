@@ -403,6 +403,15 @@ def _event_for_failure_audit(event_id):
 def _apply_actions(event, analysis):
     analysis = analysis if isinstance(analysis, dict) else {}
     results = {}
+    if event.contact_created:
+        results[AutomationActionType.CONTACT_CREATE] = _record_action(
+            event,
+            AutomationActionType.CONTACT_CREATE,
+            {
+                'status': 'created',
+                'contact_id': str(event.chat.contact_id),
+            },
+        )
     contact_message = event.message.sender_type == MessageSenderType.CONTACT
     if contact_message:
         results[AutomationActionType.CONTACT_ENRICHMENT] = _enrich_contact(

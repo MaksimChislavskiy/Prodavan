@@ -71,6 +71,7 @@ class AutomationEventStatus(models.TextChoices):
 
 
 class AutomationActionType(models.TextChoices):
+    CONTACT_CREATE = 'contact_create', 'Создание контакта'
     CONTACT_ENRICHMENT = 'contact_enrichment', 'Обогащение контакта'
     DEAL_CREATE = 'deal_create', 'Создание сделки'
     DEAL_ENRICHMENT = 'deal_enrichment', 'Обогащение сделки'
@@ -225,6 +226,7 @@ class AIAutomationEvent(TimestampMixin):
     )
     last_error = models.TextField(blank=True, default='')
     analysis = models.JSONField(default=dict, blank=True)
+    contact_created = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'ai_automation_event'

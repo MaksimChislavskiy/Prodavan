@@ -9,7 +9,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from contacts.models import Contact
+from contacts.models import Contact, ContactAuditAction, ContactAuditLog
 from contacts.serializers import normalize_email, normalize_phone
 from contacts.services import create_contact
 from notifications.models import NotificationType
@@ -188,7 +188,8 @@ def process_telegram_webhook_log(log_id):
             phone=phone,
             email=email,
         )
-        if contact is None:
+        contact_created = contact is None
+        if contact_created:
             contact = create_contact(
                 workspace=webhook_log.workspace,
                 user=None,
@@ -253,6 +254,22 @@ def process_telegram_webhook_log(log_id):
             source_update_id=webhook_log.update_id,
             telegram_message_id=telegram_message_id,
         )
+        if contact_created:
+            from ai_assistant.models import AIAutomationEvent
+
+            automation_event = AIAutomationEvent.objects.filter(
+                message=incoming,
+            ).first()
+            if automation_event is not None:
+                automation_event.contact_created = True
+                automation_event.save(
+                    update_fields=('contact_created', 'updated_at'),
+                )
+                ContactAuditLog.objects.filter(
+                    workspace=webhook_log.workspace,
+                    contact_identifier=contact.id,
+                    action=ContactAuditAction.CREATED,
+                ).update(correlation_id=automation_event.id)
         now = incoming.created_at
         Chat.objects.filter(id=chat.id).update(
             last_message=text,

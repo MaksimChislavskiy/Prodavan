@@ -24,6 +24,7 @@ LIMIT_REASONS = {
 
 
 ACTION_BY_SUCCESS = {
+    AutomationActionType.CONTACT_CREATE: AIAutomationAuditAction.AI_CONTACT_CREATED,
     AutomationActionType.CONTACT_ENRICHMENT: AIAutomationAuditAction.AI_CONTACT_UPDATED,
     AutomationActionType.DEAL_CREATE: AIAutomationAuditAction.AI_DEAL_CREATED,
     AutomationActionType.DEAL_ENRICHMENT: AIAutomationAuditAction.AI_DEAL_UPDATED,
@@ -34,6 +35,7 @@ ACTION_BY_SUCCESS = {
 
 
 TRIGGER_BY_ACTION = {
+    AutomationActionType.CONTACT_CREATE: 'first_message',
     AutomationActionType.CONTACT_ENRICHMENT: 'data_enrichment',
     AutomationActionType.DEAL_ENRICHMENT: 'data_enrichment',
     AutomationActionType.TASK_CREATE: 'commitment_detected',
@@ -231,6 +233,15 @@ def _create_persistent_notifications(logs):
         for log in logs
         if (payload := _notification_for_log(log)) is not None
     ]
+    if any(
+        log.action == AIAutomationAuditAction.AI_CONTACT_CREATED
+        for log, _ in entries
+    ):
+        entries = [
+            entry
+            for entry in entries
+            if entry[0].action != AIAutomationAuditAction.AI_CONTACT_UPDATED
+        ]
     if not entries:
         return
     if len(entries) > 1:
