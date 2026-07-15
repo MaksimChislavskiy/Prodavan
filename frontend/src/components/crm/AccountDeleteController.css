@@ -1,3 +1,13 @@
+.profile-form__delete-account:not(:disabled) {
+  cursor: pointer;
+}
+
+.profile-form__delete-account:not(:disabled):hover,
+.profile-form__delete-account:not(:disabled):focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
 .account-delete-modal__backdrop {
   position: fixed;
   inset: 0;
