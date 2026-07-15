@@ -176,6 +176,53 @@ class AIAutopilotTests(TestCase):
         self.assertEqual(job.status, AutopilotJobStatus.CANCELLED)
         self.assertEqual(job.last_error, 'manager_replied')
 
+    def test_fallback_sends_grounded_reply_only_after_delay(self):
+        self.enable_autopilot(mode=AutopilotMode.FALLBACK, delay=5)
+        self.connect_telegram()
+        message = self.incoming('Когда вы работаете?')
+        job = message.ai_autopilot_job
+        completion = FakeCompletionClient(
+            '{"answer":"Работаем ежедневно с 10:00 до 19:00.",'
+            '"confidence":0.94}',
+        )
+
+        self.assertEqual(job.mode, AutopilotMode.FALLBACK)
+        self.assertAlmostEqual(
+            (job.available_at - message.created_at).total_seconds(),
+            300,
+            delta=1,
+        )
+        early = process_pending_autopilot_jobs(
+            retrieval_func=lambda **kwargs: [fake_source()],
+            completion_client=completion,
+            now=job.available_at - timedelta(seconds=1),
+        )
+        self.assertEqual(early['processed'], 0)
+        self.assertIsNone(completion.messages)
+
+        due = process_pending_autopilot_jobs(
+            retrieval_func=lambda **kwargs: [fake_source()],
+            completion_client=completion,
+            now=job.available_at,
+        )
+
+        self.assertEqual(due['sent'], 1)
+        reply = Message.objects.get(
+            sender_type=MessageSenderType.USER,
+            sent_by_ai=True,
+        )
+        self.assertEqual(reply.text, 'Работаем ежедневно с 10:00 до 19:00.')
+        self.assertEqual(reply.next_delivery_attempt_at, job.available_at)
+        job.refresh_from_db()
+        self.assertEqual(job.status, AutopilotJobStatus.SENT)
+        self.assertEqual(job.reply_message, reply)
+        self.assertEqual(job.sources[0]['document_name'], 'FAQ.txt')
+        audit = AIAutomationAuditLog.objects.get(
+            action_type=AutomationActionType.AUTOPILOT_REPLY,
+        )
+        self.assertEqual(audit.trigger, 'autopilot')
+        self.assertEqual(audit.confidence, 0.94)
+
     def test_process_job_sends_ai_message_and_records_usage(self):
         self.enable_autopilot(mode=AutopilotMode.ALWAYS)
         self.connect_telegram()
