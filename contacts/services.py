@@ -52,15 +52,25 @@ def _audit(*, workspace, user, action, contact_id=None, changes=None, context=No
     )
 
 
-def create_contact(*, workspace, user, data, source='user', audit_context=None):
+def create_contact(
+    *,
+    workspace,
+    user,
+    data,
+    source='user',
+    audit_context=None,
+    audit_changes=None,
+):
     with transaction.atomic():
         contact = Contact.objects.create(workspace=workspace, **data)
+        changes = {'source': source}
+        changes.update(audit_changes or {})
         _audit(
             workspace=workspace,
             user=user,
             action=ContactAuditAction.CREATED,
             contact_id=contact.id,
-            changes={'source': source},
+            changes=changes,
             context=audit_context,
         )
     return contact

@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import timedelta
 
@@ -6,8 +7,10 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from contacts.models import Contact
+from contacts.serializers import normalize_email, normalize_phone
 from contacts.services import create_contact
 from notifications.models import NotificationType
 from notifications.services import create_workspace_notification
@@ -29,6 +32,13 @@ MEDIA_LABELS = (
     ('animation', '[Анимация]'),
 )
 MAX_WEBHOOK_PROCESSING_ATTEMPTS = 3
+EMAIL_CANDIDATE_PATTERN = re.compile(
+    r'(?<![\w.+-])([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})(?![\w-])',
+    re.IGNORECASE,
+)
+PHONE_CANDIDATE_PATTERN = re.compile(
+    r'(?<!\d)(\+?\d[\d\s().-]{5,}\d)(?!\d)',
+)
 
 
 def _incoming_notification_text(contact, text):
@@ -70,15 +80,58 @@ def _contact_name(sender):
     return full_name or sender.get('username') or 'Неизвестный контакт'
 
 
-def _find_contact(workspace, telegram_user_id, username):
-    queryset = Contact.objects.filter(workspace=workspace)
+def _message_contact_identifiers(text):
+    email = None
+    email_match = EMAIL_CANDIDATE_PATTERN.search(text or '')
+    if email_match is not None:
+        try:
+            email = normalize_email(email_match.group(1))
+        except ValidationError:
+            email = None
+
+    phone = None
+    for match in PHONE_CANDIDATE_PATTERN.finditer(text or ''):
+        candidate = match.group(1).strip()
+        digits = re.sub(r'\D', '', candidate)
+        if not (
+            candidate.startswith('+')
+            or len(digits) == 10
+            or (len(digits) == 11 and digits.startswith(('7', '8')))
+        ):
+            continue
+        try:
+            phone = normalize_phone(candidate)
+        except ValidationError:
+            continue
+        break
+    return phone, email
+
+
+def _find_contact(workspace, telegram_user_id, username, *, phone, email):
+    queryset = Contact.objects.select_for_update().filter(workspace=workspace)
     contact = queryset.filter(telegram_user_id=telegram_user_id).first()
-    if contact is not None or not username:
+    if contact is not None:
         return contact
-    return queryset.filter(
-        Q(telegram_username__iexact=username)
-        | Q(telegram__iexact=f'@{username}'),
-    ).order_by('created_at', 'id').first()
+    if username:
+        contact = queryset.filter(
+            Q(telegram_username__iexact=username)
+            | Q(telegram__iexact=f'@{username}'),
+        ).order_by('created_at', 'id').first()
+        if contact is not None:
+            return contact
+    if phone:
+        contact = (
+            queryset.filter(phone=phone)
+            .order_by('created_at', 'id')
+            .first()
+        )
+        if contact is not None:
+            return contact
+    if email:
+        return queryset.filter(
+            email__iexact=email,
+        ).order_by('created_at', 'id').first()
+    return None
 
 
 def process_telegram_webhook_log(log_id):
@@ -126,22 +179,33 @@ def process_telegram_webhook_log(log_id):
         username = sender.get('username')
         if not isinstance(username, str):
             username = None
+        text = _message_text(message)
+        phone, email = _message_contact_identifiers(text)
         contact = _find_contact(
             webhook_log.workspace,
             telegram_user_id,
             username,
+            phone=phone,
+            email=email,
         )
         if contact is None:
             contact = create_contact(
                 workspace=webhook_log.workspace,
                 user=None,
-                source='telegram',
+                source='ai',
                 data={
                     'name': _contact_name(sender)[:100],
+                    'phone': phone,
+                    'email': email,
                     'telegram': f'@{username}' if username else None,
+                    'comment': 'Создан AI из чата',
                     'telegram_user_id': telegram_user_id,
                     'telegram_chat_id': telegram_chat_id,
                     'telegram_username': username,
+                },
+                audit_changes={
+                    'trigger': 'first_message',
+                    'channel': 'telegram',
                 },
             )
         else:
@@ -173,7 +237,6 @@ def process_telegram_webhook_log(log_id):
             )
         previous_message_at = chat.last_message_at
 
-        text = _message_text(message)
         telegram_message_id = message.get('message_id')
         if isinstance(telegram_message_id, bool) or not isinstance(
             telegram_message_id,

@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from contacts.models import Contact
+from contacts.models import Contact, ContactAuditAction, ContactAuditLog
 from notifications.models import Notification, NotificationType
 from users.models import User, UserRole
 from workspaces.crypto import encrypt_integration_secret
@@ -131,6 +131,20 @@ class MessagingTests(TestCase):
         self.assertEqual(contact.name, 'Пётр Петров')
         self.assertEqual(contact.telegram_user_id, 777000)
         self.assertEqual(contact.telegram, '@petr_petrov')
+        self.assertEqual(contact.comment, 'Создан AI из чата')
+        contact_audit = ContactAuditLog.objects.get(
+            contact_identifier=contact.id,
+            action=ContactAuditAction.CREATED,
+        )
+        self.assertEqual(
+            contact_audit.changes,
+            {
+                'source': 'ai',
+                'trigger': 'first_message',
+                'channel': 'telegram',
+            },
+        )
+        self.assertIsNotNone(contact_audit.correlation_id)
         chat = Chat.objects.get(workspace=self.user.workspace)
         self.assertEqual(chat.contact, contact)
         self.assertEqual(chat.last_message, 'Здравствуйте')
@@ -162,6 +176,84 @@ class MessagingTests(TestCase):
         self.assertEqual(notification.link, f'/chat/{chat.id}')
         self.assertIn('Пётр Петров', notification.content)
         self.assertIn('Здравствуйте', notification.content)
+
+    def test_first_message_extracts_contact_phone_and_email(self):
+        webhook_log = self._webhook_log(
+            text=(
+                'Свяжитесь со мной: client@example.com, '
+                '8 (999) 123-45-67.'
+            ),
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        contact = Contact.objects.get(workspace=self.user.workspace)
+        self.assertEqual(contact.email, 'client@example.com')
+        self.assertEqual(contact.phone, '+79991234567')
+
+    def test_first_message_reuses_contact_by_email(self):
+        existing = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Существующий клиент',
+            email='client@example.com',
+        )
+        webhook_log = self._webhook_log(
+            text='Моя почта client@example.com, хочу продолжить обсуждение.',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        self.assertEqual(Contact.objects.count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.telegram_user_id, 777000)
+        self.assertEqual(existing.telegram_chat_id, 777000)
+        self.assertEqual(Chat.objects.get().contact, existing)
+        self.assertFalse(
+            ContactAuditLog.objects.filter(
+                action=ContactAuditAction.CREATED,
+            ).exists(),
+        )
+
+    def test_first_message_reuses_contact_by_normalized_phone(self):
+        existing = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Существующий клиент',
+            phone='+79991234567',
+        )
+        webhook_log = self._webhook_log(
+            text='Мой номер 8 (999) 123-45-67, перезвоните.',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        self.assertEqual(Contact.objects.count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.telegram_user_id, 777000)
+        self.assertEqual(Chat.objects.get().contact, existing)
+
+    def test_first_message_contact_matching_is_workspace_scoped(self):
+        other = User.objects.create_user(
+            email='other-contact-owner@example.com',
+            password='StrongPass2',
+            first_name='Олег',
+            last_name='Другой',
+            is_confirmed=True,
+        )
+        foreign_contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Контакт другого workspace',
+            email='client@example.com',
+        )
+        webhook_log = self._webhook_log(
+            text='Моя почта client@example.com.',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        own_contact = Contact.objects.get(workspace=self.user.workspace)
+        self.assertNotEqual(own_contact.id, foreign_contact.id)
+        self.assertEqual(own_contact.email, 'client@example.com')
+        self.assertEqual(Chat.objects.get().contact, own_contact)
 
     def test_incoming_message_notifies_active_workspace_users_only(self):
         teammate = User.objects.create_user(
