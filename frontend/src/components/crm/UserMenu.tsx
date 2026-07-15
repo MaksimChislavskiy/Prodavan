@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { logoutSession } from '../../shared/api/authApi'
 import { clearAccessToken } from '../../shared/api/authToken'
+import { getProfile, type ApiProfile } from '../../shared/api/profileApi'
+import {
+  getProfileFromUpdatedEvent,
+  PROFILE_UPDATED_EVENT,
+} from '../../shared/profileEvents'
 import './UserMenu.css'
 
 const USER_MENU_WIDTH = 340
@@ -10,6 +15,7 @@ const VIEWPORT_GAP = 20
 export function UserMenu() {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const profileButtonRef = useRef<HTMLButtonElement | null>(null)
+  const latestProfileRef = useRef<ApiProfile | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState<CSSProperties>({})
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
@@ -31,6 +37,56 @@ export function UserMenu() {
       left,
     })
   }
+
+  useEffect(() => {
+    let isMounted = true
+
+    const synchronizeProfileButton = (profile: ApiProfile) => {
+      latestProfileRef.current = profile
+      applyProfileToButton(profile)
+    }
+
+    void getProfile()
+      .then((profile) => {
+        if (isMounted) {
+          synchronizeProfileButton(profile)
+        }
+      })
+      .catch(() => undefined)
+
+    const handleProfileUpdated = (event: Event) => {
+      const profile = getProfileFromUpdatedEvent(event)
+
+      if (profile) {
+        synchronizeProfileButton(profile)
+      }
+    }
+
+    const actionsContainer = document.querySelector('.crm-topbar__actions')
+    const observer = actionsContainer
+      ? new MutationObserver(() => {
+          if (latestProfileRef.current) {
+            applyProfileToButton(latestProfileRef.current)
+          }
+        })
+      : null
+
+    if (actionsContainer && observer) {
+      observer.observe(actionsContainer, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      })
+    }
+
+    window.addEventListener(PROFILE_UPDATED_EVENT, handleProfileUpdated)
+
+    return () => {
+      isMounted = false
+      observer?.disconnect()
+      window.removeEventListener(PROFILE_UPDATED_EVENT, handleProfileUpdated)
+    }
+  }, [])
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
@@ -204,4 +260,50 @@ export function UserMenu() {
       )}
     </>
   )
+}
+
+function applyProfileToButton(profile: ApiProfile) {
+  const button = document.querySelector<HTMLButtonElement>('.crm-profile-button')
+  const avatarText = button?.querySelector<HTMLSpanElement>('.crm-profile-button__avatar')
+
+  if (!button || !avatarText) {
+    return
+  }
+
+  const avatarUrl = profile.avatar_small || profile.avatar_medium || profile.avatar
+  let avatarImage = button.querySelector<HTMLImageElement>('.crm-profile-button__image')
+
+  if (avatarUrl) {
+    if (!avatarImage) {
+      avatarImage = document.createElement('img')
+      avatarImage.className = 'crm-profile-button__image'
+      avatarImage.alt = ''
+      button.append(avatarImage)
+    }
+
+    if (avatarImage.getAttribute('src') !== avatarUrl) {
+      avatarImage.src = avatarUrl
+    }
+
+    avatarText.hidden = true
+  } else {
+    avatarImage?.remove()
+    avatarText.hidden = false
+    avatarText.textContent = getProfileInitials(profile.name)
+  }
+
+  button.setAttribute('aria-label', `Меню профиля пользователя ${profile.name}`)
+}
+
+function getProfileInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+
+  if (parts.length === 0) {
+    return 'Ава'
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
 }
