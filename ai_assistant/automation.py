@@ -21,6 +21,7 @@ from messaging.models import Message, MessageSenderType
 from tasks.dates import normalize_due_date, workspace_timezone
 from tasks.models import DueDateType, Task, TaskSource
 from tasks.services import TaskServiceError, create_task
+from users.models import User
 
 from .audit import audit_automation_event, audit_automation_failure
 from .chat_client import (
@@ -135,6 +136,8 @@ def enqueue_automation_event(message):
         return None
 
     chat = message.chat
+    if not _workspace_has_authorized_user(chat.workspace_id):
+        return None
     event, _ = AIAutomationEvent.objects.get_or_create(
         message=message,
         defaults={
@@ -291,7 +294,16 @@ def _should_ignore_event(event):
         or message.sent_by_ai
         or message.is_deleted
         or event.event_type != EVENT_CHAT_MESSAGE_RECEIVED
+        or not _workspace_has_authorized_user(event.workspace_id)
     )
+
+
+def _workspace_has_authorized_user(workspace_id):
+    return User.objects.filter(
+        workspace_id=workspace_id,
+        is_active=True,
+        is_deleted=False,
+    ).exists()
 
 
 def _event_for_processing(event_id):

@@ -130,6 +130,34 @@ class AIAutomationTests(TestCase):
             {incoming.id, outgoing.id},
         )
 
+    def test_signal_does_not_enqueue_without_authorized_workspace_user(self):
+        self.user.is_active = False
+        self.user.save(update_fields=('is_active', 'updated_at'))
+
+        message = self.incoming('Сообщение после деактивации пользователя.')
+
+        self.assertFalse(
+            AIAutomationEvent.objects.filter(message=message).exists(),
+        )
+
+    def test_processing_stops_if_workspace_loses_authorized_user(self):
+        message = self.incoming('Сообщение до деактивации пользователя.')
+        event = message.ai_automation_event
+        self.user.is_active = False
+        self.user.save(update_fields=('is_active', 'updated_at'))
+        analyzer = DummyAnalyzer({'contact': {'confidence': 1, 'fields': {}}})
+
+        outcome = process_automation_event(event.id, analyzer=analyzer)
+
+        self.assertEqual(outcome, 'ignored')
+        self.assertEqual(analyzer.calls, [])
+        event.refresh_from_db()
+        self.assertEqual(event.status, AutomationEventStatus.IGNORED)
+        self.assertFalse(AIProcessedEvent.objects.filter(event=event).exists())
+        self.assertFalse(
+            AIAutomationAuditLog.objects.filter(correlation_id=event.id).exists(),
+        )
+
     def test_manager_message_runs_only_sender_eligible_actions(self):
         for index in range(5):
             self.incoming(f'Контекст клиента {index}')
