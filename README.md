@@ -48,3 +48,18 @@ python manage.py collectstatic --noinput
 
 Readiness возвращает `503`, если БД недоступна. Ответы не кэшируются и не
 содержат тексты внутренних исключений.
+
+## Production database
+
+Локально проект по умолчанию использует SQLite. Для production задайте в
+`.env` `DATABASE_ENGINE=postgresql` и заполните `DATABASE_NAME`,
+`DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`. Поддерживаются
+`DATABASE_SSLMODE`, таймаут подключения и время жизни соединения; значения и
+описания перечислены в `.env.example`.
+
+После настройки PostgreSQL и перед запуском приложения выполните:
+
+```powershell
+python manage.py migrate --noinput
+python manage.py check --deploy
+```

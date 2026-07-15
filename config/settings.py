@@ -2,6 +2,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+from config.database import build_database_config
 from config.env import (
     env,
     env_base64_key,
@@ -163,12 +164,7 @@ else:
     }
 
 # Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
+DATABASES = build_database_config(BASE_DIR)
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
