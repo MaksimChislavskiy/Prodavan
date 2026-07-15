@@ -139,12 +139,22 @@ class MessagingTests(TestCase):
         self.assertEqual(message.sender_type, MessageSenderType.CONTACT)
         self.assertIsNone(message.status)
         self.assertEqual(message.source_update_id, 100)
-        self.assertTrue(
-            ChatAuditLog.objects.filter(
-                action=ChatAuditAction.MESSAGE_RECEIVED,
-                message_identifier=message.id,
-            ).exists(),
+        self.assertEqual(message.telegram_message_id, 100)
+        audit = ChatAuditLog.objects.get(
+            action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
+            message_identifier=message.id,
         )
+        self.assertIsNone(audit.user)
+        self.assertEqual(
+            audit.details,
+            {
+                'update_id': 100,
+                'telegram_message_id': 100,
+                'telegram_chat_id': 777000,
+                'telegram_user_id': 777000,
+            },
+        )
+        self.assertNotIn('text', audit.details)
         notification = Notification.objects.get(user=self.user)
         self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
         self.assertEqual(notification.entity_type, 'chat')
@@ -274,6 +284,34 @@ class MessagingTests(TestCase):
         webhook_log.refresh_from_db()
         self.assertEqual(webhook_log.processing_attempts, 1)
         self.assertEqual(Message.objects.count(), 1)
+        self.assertEqual(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
+            ).count(),
+            1,
+        )
+
+    def test_non_message_webhook_does_not_write_message_audit(self):
+        webhook_log = TelegramWebhookLog.objects.create(
+            workspace=self.user.workspace,
+            update_id=105,
+            payload={
+                'update_id': 105,
+                'callback_query': {'id': 'callback-1'},
+            },
+        )
+
+        processed = process_telegram_webhook_log(webhook_log.id)
+
+        self.assertTrue(processed)
+        webhook_log.refresh_from_db()
+        self.assertTrue(webhook_log.processed)
+        self.assertFalse(Message.objects.exists())
+        self.assertFalse(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
+            ).exists(),
+        )
 
     @patch('messaging.telegram.process_telegram_webhook_log')
     def test_webhook_queue_stops_after_three_failures_and_audits(self, process):

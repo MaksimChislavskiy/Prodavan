@@ -488,6 +488,12 @@ class TelegramIntegrationTests(TestCase):
             ).count(),
             1,
         )
+        self.assertFalse(
+            WorkspaceAuditLog.objects.filter(
+                workspace=self.user.workspace,
+                field='integration.telegram.message_received',
+            ).exists(),
+        )
         logs = self.client.get(
             self.webhook_logs_url,
             **self._auth(access),

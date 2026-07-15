@@ -174,6 +174,12 @@ def process_telegram_webhook_log(log_id):
         previous_message_at = chat.last_message_at
 
         text = _message_text(message)
+        telegram_message_id = message.get('message_id')
+        if isinstance(telegram_message_id, bool) or not isinstance(
+            telegram_message_id,
+            int,
+        ):
+            telegram_message_id = None
         incoming = Message.objects.create(
             chat=chat,
             sender_type=MessageSenderType.CONTACT,
@@ -182,6 +188,7 @@ def process_telegram_webhook_log(log_id):
             status=None,
             read_at=None,
             source_update_id=webhook_log.update_id,
+            telegram_message_id=telegram_message_id,
         )
         now = incoming.created_at
         Chat.objects.filter(id=chat.id).update(
@@ -196,10 +203,15 @@ def process_telegram_webhook_log(log_id):
         webhook_log.save(update_fields=('processed', 'processing_error'))
         write_chat_audit(
             workspace=webhook_log.workspace,
-            action=ChatAuditAction.MESSAGE_RECEIVED,
+            action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
             chat_id=chat.id,
             message_id=incoming.id,
-            details={'update_id': webhook_log.update_id},
+            details={
+                'update_id': webhook_log.update_id,
+                'telegram_message_id': telegram_message_id,
+                'telegram_chat_id': telegram_chat_id,
+                'telegram_user_id': telegram_user_id,
+            },
         )
         client_returned = not chat_created and _client_returned(
             previous_message_at=previous_message_at,

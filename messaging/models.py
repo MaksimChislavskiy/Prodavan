@@ -25,6 +25,10 @@ class ChatAuditAction(models.TextChoices):
         'Telegram-сообщение отправлено',
     )
     MESSAGE_RECEIVED = 'message_received', 'Сообщение получено'
+    TELEGRAM_MESSAGE_RECEIVED = (
+        'telegram_message_received',
+        'Telegram-сообщение получено',
+    )
     MESSAGE_READ = 'message_read', 'Сообщения прочитаны'
     CHAT_DELETED = 'chat_deleted', 'Чат удалён'
 

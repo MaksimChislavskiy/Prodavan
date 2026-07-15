@@ -465,20 +465,6 @@ def receive_telegram_webhook(*, path_secret, header_secret, payload):
         update_id=update_id,
         defaults={'payload': payload},
     )
-    if created:
-        system_user = integration.workspace.users.filter(
-            is_active=True,
-            role='admin',
-        ).first()
-        if system_user is not None:
-            _audit(
-                system_user,
-                integration.workspace,
-                uuid.uuid4(),
-                'integration.telegram.message_received',
-                None,
-                str(update_id),
-            )
     return created
 
 
