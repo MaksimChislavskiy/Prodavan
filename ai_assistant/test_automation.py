@@ -10,7 +10,8 @@ from contacts.models import Contact, ContactAuditLog
 from deals.models import ChangedByType, Deal, DealHistory, SalesStage
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
 from notifications.models import Notification, NotificationType
-from tasks.models import Task, TaskSource
+from tasks.dates import workspace_timezone
+from tasks.models import DueDateType, Task, TaskSource
 from users.models import User
 
 from .automation import (
@@ -279,6 +280,59 @@ class AIAutomationTests(TestCase):
         self.assertEqual(usage.tasks_created, 1)
         self.assertEqual(usage.contacts_updated, 1)
         self.assertEqual(len(analyzer.calls[0]['context_messages']), 1)
+
+    def test_commitment_creates_dated_task_for_contact_and_active_deal(self):
+        self.workspace.timezone = 'Europe/Moscow'
+        self.workspace.save(update_fields=('timezone', 'updated_at'))
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Внедрение CRM',
+        )
+        message = self.incoming('Жду коммерческое предложение до пятницы.')
+        analyzer = DummyAnalyzer({
+            'task': {
+                'confidence': 0.95,
+                'create': True,
+                'title': 'Отправить КП клиенту',
+                'description': 'Подготовить и отправить коммерческое предложение',
+                'due_date': '2026-06-20',
+                'due_date_type': 'date',
+            },
+        })
+
+        outcome = process_automation_event(
+            message.ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        self.assertEqual(outcome, 'completed')
+        task = Task.objects.get(source_chat=self.chat)
+        self.assertEqual(task.title, 'Отправить КП клиенту')
+        self.assertEqual(task.contact, self.contact)
+        self.assertEqual(task.deal, deal)
+        self.assertEqual(task.due_date_type, DueDateType.DATE)
+        local_due_date = task.due_date.astimezone(
+            workspace_timezone(self.workspace),
+        )
+        self.assertEqual(
+            local_due_date.date().isoformat(),
+            '2026-06-20',
+        )
+        self.assertTrue(task.created_by_ai)
+        audit = AIAutomationAuditLog.objects.get(
+            message=message,
+            action_type=AutomationActionType.TASK_CREATE,
+        )
+        self.assertEqual(audit.action, AIAutomationAuditAction.AI_TASK_CREATED)
+        self.assertEqual(audit.trigger, 'commitment_detected')
+        notification = Notification.objects.get(
+            type=NotificationType.AI_TASK_CREATED,
+        )
+        self.assertEqual(notification.entity_type, 'task')
+        self.assertEqual(notification.entity_id, str(task.id))
 
     def test_enrichment_updates_only_empty_fields_and_uses_ai_audit_metadata(self):
         self.contact.company = 'Компания пользователя'
