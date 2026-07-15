@@ -80,6 +80,8 @@ def audit_automation_event(*, event, analysis, action_results):
 
 
 def audit_autopilot_job(job):
+    details = dict(job.result) if isinstance(job.result, dict) else {}
+    details.setdefault('source', 'ai')
     log = _create_log(
         workspace=job.workspace,
         chat=job.chat,
@@ -90,7 +92,8 @@ def audit_autopilot_job(job):
         raw_message=job.trigger_message.text,
         ai_prompt=_sources_prompt(job.sources),
         ai_response={'sources': job.sources, 'result': job.result},
-        details=job.result,
+        details=details,
+        confidence=details.get('confidence'),
     )
     if log is not None:
         _notify_grouped(workspace_id=job.workspace_id, logs=[log])
@@ -326,6 +329,8 @@ def _notification_content(log, *, entity_type):
         reason = details.get('reason') or details.get('status') or 'limit'
         return f'AI не выполнил действие из-за лимита: {reason}.'
     if log.action == AIAutomationAuditAction.AI_ACTION_FAILED:
+        if log.action_type == AutomationActionType.AUTOPILOT_REPLY:
+            return 'Клиент ожидает ответа, AI не смог помочь.'
         error = details.get('error') or 'неизвестная ошибка'
         return f'AI-действие завершилось ошибкой: {str(error)[:160]}.'
     return f'AI выполнил действие для {entity_type or "CRM"}.'

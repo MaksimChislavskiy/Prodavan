@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -7,15 +8,17 @@ from django.utils import timezone
 
 from contacts.models import Contact
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
+from notifications.models import Notification, NotificationType
 from tasks.models import Task
 from users.models import User
 from workspaces.models import IntegrationStatus, IntegrationType, WorkspaceIntegration
 
 from .autopilot import process_autopilot_job, process_pending_autopilot_jobs
-from .chat_client import ChatCompletionResult
+from .chat_client import ChatCompletionResult, ChatTimeoutError
 from .limits import AI_LIMITS
 from .models import (
     AIAutopilotJob,
+    AIAutomationAuditLog,
     AIProcessedEvent,
     AISettings,
     AIUsageDaily,
@@ -45,6 +48,11 @@ class FakeCompletionClient:
         )
 
 
+class TimeoutCompletionClient:
+    def complete(self, messages):
+        raise ChatTimeoutError
+
+
 def fake_source():
     return RetrievedChunk(
         chunk_id='chunk-1',
@@ -56,7 +64,10 @@ def fake_source():
     )
 
 
-@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+@override_settings(
+    PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+    AI_AUTOMATION_CONFIDENCE_THRESHOLD=0.7,
+)
 class AIAutopilotTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -124,6 +135,37 @@ class AIAutopilotTests(TestCase):
         self.assertEqual(second_job.mode, AutopilotMode.ALWAYS)
         self.assertGreater(second_job.available_at, timezone.now())
 
+    def test_always_mode_processes_batch_in_one_request(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        first = self.incoming('Как вы работаете?')
+        second = self.incoming('И сколько стоит доставка?')
+        job = second.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
+        completion = FakeCompletionClient(
+            '{"answer":"Ответ из базы знаний.","confidence":0.92}',
+        )
+        queries = []
+
+        outcome = process_autopilot_job(
+            job.id,
+            retrieval_func=lambda **kwargs: (
+                queries.append(kwargs['query']) or [fake_source()]
+            ),
+            completion_client=completion,
+            now=now,
+        )
+
+        self.assertEqual(outcome, 'sent')
+        self.assertEqual(queries, ['Как вы работаете?\nИ сколько стоит доставка?'])
+        job.refresh_from_db()
+        self.assertEqual(job.batched_message_ids, [str(first.id), str(second.id)])
+        prompt_payload = json.loads(completion.messages[1]['content'])
+        prompt_ids = {item['id'] for item in prompt_payload['messages']}
+        self.assertIn(str(first.id), prompt_ids)
+        self.assertIn(str(second.id), prompt_ids)
+
     def test_fallback_job_is_cancelled_when_manager_replies(self):
         self.enable_autopilot(mode=AutopilotMode.FALLBACK, delay=5)
         incoming = self.incoming('Есть вопрос.')
@@ -141,7 +183,9 @@ class AIAutopilotTests(TestCase):
         job = message.ai_autopilot_job
         now = timezone.now() + timedelta(seconds=11)
         AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
-        completion = FakeCompletionClient()
+        completion = FakeCompletionClient(
+            '{"answer":"Ответ из базы знаний.","confidence":0.92}',
+        )
 
         outcome = process_autopilot_job(
             job.id,
@@ -154,14 +198,22 @@ class AIAutopilotTests(TestCase):
         reply = Message.objects.get(sender_type=MessageSenderType.USER)
         self.assertTrue(reply.sent_by_ai)
         self.assertEqual(reply.status, MessageStatus.SENT)
+        self.assertEqual(reply.text, 'Ответ из базы знаний.')
         self.assertEqual(reply.next_delivery_attempt_at, now)
         usage = AIUsageDaily.objects.get(workspace=self.workspace)
         self.assertEqual(usage.autopilot_replies, 1)
         job.refresh_from_db()
         self.assertEqual(job.status, AutopilotJobStatus.SENT)
         self.assertEqual(job.reply_message_id, reply.id)
+        self.assertEqual(job.result['confidence'], 0.92)
         self.assertEqual(job.sources[0]['document_name'], 'FAQ.txt')
         self.assertIn('Глобальная инструкция', completion.messages[0]['content'])
+        audit = AIAutomationAuditLog.objects.get(
+            action_type=AutomationActionType.AUTOPILOT_REPLY,
+        )
+        self.assertEqual(audit.trigger, 'autopilot')
+        self.assertEqual(audit.confidence, 0.92)
+        self.assertEqual(audit.details['source'], 'ai')
         processed = AIProcessedEvent.objects.get(
             action_type=AutomationActionType.AUTOPILOT_REPLY,
         )
@@ -191,6 +243,141 @@ class AIAutopilotTests(TestCase):
         )
         job.refresh_from_db()
         self.assertEqual(job.result['reason'], 'no_relevant_knowledge')
+        notification = Notification.objects.get()
+        self.assertEqual(notification.type, NotificationType.CHAT_MISSED_MESSAGE)
+        self.assertEqual(notification.entity_id, str(self.chat.id))
+        self.assertEqual(
+            notification.content,
+            'Клиент ожидает ответа, AI не смог помочь.',
+        )
+
+    def test_low_confidence_reply_is_not_sent_and_notifies_manager(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        message = self.incoming('Вы точно работаете по выходным?')
+        job = message.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
+        completion = FakeCompletionClient(
+            '{"answer":"Возможно, работаем.","confidence":0.2}',
+        )
+
+        outcome = process_autopilot_job(
+            job.id,
+            retrieval_func=lambda **kwargs: [fake_source()],
+            completion_client=completion,
+            now=now,
+        )
+
+        self.assertEqual(outcome, 'skipped')
+        self.assertFalse(Message.objects.filter(sent_by_ai=True).exists())
+        job.refresh_from_db()
+        self.assertEqual(job.result['reason'], 'low_confidence')
+        self.assertEqual(job.result['confidence'], 0.2)
+        notification = Notification.objects.get(
+            type=NotificationType.CHAT_MISSED_MESSAGE,
+        )
+        self.assertEqual(notification.link, f'/chat/{self.chat.id}')
+
+    def test_consecutive_reply_limit_hands_chat_to_manager(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        for index in range(5):
+            Message.objects.create(
+                chat=self.chat,
+                sender_type=MessageSenderType.USER,
+                sender_id=self.user.id,
+                text=f'AI ответ {index}',
+                status=MessageStatus.SENT,
+                sent_by_ai=True,
+            )
+        message = self.incoming('У меня ещё один вопрос.')
+        job = message.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
+        completion = FakeCompletionClient()
+
+        outcome = process_autopilot_job(
+            job.id,
+            retrieval_func=lambda **kwargs: [fake_source()],
+            completion_client=completion,
+            now=now,
+        )
+
+        self.assertEqual(outcome, 'skipped')
+        self.assertIsNone(completion.messages)
+        job.refresh_from_db()
+        self.assertEqual(job.result['reason'], 'consecutive_reply_limit')
+        self.assertTrue(
+            Notification.objects.filter(
+                type=NotificationType.CHAT_MISSED_MESSAGE,
+                entity_id=str(self.chat.id),
+            ).exists(),
+        )
+
+    def test_hourly_reply_limit_skips_generation(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        for index in range(10):
+            Message.objects.create(
+                chat=self.chat,
+                sender_type=MessageSenderType.USER,
+                sender_id=self.user.id,
+                text=f'AI ответ {index}',
+                status=MessageStatus.SENT,
+                sent_by_ai=True,
+            )
+            self.manager_message(f'Сообщение менеджера {index}')
+        message = self.incoming('Новый вопрос клиента.')
+        job = message.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(available_at=now)
+        completion = FakeCompletionClient()
+
+        outcome = process_autopilot_job(
+            job.id,
+            retrieval_func=lambda **kwargs: [fake_source()],
+            completion_client=completion,
+            now=now,
+        )
+
+        self.assertEqual(outcome, 'skipped')
+        self.assertIsNone(completion.messages)
+        job.refresh_from_db()
+        self.assertEqual(job.result['reason'], 'chat_hourly_limit')
+
+    def test_final_technical_error_is_audited_and_notifies_manager(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        message = self.incoming('Ответьте, пожалуйста.')
+        job = message.ai_autopilot_job
+        now = timezone.now() + timedelta(seconds=11)
+        AIAutopilotJob.objects.filter(id=job.id).update(
+            available_at=now,
+            attempts=3,
+        )
+
+        outcome = process_autopilot_job(
+            job.id,
+            retrieval_func=lambda **kwargs: [fake_source()],
+            completion_client=TimeoutCompletionClient(),
+            now=now,
+        )
+
+        self.assertEqual(outcome, 'failed')
+        job.refresh_from_db()
+        self.assertEqual(job.status, AutopilotJobStatus.FAILED)
+        audit = AIAutomationAuditLog.objects.get(
+            action_type=AutomationActionType.AUTOPILOT_REPLY,
+        )
+        self.assertEqual(audit.details['source'], 'ai')
+        notification = Notification.objects.get(
+            type=NotificationType.AI_ACTION_FAILED,
+        )
+        self.assertEqual(
+            notification.content,
+            'Клиент ожидает ответа, AI не смог помочь.',
+        )
 
     def test_no_relevant_knowledge_after_three_customer_messages_escalates_to_task(self):
         self.enable_autopilot(mode=AutopilotMode.ALWAYS)
