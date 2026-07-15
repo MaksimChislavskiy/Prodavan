@@ -5,6 +5,10 @@ type RefreshSessionResponse = {
   access_token: string
 }
 
+type LogoutResponse = {
+  message: string
+}
+
 let refreshSessionPromise: Promise<string> | null = null
 
 export function refreshSession() {
@@ -23,4 +27,10 @@ export function refreshSession() {
   }
 
   return refreshSessionPromise
+}
+
+export function logoutSession() {
+  return apiRequest<LogoutResponse>('/api/auth/logout', {
+    method: 'POST',
+  })
 }
