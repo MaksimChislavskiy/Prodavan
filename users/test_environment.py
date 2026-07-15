@@ -65,6 +65,11 @@ class DeploymentSettingsTests(SimpleTestCase):
                 'MEDIA_STORAGE_BACKEND': 's3',
                 'S3_BUCKET_NAME': 'prodavan-media',
                 'S3_REGION_NAME': 'eu-west-1',
+                'EMAIL_BACKEND': 'smtp',
+                'DEFAULT_FROM_EMAIL': 'noreply@prodavan.example',
+                'EMAIL_HOST': 'smtp.example.com',
+                'EMAIL_USE_TLS': 'True',
+                'EMAIL_USE_SSL': 'False',
             },
         )
 

@@ -3,6 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from config.database import build_database_config
+from config.email_config import build_email_config
 from config.observability import build_logging_config
 from config.redis_config import build_redis_config
 from config.storage_config import build_storage_config
@@ -234,16 +235,17 @@ ACCOUNT_UNIQUE_EMAIL = True
 SITE_ID = 1
 
 # Email configuration
-EMAIL_BACKEND = env(
-    'EMAIL_BACKEND',
-    'django.core.mail.backends.console.EmailBackend',
-)
-DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', 'noreply@localhost')
-EMAIL_HOST = env('EMAIL_HOST', '')
-EMAIL_PORT = env_int('EMAIL_PORT', 587)
-EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
-EMAIL_HOST_USER = env('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', '')
+EMAIL_CONFIG = build_email_config(debug=DEBUG)
+EMAIL_BACKEND = EMAIL_CONFIG['EMAIL_BACKEND']
+DEFAULT_FROM_EMAIL = EMAIL_CONFIG['DEFAULT_FROM_EMAIL']
+SERVER_EMAIL = EMAIL_CONFIG['SERVER_EMAIL']
+EMAIL_TIMEOUT = EMAIL_CONFIG['EMAIL_TIMEOUT']
+EMAIL_HOST = EMAIL_CONFIG.get('EMAIL_HOST', '')
+EMAIL_PORT = EMAIL_CONFIG.get('EMAIL_PORT', 587)
+EMAIL_USE_TLS = EMAIL_CONFIG.get('EMAIL_USE_TLS', False)
+EMAIL_USE_SSL = EMAIL_CONFIG.get('EMAIL_USE_SSL', False)
+EMAIL_HOST_USER = EMAIL_CONFIG.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = EMAIL_CONFIG.get('EMAIL_HOST_PASSWORD', '')
 
 # URL для подтверждения email (фронтенд)
 ACCOUNT_EMAIL_CONFIRMATION_URL = '/confirm-email/'  # или URL вашего фронтенда

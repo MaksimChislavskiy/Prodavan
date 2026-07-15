@@ -99,3 +99,15 @@ HTTPS `S3_ENDPOINT_URL`. Readiness проверяет доступность sto
 Локальный storage при `DEBUG=False` блокируется. Для развёртывания с общим
 persistent volume его можно явно разрешить через
 `ALLOW_LOCAL_MEDIA_IN_PRODUCTION=True`.
+
+## Email
+
+Локально письма выводятся console backend'ом. Для production настройте SMTP:
+`EMAIL_BACKEND=smtp`, `DEFAULT_FROM_EMAIL`, `EMAIL_HOST` и порт. Соединение
+обязано использовать `EMAIL_USE_TLS=True` либо `EMAIL_USE_SSL=True`; одновременно
+эти режимы включать нельзя. `EMAIL_TIMEOUT` ограничивает зависание запроса при
+недоступности почтового сервера.
+
+Console/locmem backend при `DEBUG=False` блокируется. Исключение для специальной
+staging-среды требует явного
+`ALLOW_NON_DELIVERY_EMAIL_BACKEND_IN_PRODUCTION=True`.
