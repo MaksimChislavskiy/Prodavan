@@ -27,7 +27,12 @@ export function AccountDeleteController() {
     enableDeleteButton()
 
     const observer = new MutationObserver(enableDeleteButton)
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    })
 
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target
