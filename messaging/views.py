@@ -19,6 +19,7 @@ from .services import (
     get_messages_page,
     mark_chat_read,
     request_audit_context,
+    update_chat_autopilot,
 )
 from .throttles import ChatMessageThrottle, WorkspaceTelegramMessageThrottle
 
@@ -60,13 +61,14 @@ def _update_chat_settings(request, chat_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
     try:
-        chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
+        chat = update_chat_autopilot(
+            workspace=request.user.workspace,
+            user=request.user,
+            chat_id=chat_id,
+            enabled=serializer.validated_data['ai_autopilot_enabled'],
+        )
     except ChatServiceError as error:
         return Response(error.response_data, status=error.status_code)
-    chat.ai_autopilot_enabled = serializer.validated_data[
-        'ai_autopilot_enabled'
-    ]
-    chat.save(update_fields=('ai_autopilot_enabled', 'updated_at'))
     return Response(ChatSerializer(chat).data)
 
 

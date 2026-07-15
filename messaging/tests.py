@@ -487,6 +487,47 @@ class MessagingTests(TestCase):
         chat.refresh_from_db()
         self.assertIsNone(chat.ai_autopilot_enabled)
 
+    def test_disabling_chat_autopilot_writes_idempotent_telegram_audit(self):
+        _, chat = self._contact_and_chat()
+        url = f'/api/chats/{chat.id}/settings'
+
+        first = self.client.patch(
+            url,
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+        second = self.client.patch(
+            url,
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        logs = WorkspaceAuditLog.objects.filter(
+            workspace=self.user.workspace,
+            field='telegram_autopilot_disabled_for_chat',
+        )
+        self.assertEqual(logs.count(), 1)
+        log = logs.get()
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(
+            json.loads(log.old_value),
+            {
+                'chat_id': str(chat.id),
+                'ai_autopilot_enabled': None,
+            },
+        )
+        self.assertEqual(
+            json.loads(log.new_value),
+            {
+                'chat_id': str(chat.id),
+                'ai_autopilot_enabled': False,
+            },
+        )
+
     def test_chat_settings_endpoint_validates_payload(self):
         _, chat = self._contact_and_chat()
 
@@ -522,6 +563,12 @@ class MessagingTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(
+            WorkspaceAuditLog.objects.filter(
+                workspace=self.user.workspace,
+                field='telegram_autopilot_disabled_for_chat',
+            ).exists(),
+        )
 
     def test_chat_endpoints_require_authentication(self):
         response = APIClient().get('/api/chats')

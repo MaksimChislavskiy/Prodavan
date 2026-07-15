@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from django.core import signing
@@ -5,6 +6,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+
+from workspaces.models import WorkspaceAuditLog
 
 from .models import Chat, ChatAuditAction, ChatAuditLog, Message, MessageSenderType
 from .realtime import broadcast_workspace_event
@@ -112,6 +115,55 @@ def get_messages_page(*, chat, limit, cursor=None):
     page = messages[:limit]
     next_cursor = _encode_cursor(page[-1]) if has_more and page else None
     return page, next_cursor, has_more
+
+
+def update_chat_autopilot(*, workspace, user, chat_id, enabled):
+    with transaction.atomic():
+        chat = Chat.objects.select_for_update().filter(
+            id=chat_id,
+            workspace=workspace,
+            is_deleted=False,
+        ).first()
+        if chat is None:
+            raise ChatServiceError(
+                'CHAT_NOT_FOUND',
+                'Чат не найден.',
+                status_code=404,
+            )
+
+        previous = chat.ai_autopilot_enabled
+        if previous == enabled:
+            return chat
+
+        chat.ai_autopilot_enabled = enabled
+        chat.save(update_fields=('ai_autopilot_enabled', 'updated_at'))
+        if enabled is False:
+            old_value = json.dumps(
+                {
+                    'chat_id': str(chat.id),
+                    'ai_autopilot_enabled': previous,
+                },
+                sort_keys=True,
+                separators=(',', ':'),
+            )
+            new_value = json.dumps(
+                {
+                    'chat_id': str(chat.id),
+                    'ai_autopilot_enabled': False,
+                },
+                sort_keys=True,
+                separators=(',', ':'),
+            )
+            WorkspaceAuditLog.objects.create(
+                user=user,
+                workspace=workspace,
+                user_identifier=user.id,
+                workspace_identifier=workspace.id,
+                field='telegram_autopilot_disabled_for_chat',
+                old_value=old_value,
+                new_value=new_value,
+            )
+        return chat
 
 
 def mark_chat_read(*, workspace, user, chat_id, audit_context=None):
