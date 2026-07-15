@@ -16,15 +16,18 @@ export function AccountDeletedNotice() {
 
     const storedMessage = sessionStorage.getItem(ACCOUNT_DELETED_MESSAGE_KEY)
     setMessage(storedMessage || 'Ваша учётная запись удалена')
-    sessionStorage.removeItem(ACCOUNT_DELETED_MESSAGE_KEY)
 
-    searchParams.delete(ACCOUNT_DELETED_QUERY)
-    const nextSearch = searchParams.toString()
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
-    )
+    const cleanupTimerId = window.setTimeout(() => {
+      sessionStorage.removeItem(ACCOUNT_DELETED_MESSAGE_KEY)
+      searchParams.delete(ACCOUNT_DELETED_QUERY)
+      const nextSearch = searchParams.toString()
+
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+      )
+    }, 0)
 
     const loginTimerId = window.setTimeout(() => {
       document.querySelector<HTMLButtonElement>('.loginButton')?.click()
@@ -33,6 +36,7 @@ export function AccountDeletedNotice() {
     const hideTimerId = window.setTimeout(() => setMessage(''), 4500)
 
     return () => {
+      window.clearTimeout(cleanupTimerId)
       window.clearTimeout(loginTimerId)
       window.clearTimeout(hideTimerId)
     }
