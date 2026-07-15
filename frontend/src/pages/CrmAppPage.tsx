@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { CrmLayout } from '../components/crm/CrmLayout'
+import { UserMenu } from '../components/crm/UserMenu'
 import { refreshSession } from '../shared/api/authApi'
+import { ProfilePage } from './ProfilePage'
 
 type AuthStatus = 'checking' | 'authorized' | 'unauthorized'
 
@@ -44,5 +46,14 @@ export function CrmAppPage() {
     return null
   }
 
-  return <CrmLayout />
+  if (window.location.pathname === '/profile') {
+    return <ProfilePage />
+  }
+
+  return (
+    <>
+      <CrmLayout />
+      <UserMenu />
+    </>
+  )
 }
