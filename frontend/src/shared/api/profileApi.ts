@@ -46,3 +46,10 @@ export function deleteProfileAvatar() {
     method: 'DELETE',
   })
 }
+
+export function deleteProfile(version: number) {
+  return apiRequest<void>('/api/profile', {
+    method: 'DELETE',
+    body: { version },
+  })
+}
