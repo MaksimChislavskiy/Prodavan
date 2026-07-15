@@ -30,3 +30,19 @@ export function updateProfile(data: UpdateProfileRequest) {
     body: data,
   })
 }
+
+export function uploadProfileAvatar(file: File) {
+  const formData = new FormData()
+  formData.append('avatar', file)
+
+  return apiRequest<ApiProfile>('/api/profile/avatar', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function deleteProfileAvatar() {
+  return apiRequest<void>('/api/profile/avatar', {
+    method: 'DELETE',
+  })
+}
