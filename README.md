@@ -1,19 +1,35 @@
 # Prodavan
 
-## Фоновые AI-обработчики
+## Фоновые обработчики
 
-Для штатной работы AI-автоматизаций запустите два отдельных процесса под
+Для штатной работы очередей запустите пять отдельных процессов под
 управлением supervisor/systemd или аналогичного менеджера процессов:
 
 ```powershell
+python manage.py process_telegram_webhooks --watch --limit 1000 --poll-interval 1
+python manage.py process_outgoing_messages --watch --limit 1000 --poll-interval 1
 python manage.py process_ai_automation_events --watch --limit 1000 --poll-interval 1
 python manage.py process_ai_autopilot_jobs --watch --limit 1000 --poll-interval 1
+python manage.py process_knowledge_documents --watch --limit 100 --poll-interval 1
 ```
 
 В режиме `--watch` заполненная очередь обрабатывается следующими пакетами без
-ожидания, а пустая опрашивается с указанным интервалом. Интервал ограничен
+ожидания, а неполная опрашивается с указанным интервалом. Интервал ограничен
 диапазоном 0.1–5 секунд согласно NFR. Без `--watch` каждая команда выполняет
 один проход, что удобно для ручной диагностики и внешнего планировщика.
+SIGINT/SIGTERM завершают worker после текущего пакета. Необработанное исключение
+завершает процесс с ошибкой, поэтому менеджер процессов должен его перезапускать.
+
+Периодические проверки дедлайнов, пропущенных сообщений, сделок и Telegram-
+интеграций остаются одноразовыми командами. Запускайте их через cron/systemd
+timer или планировщик платформы с требуемым интервалом:
+
+```powershell
+python manage.py check_task_deadlines
+python manage.py check_missed_chat_messages
+python manage.py check_deal_attention
+python manage.py check_telegram_integrations
+```
 
 ## Production-безопасность
 

@@ -1,22 +1,18 @@
-from django.core.management.base import BaseCommand
-
 from ai_assistant.processing import process_pending_knowledge_documents
+from config.worker import QueueWorkerCommand
 
 
-class Command(BaseCommand):
+class Command(QueueWorkerCommand):
     help = 'Обрабатывает очередь документов базы знаний AI.'
+    default_limit = 20
+    max_limit = 100
+    worker_name = 'AI knowledge worker'
 
-    def add_arguments(self, parser):
-        parser.add_argument('--limit', type=int, default=20)
+    def process_batch(self, limit):
+        return process_pending_knowledge_documents(limit=limit)
 
-    def handle(self, *args, **options):
-        limit = options['limit']
-        if not 1 <= limit <= 100:
-            raise ValueError('--limit должен быть от 1 до 100.')
-        result = process_pending_knowledge_documents(limit=limit)
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Обработано: {result['processed']}; "
-                f"готово: {result['ready']}; ошибок: {result['failed']}.",
-            ),
+    def format_result(self, result):
+        return (
+            f"Обработано: {result['processed']}; "
+            f"готово: {result['ready']}; ошибок: {result['failed']}."
         )
