@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from contacts.models import Contact
+from notifications.models import Notification, NotificationType
 from users.models import User
 
 from .models import ChangedByType, Deal, DealEvent, DealHistory, SalesStage
@@ -58,6 +59,7 @@ class DealApiTests(TestCase):
         self.assertEqual(self.stage.name, 'Новый лид')
         self.assertEqual(self.stage.order, 1)
         self.assertEqual(self.stage.version, 1)
+        self.assertFalse(self.stage.is_final)
 
         response = self.client.patch(
             f'/api/crm/stages/{self.stage.id}',
@@ -66,6 +68,27 @@ class DealApiTests(TestCase):
             **self.auth,
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_custom_stage_finality_is_created_and_versioned(self):
+        created = self.client.post(
+            '/api/crm/stages',
+            {'name': 'Закрыто успешно', 'is_final': True},
+            format='json',
+            **self.auth,
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(created.data['is_final'])
+        updated = self.client.patch(
+            f"/api/crm/stages/{created.data['id']}",
+            {'version': created.data['version'], 'is_final': False},
+            format='json',
+            **self.auth,
+        )
+
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertFalse(updated.data['is_final'])
+        self.assertEqual(updated.data['version'], created.data['version'] + 1)
 
     def test_creation_requires_and_replays_idempotency_key(self):
         payload = {'name': 'Сделка', 'contact_id': str(self.contact.id)}
@@ -92,6 +115,61 @@ class DealApiTests(TestCase):
         self.assertEqual(conflict.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(Deal.objects.count(), 1)
         self.assertNotIn('comment', first.data)
+
+    def test_create_notifies_active_workspace_users_once(self):
+        teammate = User.objects.create_user(
+            email='teammate@example.com',
+            password='StrongPass1',
+            first_name='Анна',
+            last_name='Иванова',
+            is_confirmed=True,
+            workspace=self.user.workspace,
+        )
+        inactive = User.objects.create_user(
+            email='inactive@example.com',
+            password='StrongPass1',
+            first_name='Неактивный',
+            last_name='Пользователь',
+            is_confirmed=True,
+            is_active=False,
+            workspace=self.user.workspace,
+        )
+        other = User.objects.create_user(
+            email='other-deals@example.com',
+            password='StrongPass1',
+            first_name='Другой',
+            last_name='Пользователь',
+            is_confirmed=True,
+        )
+        payload = {'name': 'Сделка для команды', 'contact_id': str(self.contact.id)}
+        key = str(uuid.uuid4())
+
+        first = self.client.post(
+            '/api/crm/deals', payload, format='json',
+            HTTP_IDEMPOTENCY_KEY=key, **self.auth,
+        )
+        replay = self.client.post(
+            '/api/crm/deals', payload, format='json',
+            HTTP_IDEMPOTENCY_KEY=key, **self.auth,
+        )
+
+        notifications = Notification.objects.filter(
+            type=NotificationType.DEAL_CREATED,
+        ).order_by('user__email')
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(replay.status_code, status.HTTP_200_OK)
+        self.assertEqual(notifications.count(), 2)
+        self.assertEqual(
+            {item.user_id for item in notifications},
+            {self.user.id, teammate.id},
+        )
+        self.assertFalse(notifications.filter(user=inactive).exists())
+        self.assertFalse(notifications.filter(user=other).exists())
+        notification = notifications.filter(user=self.user).get()
+        self.assertEqual(notification.entity_type, 'deal')
+        self.assertEqual(notification.entity_id, first.data['id'])
+        self.assertEqual(notification.link, f"/deals/{first.data['id']}")
+        self.assertIn('Сделка для команды', notification.content)
 
     def test_create_validates_fields_and_contact_workspace(self):
         bad_amount = self.create_deal(amount='100.001')
@@ -179,6 +257,161 @@ class DealApiTests(TestCase):
         self.assertEqual(changed.data['version'], detail.data['version'] + 1)
         self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(stale.data['error']['current_version'], changed.data['version'])
+
+    def test_update_and_move_create_one_aggregated_change_notification(self):
+        created = self.create_deal()
+        detail = self.client.get(
+            f"/api/crm/deals/{created.data['id']}",
+            **self.auth,
+        )
+
+        unchanged = self.client.patch(
+            f"/api/crm/deals/{created.data['id']}",
+            {'name': detail.data['name'], 'version': detail.data['version']},
+            format='json',
+            **self.auth,
+        )
+        self.assertEqual(unchanged.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            Notification.objects.filter(type=NotificationType.DEAL_UPDATED).exists(),
+        )
+
+        changed = self.client.patch(
+            f"/api/crm/deals/{created.data['id']}",
+            {'name': 'Обновлённая сделка', 'version': detail.data['version']},
+            format='json',
+            **self.auth,
+        )
+        notification = Notification.objects.get(
+            user=self.user,
+            type=NotificationType.DEAL_UPDATED,
+        )
+        self.assertIn('название', notification.content)
+
+        target = self.client.post(
+            '/api/crm/stages',
+            {'name': 'Переговоры'},
+            format='json',
+            **self.auth,
+        )
+        moved = self.client.patch(
+            f"/api/crm/deals/{created.data['id']}/stage",
+            {'stage_id': target.data['id'], 'version': changed.data['version']},
+            format='json',
+            **self.auth,
+        )
+
+        self.assertEqual(moved.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            Notification.objects.filter(
+                user=self.user,
+                type=NotificationType.DEAL_UPDATED,
+            ).count(),
+            1,
+        )
+        notification.refresh_from_db()
+        self.assertEqual(notification.title, 'Этап сделки изменён')
+        self.assertIn('Новый лид', notification.content)
+        self.assertIn('Переговоры', notification.content)
+
+    def test_ai_deal_change_does_not_create_manual_notification(self):
+        from deals.services import create_deal
+
+        create_deal(
+            workspace=self.user.workspace,
+            user=None,
+            data={
+                'name': 'Сделка от AI',
+                'contact_id': self.contact.id,
+            },
+            idempotency_key=str(uuid.uuid4()),
+            changed_by_type=ChangedByType.AI,
+        )
+
+        self.assertFalse(
+            Notification.objects.filter(type=NotificationType.DEAL_CREATED).exists(),
+        )
+
+    def test_detail_includes_ai_insights(self):
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=self.stage,
+            contact=self.contact,
+            name='AI Сделка',
+            ai_insights={
+                'needs': 'Автоматизация продаж',
+                'budget': '250000 RUB',
+                'timeline': 'Q3',
+                'objections': ['Нужна интеграция'],
+                'next_step': 'Назначить демо',
+                'probability': 82,
+                'last_analyzed_at': '2026-07-09T12:00:00+00:00',
+                'confidence': 0.91,
+            },
+        )
+
+        response = self.client.get(f'/api/crm/deals/{deal.id}', **self.auth)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data['ai_insights']['needs'],
+            'Автоматизация продаж',
+        )
+        self.assertEqual(response.data['ai_insights']['probability'], 82)
+
+    def test_ai_insights_endpoint_returns_normalized_payload(self):
+        deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=self.stage,
+            contact=self.contact,
+            name='AI Сделка',
+            ai_insights={
+                'needs': 'Автоматизация продаж',
+                'next_step': 'Назначить демо',
+                'confidence': 0.91,
+            },
+        )
+
+        response = self.client.get(
+            f'/api/crm/deals/{deal.id}/ai-insights',
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['deal_id'], str(deal.id))
+        self.assertEqual(response.data['contact_id'], str(self.contact.id))
+        self.assertEqual(
+            response.data['ai_insights']['needs'],
+            'Автоматизация продаж',
+        )
+        self.assertEqual(response.data['ai_insights']['next_step'], 'Назначить демо')
+        self.assertIsNone(response.data['ai_insights']['budget'])
+
+    def test_ai_insights_endpoint_hides_foreign_deal(self):
+        other = User.objects.create_user(
+            email='foreign-deal@example.com',
+            password='StrongPass1',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        other_stage = SalesStage.objects.get(
+            workspace=other.workspace,
+            is_system=True,
+        )
+        deal = Deal.objects.create(
+            workspace=other.workspace,
+            stage=other_stage,
+            name='Чужая сделка',
+            ai_insights={'needs': 'Не показывать'},
+        )
+
+        response = self.client.get(
+            f'/api/crm/deals/{deal.id}/ai-insights',
+            **self.auth,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_move_is_versioned_and_same_stage_is_noop(self):
         target = self.client.post(

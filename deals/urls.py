@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    DealAIInsightsView,
     DealDetailView,
     DealHistoryView,
     DealsView,
@@ -15,6 +16,11 @@ urlpatterns = [
     path('crm/kanban', KanbanView.as_view(), name='crm-kanban'),
     path('crm/deals', DealsView.as_view(), name='crm-deals'),
     path('crm/deals/<uuid:deal_id>', DealDetailView.as_view(), name='crm-deal-detail'),
+    path(
+        'crm/deals/<uuid:deal_id>/ai-insights',
+        DealAIInsightsView.as_view(),
+        name='crm-deal-ai-insights',
+    ),
     path(
         'crm/deals/<uuid:deal_id>/stage',
         DealStageView.as_view(),

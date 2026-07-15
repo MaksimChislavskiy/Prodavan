@@ -1,0 +1,128 @@
+.crm-user-menu {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 30;
+  width: 340px;
+  height: 96px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.crm-profile-button__image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.crm-user-menu__item {
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: -0.011em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.crm-user-menu__item:hover,
+.crm-user-menu__item:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.crm-logout-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(11, 43, 85, 0.35);
+}
+
+.crm-logout-modal {
+  box-sizing: border-box;
+  width: min(460px, 100%);
+  padding: 28px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+  color: #0b2b55;
+}
+
+.crm-logout-modal__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 30px;
+}
+
+.crm-logout-modal__error {
+  margin: 16px 0 0;
+  color: #e20f0f;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.crm-logout-modal__actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.crm-logout-modal__button {
+  min-width: 110px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 20px;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.crm-logout-modal__button--secondary {
+  border: 1px solid #0b2b55;
+  background: #ffffff;
+  color: #0b2b55;
+}
+
+.crm-logout-modal__button--primary {
+  border: 1px solid #0b2b55;
+  background: #0b2b55;
+  color: #ffffff;
+}
+
+.crm-logout-modal__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 420px) {
+  .crm-user-menu {
+    width: calc(100vw - 40px);
+  }
+
+  .crm-logout-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .crm-logout-modal__button {
+    width: 100%;
+  }
+}

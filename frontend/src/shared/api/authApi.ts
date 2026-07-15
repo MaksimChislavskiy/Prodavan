@@ -1,11 +1,45 @@
 import { apiRequest } from './apiClient'
 import { setAccessToken } from './authToken'
 
+export type RegisterRequest = {
+  name: string
+  surname: string
+  email: string
+  password: string
+}
+
+export type ConfirmRegistrationRequest = {
+  email: string
+  code: string
+}
+
+type ConfirmRegistrationResponse = {
+  access_token: string
+}
+
 type RefreshSessionResponse = {
   access_token: string
 }
 
+type LogoutResponse = {
+  message: string
+}
+
 let refreshSessionPromise: Promise<string> | null = null
+
+export function startRegistration(data: RegisterRequest) {
+  return apiRequest<unknown>('/api/auth/register', {
+    method: 'POST',
+    body: data,
+  })
+}
+
+export function confirmRegistration(data: ConfirmRegistrationRequest) {
+  return apiRequest<ConfirmRegistrationResponse>('/api/auth/confirm', {
+    method: 'POST',
+    body: data,
+  })
+}
 
 export function refreshSession() {
   if (!refreshSessionPromise) {
@@ -23,4 +57,10 @@ export function refreshSession() {
   }
 
   return refreshSessionPromise
+}
+
+export function logoutSession() {
+  return apiRequest<LogoutResponse>('/api/auth/logout', {
+    method: 'POST',
+  })
 }

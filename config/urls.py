@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from config.health_views import liveness, readiness
 from users.profile_views import AvatarView, ChangePasswordView, ProfileView
 from workspaces.views import WorkspaceSettingsView
 from workspaces.telegram_views import (
@@ -12,12 +13,15 @@ from workspaces.telegram_views import (
 )
 
 urlpatterns = [
+    path('api/health/live', liveness, name='health-live'),
+    path('api/health/ready', readiness, name='health-ready'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
     path('api/', include('contacts.urls')),
     path('api/', include('deals.urls')),
     path('api/', include('tasks.urls')),
     path('api/', include('messaging.urls')),
+    path('api/', include('notifications.urls')),
     path('api/', include('ai_assistant.urls')),
     path('api/profile', ProfileView.as_view(), name='profile'),
     path('api/profile/avatar', AvatarView.as_view(), name='profile-avatar'),

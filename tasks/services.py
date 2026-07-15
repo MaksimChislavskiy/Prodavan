@@ -81,7 +81,7 @@ def _record_event(
 ):
     context = context or {}
     correlation_id = correlation_id or uuid.uuid4()
-    TaskHistory.objects.create(
+    history = TaskHistory.objects.create(
         workspace=task.workspace,
         task=task,
         event=event,
@@ -93,6 +93,15 @@ def _record_event(
         user_agent=context.get('user_agent', ''),
         correlation_id=correlation_id,
     )
+    previous = (
+        TaskHistory.objects.filter(task=task)
+        .exclude(id=history.id)
+        .order_by('-created_at')
+        .first()
+    )
+    if previous is not None and history.created_at <= previous.created_at:
+        history.created_at = previous.created_at + timedelta(microseconds=1)
+        history.save(update_fields=('created_at',))
     TaskAuditLog.objects.create(
         workspace=task.workspace,
         task_identifier=task.id,
@@ -172,6 +181,7 @@ def create_task(
     data,
     idempotency_key,
     source=TaskSource.USER,
+    source_chat=None,
     audit_context=None,
 ):
     data = dict(data)
@@ -196,6 +206,15 @@ def create_task(
         return existing.response_body, status.HTTP_200_OK
 
     with transaction.atomic():
+        if source_chat is not None and (
+            source != TaskSource.AI
+            or source_chat.workspace_id != workspace.id
+        ):
+            raise TaskServiceError(
+                'INVALID_SOURCE_CHAT',
+                'Исходный чат можно указать только для AI-задачи этого workspace.',
+                status.HTTP_400_BAD_REQUEST,
+            )
         contact = _resolve_contact(workspace, data.get('contact_id'))
         deal = _resolve_deal(workspace, data.get('deal_id'))
         _validate_relations(contact, deal)
@@ -210,17 +229,21 @@ def create_task(
             due_date_type=due_date_type,
             contact=contact,
             deal=deal,
+            source_chat=source_chat,
             comment=data.get('comment'),
             status=TaskStatus.NEW,
             created_by_ai=source == TaskSource.AI,
             created_by_user=user if source == TaskSource.USER else None,
         )
+        event_data = {'title': task.title}
+        if source_chat is not None:
+            event_data['source_chat_id'] = str(source_chat.id)
         correlation_id = _record_event(
             task=task,
             event=TaskEvent.CREATED,
             source=source,
             user=user if source == TaskSource.USER else None,
-            data={'title': task.title},
+            data=event_data,
             context=audit_context,
         )
         body = TaskDetailSerializer(task).data

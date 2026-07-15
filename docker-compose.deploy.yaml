@@ -29,7 +29,7 @@ services:
     env_file:
       - .env
     environment:
-      DJANGO_SETTINGS_MODULE: config.deploy_settings
+      DJANGO_SETTINGS_MODULE: config.settings
     volumes:
       - prodavan_media:/app/media
       - prodavan_static:/app/staticfiles

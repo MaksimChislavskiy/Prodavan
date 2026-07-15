@@ -18,6 +18,10 @@ class AIAuditAction(models.TextChoices):
     AUTOPILOT_ENABLED = 'autopilot_enabled', 'Включение автопилота'
     AUTOPILOT_DISABLED = 'autopilot_disabled', 'Выключение автопилота'
     AUTOPILOT_UPDATED = 'autopilot_updated', 'Изменение автопилота'
+    AUTOPILOT_SETTINGS_CHANGED = (
+        'ai_autopilot_settings_changed',
+        'Изменение настроек автопилота',
+    )
     DOCUMENT_UPLOADED = 'document_uploaded', 'Загрузка документа'
     DOCUMENT_DELETED = 'document_deleted', 'Удаление документа'
     DOCUMENT_RETRY = 'document_retry', 'Повторная обработка документа'
@@ -67,6 +71,7 @@ class AutomationEventStatus(models.TextChoices):
 
 
 class AutomationActionType(models.TextChoices):
+    CONTACT_CREATE = 'contact_create', 'Создание контакта'
     CONTACT_ENRICHMENT = 'contact_enrichment', 'Обогащение контакта'
     DEAL_CREATE = 'deal_create', 'Создание сделки'
     DEAL_ENRICHMENT = 'deal_enrichment', 'Обогащение сделки'
@@ -221,6 +226,7 @@ class AIAutomationEvent(TimestampMixin):
     )
     last_error = models.TextField(blank=True, default='')
     analysis = models.JSONField(default=dict, blank=True)
+    contact_created = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'ai_automation_event'
@@ -419,6 +425,8 @@ class AIAutomationAuditLog(models.Model):
     raw_message = models.TextField(blank=True, default='')
     ai_prompt = models.TextField(blank=True, default='')
     ai_response = models.JSONField(default=dict, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
     confidence = models.FloatField(null=True, blank=True)
     details = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

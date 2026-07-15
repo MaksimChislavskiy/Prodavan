@@ -13,6 +13,19 @@ class ContactAuditAction(models.TextChoices):
     BULK_DELETED = 'contacts_bulk_deleted', 'Контакты удалены массово'
 
 
+def default_ai_insights():
+    return {
+        'needs': None,
+        'budget': None,
+        'timeline': None,
+        'objections': None,
+        'next_step': None,
+        'probability': None,
+        'last_analyzed_at': None,
+        'confidence': None,
+    }
+
+
 class Contact(TimestampMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
@@ -31,6 +44,8 @@ class Contact(TimestampMixin):
     telegram_user_id = models.BigIntegerField(null=True, blank=True)
     telegram_chat_id = models.BigIntegerField(null=True, blank=True)
     telegram_username = models.CharField(max_length=32, null=True, blank=True)
+    ai_insights = models.JSONField(default=default_ai_insights, blank=True)
+    last_ai_deal_created_at = models.DateTimeField(null=True, blank=True)
     is_deleted = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 

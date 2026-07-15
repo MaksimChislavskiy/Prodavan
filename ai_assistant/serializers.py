@@ -14,6 +14,17 @@ from .models import (
 )
 
 
+PUBLIC_AI_LIMIT_KEYS = (
+    'daily_deal_creation',
+    'daily_task_creation',
+    'daily_contact_updates',
+    'daily_autopilot_replies',
+    'hourly_autopilot_replies_per_chat',
+    'max_consecutive_ai_replies',
+    'tasks_per_chat_24h',
+)
+
+
 def _workspace_local_date(workspace):
     try:
         zone = ZoneInfo(workspace.timezone)
@@ -39,7 +50,10 @@ class AISettingsSerializer(serializers.ModelSerializer):
         )
 
     def get_limits(self, instance):
-        return dict(AI_LIMITS)
+        return {
+            key: AI_LIMITS[key]
+            for key in PUBLIC_AI_LIMIT_KEYS
+        }
 
     def get_current_usage(self, instance):
         usage = AIUsageDaily.objects.filter(
@@ -122,14 +136,17 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
 
 
 class AIAutomationAuditLogSerializer(serializers.ModelSerializer):
+    workspace_id = serializers.UUIDField(source='workspace.id')
     user_id = serializers.UUIDField(source='user.id', allow_null=True)
     chat_id = serializers.UUIDField(source='chat.id', allow_null=True)
     message_id = serializers.UUIDField(source='message.id', allow_null=True)
+    timestamp = serializers.DateTimeField(source='created_at')
 
     class Meta:
         model = AIAutomationAuditLog
         fields = (
             'id',
+            'workspace_id',
             'action',
             'action_type',
             'trigger',
@@ -140,7 +157,10 @@ class AIAutomationAuditLogSerializer(serializers.ModelSerializer):
             'raw_message',
             'ai_prompt',
             'ai_response',
+            'ip',
+            'user_agent',
             'confidence',
             'details',
+            'timestamp',
             'created_at',
         )

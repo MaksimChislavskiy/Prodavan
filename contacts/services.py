@@ -52,15 +52,25 @@ def _audit(*, workspace, user, action, contact_id=None, changes=None, context=No
     )
 
 
-def create_contact(*, workspace, user, data, source='user', audit_context=None):
+def create_contact(
+    *,
+    workspace,
+    user,
+    data,
+    source='user',
+    audit_context=None,
+    audit_changes=None,
+):
     with transaction.atomic():
         contact = Contact.objects.create(workspace=workspace, **data)
+        changes = {'source': source}
+        changes.update(audit_changes or {})
         _audit(
             workspace=workspace,
             user=user,
             action=ContactAuditAction.CREATED,
             contact_id=contact.id,
-            changes={'source': source},
+            changes=changes,
             context=audit_context,
         )
     return contact
@@ -74,6 +84,7 @@ def update_contact(
     submitted_version,
     data,
     audit_context=None,
+    audit_changes=None,
 ):
     with transaction.atomic():
         contact = Contact.objects.select_for_update().filter(
@@ -110,12 +121,14 @@ def update_contact(
         contact.version += 1
         update_fields.extend(('version', 'updated_at'))
         contact.save(update_fields=update_fields)
+        audit_payload = dict(changes)
+        audit_payload.update(audit_changes or {})
         _audit(
             workspace=workspace,
             user=user,
             action=ContactAuditAction.UPDATED,
             contact_id=contact.id,
-            changes=changes,
+            changes=audit_payload,
             context=audit_context,
         )
     return contact

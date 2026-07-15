@@ -65,11 +65,14 @@ class AIChatSessionCreateView(APIView):
         serializer = AIChatSessionCreateSerializer(data=request.data or {})
         if not serializer.is_valid():
             return _validation_error(serializer.errors)
-        session = create_chat_session(
-            workspace=request.user.workspace,
-            user=request.user,
-            context=serializer.validated_data.get('context'),
-        )
+        try:
+            session = create_chat_session(
+                workspace=request.user.workspace,
+                user=request.user,
+                context=serializer.validated_data.get('context'),
+            )
+        except AIChatServiceError as error:
+            return _service_error(error)
         return Response(
             {
                 'session_id': str(session.id),

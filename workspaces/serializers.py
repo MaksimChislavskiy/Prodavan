@@ -182,7 +182,7 @@ class TelegramWebhookLogSerializer(serializers.ModelSerializer):
         model = TelegramWebhookLog
         fields = (
             'id', 'update_id', 'payload', 'received_at', 'processed',
-            'processing_error',
+            'processing_error', 'processing_attempts', 'failed_at',
         )
 
 

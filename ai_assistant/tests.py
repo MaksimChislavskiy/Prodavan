@@ -74,10 +74,17 @@ class AISettingsApiTests(TestCase):
         self.assertFalse(response.data['autopilot_enabled'])
         self.assertEqual(response.data['autopilot_mode'], 'fallback')
         self.assertEqual(response.data['autopilot_delay'], 5)
-        self.assertEqual(response.data['limits']['daily_deal_creation'], 50)
         self.assertEqual(
-            response.data['limits']['hourly_autopilot_replies_per_chat'],
-            10,
+            response.data['limits'],
+            {
+                'daily_deal_creation': 50,
+                'daily_task_creation': 100,
+                'daily_contact_updates': 50,
+                'daily_autopilot_replies': 50,
+                'hourly_autopilot_replies_per_chat': 10,
+                'max_consecutive_ai_replies': 5,
+                'tasks_per_chat_24h': 5,
+            },
         )
         self.assertEqual(
             response.data['current_usage']['autopilot_replies_today'],
@@ -148,7 +155,7 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['instruction'], '')
 
-    def test_patch_autopilot_fields_and_audits_enable(self):
+    def test_patch_autopilot_fields_writes_settings_changed_audit(self):
         access = self._login()
 
         response = self.client.patch(
@@ -168,8 +175,20 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(response.data['autopilot_mode'], 'always')
         self.assertEqual(response.data['autopilot_delay'], 3)
         audit = AIAuditLog.objects.get()
-        self.assertEqual(audit.action, AIAuditAction.AUTOPILOT_ENABLED)
-        self.assertIn('autopilot_mode', audit.changes)
+        self.assertEqual(
+            audit.action,
+            AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
+        )
+        self.assertEqual(audit.user, self.user)
+        self.assertEqual(audit.workspace, self.user.workspace)
+        self.assertEqual(
+            audit.changes,
+            {
+                'autopilot_enabled': {'old': False, 'new': True},
+                'autopilot_mode': {'old': 'fallback', 'new': 'always'},
+                'autopilot_delay': {'old': 5, 'new': 3},
+            },
+        )
 
     def test_patch_rejects_invalid_values_and_unknown_fields(self):
         access = self._login()
@@ -177,6 +196,7 @@ class AISettingsApiTests(TestCase):
             {'version': 0, 'instruction': 'x' * 5001},
             {'version': 0, 'autopilot_mode': 'sometimes'},
             {'version': 0, 'autopilot_delay': 0},
+            {'version': 0, 'autopilot_delay': 61},
             {'version': 0, 'unknown': True},
         )
 

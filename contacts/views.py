@@ -3,6 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ai_assistant.insights import format_ai_insights
+
 from .models import Contact
 from .serializers import (
     ContactAutocompleteSerializer,
@@ -158,6 +160,26 @@ class ContactDetailView(APIView):
         except ContactServiceError as error:
             return Response(error.response_data, status=error.status_code)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContactAIInsightsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, contact_id):
+        contact = Contact.objects.filter(
+            id=contact_id,
+            workspace=request.user.workspace,
+            is_deleted=False,
+        ).first()
+        if contact is None:
+            return Response(
+                {'error': {'code': 'CONTACT_NOT_FOUND', 'message': 'Контакт не найден.'}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({
+            'contact_id': str(contact.id),
+            'ai_insights': format_ai_insights(contact.ai_insights),
+        })
 
 
 class ContactsBulkDeleteView(APIView):

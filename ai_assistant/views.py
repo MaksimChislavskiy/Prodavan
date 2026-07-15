@@ -19,7 +19,12 @@ from .knowledge import (
     retry_knowledge_document,
     storage_usage,
 )
-from .models import AIAutomationAuditLog, AutomationActionType, KnowledgeDocumentStatus
+from .models import (
+    AIAutomationAuditAction,
+    AIAutomationAuditLog,
+    AutomationActionType,
+    KnowledgeDocumentStatus,
+)
 from .serializers import (
     AIAutomationAuditLogSerializer,
     AISettingsSerializer,
@@ -34,6 +39,28 @@ from .services import (
 
 
 MAX_AI_SETTINGS_BODY_SIZE = 64 * 1024
+
+
+AUDIT_TYPE_FILTERS = {
+    'contact': {
+        'action_type__in': [
+            AutomationActionType.CONTACT_CREATE,
+            AutomationActionType.CONTACT_ENRICHMENT,
+        ],
+    },
+    'deal': {
+        'action_type__in': [
+            AutomationActionType.DEAL_CREATE,
+            AutomationActionType.DEAL_ENRICHMENT,
+        ],
+    },
+    'task': {'action_type__in': [AutomationActionType.TASK_CREATE]},
+    'insight': {'action_type__in': [AutomationActionType.INSIGHT]},
+    'autopilot': {'action_type': AutomationActionType.AUTOPILOT_REPLY},
+    'skipped': {'action': AIAutomationAuditAction.AI_DECISION_SKIPPED},
+    'limit': {'action': AIAutomationAuditAction.AI_LIMIT_REACHED},
+    'failed': {'action': AIAutomationAuditAction.AI_ACTION_FAILED},
+}
 
 
 def _error(code, message, http_status, **extra):
@@ -197,15 +224,14 @@ class AIAuditView(APIView):
             'message',
         ).filter(workspace=workspace)
         if type_filter:
-            if type_filter != 'autopilot':
+            filters = AUDIT_TYPE_FILTERS.get(type_filter)
+            if filters is None:
                 return _error(
                     'VALIDATION_ERROR',
                     'Некорректный параметр type.',
                     status.HTTP_400_BAD_REQUEST,
                 )
-            queryset = queryset.filter(
-                action_type=AutomationActionType.AUTOPILOT_REPLY,
-            )
+            queryset = queryset.filter(**filters)
 
         cursor = request.query_params.get('cursor')
         if cursor:
