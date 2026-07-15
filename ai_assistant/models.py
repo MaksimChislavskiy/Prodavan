@@ -18,6 +18,10 @@ class AIAuditAction(models.TextChoices):
     AUTOPILOT_ENABLED = 'autopilot_enabled', 'Включение автопилота'
     AUTOPILOT_DISABLED = 'autopilot_disabled', 'Выключение автопилота'
     AUTOPILOT_UPDATED = 'autopilot_updated', 'Изменение автопилота'
+    AUTOPILOT_SETTINGS_CHANGED = (
+        'ai_autopilot_settings_changed',
+        'Изменение настроек автопилота',
+    )
     DOCUMENT_UPLOADED = 'document_uploaded', 'Загрузка документа'
     DOCUMENT_DELETED = 'document_deleted', 'Удаление документа'
     DOCUMENT_RETRY = 'document_retry', 'Повторная обработка документа'
