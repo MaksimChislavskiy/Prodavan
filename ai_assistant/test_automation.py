@@ -488,6 +488,71 @@ class AIAutomationTests(TestCase):
         )
         self.assertEqual(action.result['status'], 'skipped_recent_ai_deal')
 
+    def test_closed_ai_deal_still_blocks_new_deal_for_24_hours(self):
+        first_message = self.incoming('Хочу купить внедрение CRM.')
+        first_analyzer = DummyAnalyzer({
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Внедрение CRM',
+            },
+        })
+        process_automation_event(
+            first_message.ai_automation_event.id,
+            analyzer=first_analyzer,
+        )
+        deal = Deal.objects.get(contact=self.contact)
+        final_stage = SalesStage.objects.create(
+            workspace=self.workspace,
+            name='Закрыто успешно',
+            is_final=True,
+            order=2,
+        )
+        deal.stage = final_stage
+        deal.save(update_fields=('stage', 'updated_at'))
+        one_hour_ago = timezone.now() - timedelta(hours=1)
+        Contact.objects.filter(id=self.contact.id).update(
+            last_ai_deal_created_at=one_hour_ago,
+        )
+        AIAutomationEvent.objects.filter(
+            id=first_message.ai_automation_event.id,
+        ).update(processed_at=one_hour_ago)
+
+        second_message = self.incoming('Хочу купить ещё один продукт.')
+        second_analyzer = DummyAnalyzer({
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Повторная заявка',
+            },
+        })
+        outcome = process_automation_event(
+            second_message.ai_automation_event.id,
+            analyzer=second_analyzer,
+        )
+
+        self.assertEqual(outcome, 'completed')
+        self.assertEqual(list(Deal.objects.all()), [deal])
+        action = AIProcessedEvent.objects.get(
+            event=second_message.ai_automation_event,
+            action_type=AutomationActionType.DEAL_CREATE,
+        )
+        self.assertEqual(action.result['status'], 'skipped_recent_ai_deal')
+        audit = AIAutomationAuditLog.objects.get(
+            message=second_message,
+            action_type=AutomationActionType.DEAL_CREATE,
+        )
+        self.assertEqual(
+            audit.action,
+            AIAutomationAuditAction.AI_DECISION_SKIPPED,
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                type=NotificationType.AI_DEAL_CREATED,
+            ).count(),
+            1,
+        )
+
     def test_non_final_deal_blocks_ai_deal_creation(self):
         stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
         existing = Deal.objects.create(
