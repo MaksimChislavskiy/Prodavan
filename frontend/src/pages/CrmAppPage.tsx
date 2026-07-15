@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AccountDeleteController } from '../components/crm/AccountDeleteController'
 import { CrmLayout } from '../components/crm/CrmLayout'
 import { UserMenu } from '../components/crm/UserMenu'
 import { refreshSession } from '../shared/api/authApi'
@@ -82,6 +83,7 @@ export function CrmAppPage() {
       <CrmLayout />
       {currentPath === '/profile' && <ProfilePage />}
       <UserMenu />
+      <AccountDeleteController />
     </>
   )
 }
