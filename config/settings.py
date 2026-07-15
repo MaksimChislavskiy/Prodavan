@@ -3,6 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from config.database import build_database_config
+from config.observability import build_logging_config
 from config.env import (
     env,
     env_base64_key,
@@ -55,6 +56,7 @@ AI_AUTOMATION_CONFIDENCE_THRESHOLD = env_float(
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', False)
+LOGGING = build_logging_config(debug=DEBUG)
 
 ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', ('localhost', '127.0.0.1'))
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
@@ -117,6 +119,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'config.observability.RequestIdMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

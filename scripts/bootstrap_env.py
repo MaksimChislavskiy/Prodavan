@@ -54,6 +54,8 @@ def main():
         'DATABASE_CONNECT_TIMEOUT': '10',
         'DATABASE_CONN_MAX_AGE': '60',
         'DATABASE_APPLICATION_NAME': 'prodavan',
+        'LOG_LEVEL': 'DEBUG',
+        'LOG_FORMAT': 'console',
         'JWT_SIGNING_KEY': secrets.token_urlsafe(64),
         'JWT_ACCESS_MINUTES': '30',
         'JWT_REFRESH_DAYS': '7',
