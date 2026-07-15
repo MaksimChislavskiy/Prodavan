@@ -117,7 +117,10 @@ class AutomationAnalysisClient:
 
 
 def enqueue_automation_event(message):
-    if message.sender_type != MessageSenderType.CONTACT:
+    if message.sender_type not in {
+        MessageSenderType.CONTACT,
+        MessageSenderType.USER,
+    }:
         return None
     if message.sent_by_ai or message.is_deleted:
         return None
@@ -272,7 +275,10 @@ def _claim_event(event_id):
 def _should_ignore_event(event):
     message = event.message
     return (
-        message.sender_type != MessageSenderType.CONTACT
+        message.sender_type not in {
+            MessageSenderType.CONTACT,
+            MessageSenderType.USER,
+        }
         or message.sent_by_ai
         or message.is_deleted
         or event.event_type != EVENT_CHAT_MESSAGE_RECEIVED
@@ -376,15 +382,33 @@ def _event_for_failure_audit(event_id):
 def _apply_actions(event, analysis):
     analysis = analysis if isinstance(analysis, dict) else {}
     results = {}
-    results[AutomationActionType.CONTACT_ENRICHMENT] = _enrich_contact(event, analysis)
+    contact_message = event.message.sender_type == MessageSenderType.CONTACT
+    if contact_message:
+        results[AutomationActionType.CONTACT_ENRICHMENT] = _enrich_contact(
+            event,
+            analysis,
+        )
+    else:
+        results[AutomationActionType.CONTACT_ENRICHMENT] = _record_action(
+            event,
+            AutomationActionType.CONTACT_ENRICHMENT,
+            {'status': 'skipped_sender_not_eligible'},
+        )
     deal = _create_deal_if_needed(event, analysis)
     results[AutomationActionType.DEAL_CREATE] = deal['result']
     active_deal = deal['deal'] or _active_deal_for_contact(event.workspace, event.chat.contact)
-    results[AutomationActionType.DEAL_ENRICHMENT] = _enrich_deal(
-        event,
-        analysis,
-        active_deal,
-    )
+    if contact_message:
+        results[AutomationActionType.DEAL_ENRICHMENT] = _enrich_deal(
+            event,
+            analysis,
+            active_deal,
+        )
+    else:
+        results[AutomationActionType.DEAL_ENRICHMENT] = _record_action(
+            event,
+            AutomationActionType.DEAL_ENRICHMENT,
+            {'status': 'skipped_sender_not_eligible'},
+        )
     results[AutomationActionType.TASK_CREATE] = _create_task_if_needed(
         event,
         analysis,

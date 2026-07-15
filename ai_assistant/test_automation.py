@@ -109,9 +109,9 @@ class AIAutomationTests(TestCase):
             sent_by_ai=sent_by_ai,
         )
 
-    def test_signal_enqueues_only_contact_messages(self):
+    def test_signal_enqueues_human_messages_and_skips_ai_messages(self):
         incoming = self.incoming('Здравствуйте')
-        self.outgoing('Добрый день')
+        outgoing = self.outgoing('Добрый день')
         Message.objects.create(
             chat=self.chat,
             sender_type=MessageSenderType.CONTACT,
@@ -122,8 +122,83 @@ class AIAutomationTests(TestCase):
 
         events = list(AIAutomationEvent.objects.all())
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].message_id, incoming.id)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(
+            {event.message_id for event in events},
+            {incoming.id, outgoing.id},
+        )
+
+    def test_manager_message_runs_only_sender_eligible_actions(self):
+        for index in range(5):
+            self.incoming(f'Контекст клиента {index}')
+        message = self.outgoing(
+            'Клиент хочет купить внедрение, договорились созвониться.',
+        )
+        analyzer = DummyAnalyzer({
+            'contact': {
+                'confidence': 0.95,
+                'fields': {'company': 'Не обновлять из сообщения менеджера'},
+            },
+            'deal': {
+                'interest_confidence': 0.9,
+                'confidence': 0.95,
+                'create': True,
+                'name': 'Внедрение из диалога',
+                'fields': {'comment': 'Не применять как обогащение'},
+            },
+            'task': {
+                'confidence': 0.9,
+                'create': True,
+                'title': 'Созвониться с клиентом',
+            },
+            'insight': {
+                'summary': 'Менеджер подтвердил интерес клиента.',
+                'confidence': 0.9,
+            },
+        })
+
+        outcome = process_automation_event(
+            message.ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        self.assertEqual(outcome, 'completed')
+        self.contact.refresh_from_db()
+        self.assertIsNone(self.contact.company)
+        deal = Deal.objects.get()
+        self.assertEqual(deal.name, 'Внедрение из диалога')
+        self.assertEqual(Task.objects.get().deal, deal)
+        insight = AIChatInsight.objects.get(source_message=message)
+        self.assertEqual(
+            insight.summary,
+            'Менеджер подтвердил интерес клиента.',
+        )
+        action_results = {
+            item.action_type: item.result
+            for item in AIProcessedEvent.objects.filter(
+                event=message.ai_automation_event,
+            )
+        }
+        self.assertEqual(
+            action_results[AutomationActionType.CONTACT_ENRICHMENT]['status'],
+            'skipped_sender_not_eligible',
+        )
+        self.assertEqual(
+            action_results[AutomationActionType.DEAL_ENRICHMENT]['status'],
+            'skipped_sender_not_eligible',
+        )
+        self.assertEqual(
+            action_results[AutomationActionType.DEAL_CREATE]['status'],
+            'created',
+        )
+        self.assertEqual(
+            action_results[AutomationActionType.TASK_CREATE]['status'],
+            'created',
+        )
+        self.assertEqual(
+            action_results[AutomationActionType.INSIGHT]['status'],
+            'created',
+        )
 
     def test_process_creates_deal_task_and_enriches_contact(self):
         message = self.incoming('Хочу купить внедрение, завтра созвон.')
