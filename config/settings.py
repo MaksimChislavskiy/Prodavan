@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     'messaging',
     'notifications',
     'ai_assistant.apps.AiAssistantConfig',
+    'landing.apps.LandingConfig',
 ]
 
 MIDDLEWARE = [

@@ -1,0 +1,153 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Продаван — CRM с AI-помощником для продаж</title>
+    <meta name="description" content="Автоматизируйте продажи, управляйте клиентами и задачами и получайте аналитику в CRM с AI-помощником.">
+    <meta name="theme-color" content="#f5f7fb">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:title" content="Продаван — CRM с AI-помощником для продаж">
+    <meta property="og:description" content="Сложные процессы — простыми словами. Управляйте продажами в одном месте.">
+    {% static 'landing/og-cover.svg' as og_image_path %}
+    <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{{ og_image_path }}">
+    <link rel="canonical" href="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}">
+    <link rel="icon" href="{% static 'landing/favicon.svg' %}" type="image/svg+xml">
+    <link rel="stylesheet" href="{% static 'landing/landing.css' %}">
+    <script src="{% static 'landing/landing.js' %}" defer></script>
+</head>
+<body>
+    <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+
+    <header class="site-header" data-site-header>
+        <div class="container header-inner">
+            <button class="brand brand-button" type="button" aria-label="Продаван — к началу страницы" data-home-action>
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 40 40" role="img">
+                        <path d="M11 10.5h12.5a6.5 6.5 0 0 1 0 13H17v6H11v-19Z"/>
+                        <path class="brand-mark-accent" d="M17 16h6.2a1.8 1.8 0 1 1 0 3.6H17V16Z"/>
+                    </svg>
+                </span>
+                <span>Продаван</span>
+            </button>
+
+            <button class="menu-toggle" type="button" aria-controls="site-navigation" aria-expanded="false" aria-label="Открыть меню" data-menu-toggle>
+                <span></span><span></span><span></span>
+            </button>
+
+            <nav class="site-navigation" id="site-navigation" aria-label="Основная навигация" data-site-navigation>
+                <div class="nav-links">
+                    <button class="nav-link" type="button" data-stub>Как это работает</button>
+                    <button class="nav-link" type="button" data-stub>Тарифы</button>
+                </div>
+                <div class="header-actions">
+                    <button class="button button-ghost" type="button" data-auth-action="login">Войти</button>
+                    <button class="button button-primary" type="button" data-auth-action="register">Зарегистрироваться</button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <section class="hero" aria-labelledby="hero-title">
+            <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
+            <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
+            <div class="container hero-grid">
+                <div class="hero-copy">
+                    <p class="eyebrow"><span aria-hidden="true"></span>CRM нового поколения</p>
+                    <h1 id="hero-title">Сложные процессы — <span>простыми словами.</span> CRM с AI, которая понимает вас.</h1>
+                    <p class="hero-description">Автоматизируйте продажи, управляйте клиентами и задачами, получайте аналитику — всё в одном месте с AI-помощником.</p>
+                    <div class="hero-actions">
+                        <button class="button button-primary button-large" type="button" data-auth-action="register">
+                            Бесплатно 14 дней
+                            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6"/></svg>
+                        </button>
+                        <p>Без банковской карты</p>
+                    </div>
+                    <ul class="hero-benefits" aria-label="Преимущества">
+                        <li><span aria-hidden="true">✓</span> Быстрый старт</li>
+                        <li><span aria-hidden="true">✓</span> AI уже внутри</li>
+                        <li><span aria-hidden="true">✓</span> Отмена в любой момент</li>
+                    </ul>
+                </div>
+
+                <div class="hero-visual" aria-label="Пример рабочего пространства Продаван">
+                    <div class="visual-orbit visual-orbit-one" aria-hidden="true"></div>
+                    <div class="visual-orbit visual-orbit-two" aria-hidden="true"></div>
+                    <div class="app-window">
+                        <div class="app-topbar">
+                            <div class="app-logo"><span aria-hidden="true">П</span><b>Продаван</b></div>
+                            <div class="app-search" aria-hidden="true"><span></span><i></i></div>
+                            <div class="app-avatar" aria-hidden="true">МК</div>
+                        </div>
+                        <div class="app-body">
+                            <div class="app-sidebar" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i><i></i></div>
+                            <div class="app-content">
+                                <div class="app-heading"><div><span></span><small></small></div><b>+ Сделка</b></div>
+                                <div class="metric-row">
+                                    <div class="metric"><span>Новые сделки</span><strong>24</strong><small class="positive">+12%</small></div>
+                                    <div class="metric"><span>Выручка</span><strong>₽1,2 млн</strong><small class="positive">+8%</small></div>
+                                    <div class="metric"><span>Конверсия</span><strong>32%</strong><small>за месяц</small></div>
+                                </div>
+                                <div class="workspace-row">
+                                    <div class="chart-card">
+                                        <div class="card-title"><span></span><small></small></div>
+                                        <div class="chart" aria-hidden="true"><i style="--height: 38%"></i><i style="--height: 54%"></i><i style="--height: 46%"></i><i style="--height: 72%"></i><i style="--height: 66%"></i><i style="--height: 88%"></i><i style="--height: 78%"></i></div>
+                                    </div>
+                                    <div class="ai-card">
+                                        <div class="ai-card-title"><span aria-hidden="true">✦</span><b>AI-помощник</b></div>
+                                        <p>У трёх сделок высокий шанс закрытия сегодня.</p>
+                                        <span class="ai-card-action">Показать сделки</span>
+                                    </div>
+                                </div>
+                                <div class="deal-list" aria-hidden="true">
+                                    <div><span class="deal-avatar blue"></span><i></i><i></i><b></b></div>
+                                    <div><span class="deal-avatar violet"></span><i></i><i></i><b></b></div>
+                                    <div><span class="deal-avatar green"></span><i></i><i></i><b></b></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="floating-card floating-ai" aria-hidden="true"><span>✦</span><div><b>AI анализирует</b><small>Ваши продажи растут</small></div></div>
+                    <div class="floating-card floating-win" aria-hidden="true"><span>✓</span><div><b>Сделка закрыта</b><small>+ 128 000 ₽</small></div></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container footer-grid">
+            <div class="footer-brand">
+                <a class="brand brand-footer" href="/" aria-label="Продаван — главная">
+                    <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M11 10.5h12.5a6.5 6.5 0 0 1 0 13H17v6H11v-19Z"/><path class="brand-mark-accent" d="M17 16h6.2a1.8 1.8 0 1 1 0 3.6H17V16Z"/></svg></span>
+                    <span>Продаван</span>
+                </a>
+                <p>CRM, которая помогает продавать больше и работать проще.</p>
+            </div>
+            <div class="footer-column">
+                <h2>Продукт</h2>
+                <button type="button" data-stub>Как это работает</button>
+                <button type="button" data-stub>Тарифы</button>
+            </div>
+            <div class="footer-column">
+                <h2>Поддержка</h2>
+                <a href="mailto:support@prodavan.ru">support@prodavan.ru</a>
+                <div class="social-links" aria-label="Социальные сети">
+                    <button type="button" aria-label="Telegram" data-stub>ТГ</button>
+                    <button type="button" aria-label="ВКонтакте" data-stub>ВК</button>
+                    <button type="button" aria-label="Instagram" data-stub>ИГ</button>
+                </div>
+            </div>
+        </div>
+        <div class="container footer-bottom">
+            <p>© 2026 Продаван. Все права защищены.</p>
+            <div>
+                <button type="button" data-stub>Политика конфиденциальности</button>
+                <button type="button" data-stub>Пользовательское соглашение</button>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
