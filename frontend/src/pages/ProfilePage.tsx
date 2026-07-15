@@ -1,9 +1,19 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
+import {
+  deleteProfileAvatar,
   getProfile,
   updateProfile,
+  uploadProfileAvatar,
   type ApiProfile,
 } from '../shared/api/profileApi'
+import { notifyProfileUpdated } from '../shared/profileEvents'
 import './ProfilePage.css'
 
 type ProfileForm = {
@@ -15,10 +25,19 @@ type ProfileForm = {
 
 type ProfileErrors = Partial<Record<keyof ProfileForm, string>>
 
+type AvatarPreview = {
+  file: File
+  url: string
+}
+
 const PROFILE_TEXT_PATTERN = /^[A-Za-zА-Яа-яЁё -]+$/
 const PHONE_PATTERN = /^[0-9+()\- ]+$/
+const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024
+const MIN_AVATAR_SIDE = 200
 
 export function ProfilePage() {
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const [profile, setProfile] = useState<ApiProfile | null>(null)
   const [initialForm, setInitialForm] = useState<ProfileForm | null>(null)
   const [form, setForm] = useState<ProfileForm>({
@@ -29,6 +48,10 @@ export function ProfilePage() {
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isAvatarUploading, setIsAvatarUploading] = useState(false)
+  const [isAvatarDeleting, setIsAvatarDeleting] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState<AvatarPreview | null>(null)
+  const [avatarError, setAvatarError] = useState('')
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -51,6 +74,7 @@ export function ProfilePage() {
         setProfile(data)
         setInitialForm(nextForm)
         setForm(nextForm)
+        notifyProfileUpdated(data)
       } catch (error) {
         if (!isMounted) {
           return
@@ -71,14 +95,24 @@ export function ProfilePage() {
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) {
+        URL.revokeObjectURL(avatarPreview.url)
+      }
+    }
+  }, [avatarPreview])
+
   const errors = useMemo(() => validateProfileForm(form), [form])
   const isChanged = initialForm !== null && !areFormsEqual(form, initialForm)
   const hasErrors = Object.keys(errors).length > 0
-  const canSave = Boolean(profile && isChanged && !hasErrors && !isSaving)
+  const isAvatarBusy = isAvatarUploading || isAvatarDeleting
+  const canSave = Boolean(profile && isChanged && !hasErrors && !isSaving && !isAvatarBusy)
+  const hasUnsavedChanges = isChanged || avatarPreview !== null
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!isChanged) {
+      if (!hasUnsavedChanges) {
         return
       }
 
@@ -91,7 +125,7 @@ export function ProfilePage() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
-  }, [isChanged])
+  }, [hasUnsavedChanges])
 
   useEffect(() => {
     if (!successMessage) {
@@ -112,7 +146,10 @@ export function ProfilePage() {
   }
 
   const handleBack = () => {
-    if (isChanged && !window.confirm('У вас есть несохранённые изменения. Покинуть страницу без сохранения?')) {
+    if (
+      hasUnsavedChanges &&
+      !window.confirm('У вас есть несохранённые изменения. Покинуть страницу без сохранения?')
+    ) {
       return
     }
 
@@ -149,6 +186,7 @@ export function ProfilePage() {
       setInitialForm(nextForm)
       setForm(nextForm)
       setSuccessMessage('Изменения успешно сохранены')
+      notifyProfileUpdated(updatedProfile)
     } catch (error) {
       setSaveError(
         error instanceof Error
@@ -157,6 +195,109 @@ export function ProfilePage() {
       )
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleAvatarSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file || isAvatarBusy) {
+      return
+    }
+
+    setAvatarError('')
+    setSuccessMessage('')
+
+    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+      setAvatarError('Допустимы только изображения JPG, PNG или WEBP.')
+      return
+    }
+
+    if (file.size > MAX_AVATAR_SIZE) {
+      setAvatarError('Размер файла не должен превышать 5 МБ.')
+      return
+    }
+
+    const previewUrl = URL.createObjectURL(file)
+
+    try {
+      const dimensions = await getImageDimensions(previewUrl)
+
+      if (dimensions.width < MIN_AVATAR_SIDE || dimensions.height < MIN_AVATAR_SIDE) {
+        URL.revokeObjectURL(previewUrl)
+        setAvatarError('Изображение слишком маленькое. Минимум 200×200 пикселей.')
+        return
+      }
+
+      setAvatarPreview({ file, url: previewUrl })
+    } catch {
+      URL.revokeObjectURL(previewUrl)
+      setAvatarError('Недопустимый формат файла или файл повреждён.')
+    }
+  }
+
+  const closeAvatarPreview = () => {
+    if (isAvatarUploading) {
+      return
+    }
+
+    setAvatarPreview(null)
+  }
+
+  const handleAvatarUpload = async () => {
+    if (!avatarPreview || isAvatarBusy) {
+      return
+    }
+
+    setIsAvatarUploading(true)
+    setAvatarError('')
+    setSuccessMessage('')
+
+    try {
+      const updatedProfile = await uploadProfileAvatar(avatarPreview.file)
+      setProfile(updatedProfile)
+      setAvatarPreview(null)
+      setSuccessMessage('Аватар успешно обновлён')
+      notifyProfileUpdated(updatedProfile)
+    } catch (error) {
+      setAvatarError(
+        error instanceof Error ? error.message : 'Не удалось загрузить аватар. Попробуйте позже.',
+      )
+    } finally {
+      setIsAvatarUploading(false)
+    }
+  }
+
+  const handleAvatarDelete = async () => {
+    if (!profile || isAvatarBusy || !(profile.avatar || profile.avatar_medium || profile.avatar_small)) {
+      return
+    }
+
+    const isConfirmed = window.confirm(
+      'Вы уверены, что хотите удалить аватар? Будет установлено изображение по умолчанию.',
+    )
+
+    if (!isConfirmed) {
+      return
+    }
+
+    setIsAvatarDeleting(true)
+    setAvatarError('')
+    setSuccessMessage('')
+
+    try {
+      await deleteProfileAvatar()
+      const updatedProfile = await getProfile()
+      setProfile(updatedProfile)
+      setSuccessMessage('Аватар удалён')
+      notifyProfileUpdated(updatedProfile)
+    } catch (error) {
+      setAvatarError(
+        error instanceof Error ? error.message : 'Не удалось удалить аватар. Попробуйте позже.',
+      )
+    } finally {
+      setIsAvatarDeleting(false)
     }
   }
 
@@ -182,6 +323,7 @@ export function ProfilePage() {
   }
 
   const avatarUrl = profile.avatar_medium || profile.avatar
+  const hasAvatar = Boolean(profile.avatar || profile.avatar_medium || profile.avatar_small)
 
   return (
     <section className="profile-page" aria-label="Профиль пользователя">
@@ -199,14 +341,46 @@ export function ProfilePage() {
             )}
           </div>
 
+          <input
+            className="profile-avatar-input"
+            ref={avatarInputRef}
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+            onChange={(event) => void handleAvatarSelect(event)}
+          />
+
           <div className="profile-avatar-actions">
-            <button type="button" aria-label="Удалить аватар" title="Подключим следующим этапом" disabled>
+            <button
+              type="button"
+              aria-label="Удалить аватар"
+              title={hasAvatar ? 'Удалить аватар' : 'Аватар не загружен'}
+              disabled={!hasAvatar || isAvatarBusy}
+              onClick={() => void handleAvatarDelete()}
+            >
               <TrashIcon />
             </button>
-            <button type="button" aria-label="Изменить аватар" title="Подключим следующим этапом" disabled>
+            <button
+              type="button"
+              aria-label="Изменить аватар"
+              title="Загрузить или заменить аватар"
+              disabled={isAvatarBusy}
+              onClick={() => avatarInputRef.current?.click()}
+            >
               <EditIcon />
             </button>
           </div>
+
+          {isAvatarBusy && (
+            <span className="profile-avatar-status">
+              {isAvatarDeleting ? 'Удаление...' : 'Загрузка...'}
+            </span>
+          )}
+
+          {avatarError && (
+            <p className="profile-avatar-error" role="alert">
+              {avatarError}
+            </p>
+          )}
         </aside>
 
         <form className="profile-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
@@ -217,7 +391,7 @@ export function ProfilePage() {
               label="Имя"
               value={form.name}
               placeholder="Введите имя"
-              disabled={isSaving}
+              disabled={isSaving || isAvatarBusy}
               error={errors.name}
               onChange={(value) => updateField('name', value)}
             />
@@ -234,7 +408,7 @@ export function ProfilePage() {
               label="Должность"
               value={form.position}
               placeholder="Введите должность"
-              disabled={isSaving}
+              disabled={isSaving || isAvatarBusy}
               error={errors.position}
               onChange={(value) => updateField('position', value)}
             />
@@ -243,7 +417,7 @@ export function ProfilePage() {
               label="Телефон"
               value={form.phone}
               placeholder="Введите телефон"
-              disabled={isSaving}
+              disabled={isSaving || isAvatarBusy}
               error={errors.phone}
               onChange={(value) => updateField('phone', value)}
             />
@@ -253,7 +427,7 @@ export function ProfilePage() {
               value={form.email}
               type="email"
               placeholder="Введите e-mail"
-              disabled={isSaving}
+              disabled={isSaving || isAvatarBusy}
               error={errors.email}
               onChange={(value) => updateField('email', value)}
             />
@@ -275,6 +449,53 @@ export function ProfilePage() {
           </button>
         </form>
       </div>
+
+      {avatarPreview && (
+        <div className="profile-avatar-modal__backdrop" role="presentation" onMouseDown={closeAvatarPreview}>
+          <section
+            className="profile-avatar-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-avatar-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 className="profile-avatar-modal__title" id="profile-avatar-modal-title">
+              Новый аватар
+            </h2>
+            <p className="profile-avatar-modal__text">
+              Проверьте изображение перед сохранением.
+            </p>
+            <div className="profile-avatar-modal__preview">
+              <img src={avatarPreview.url} alt="Предпросмотр нового аватара" />
+            </div>
+
+            {avatarError && (
+              <p className="profile-avatar-modal__error" role="alert">
+                {avatarError}
+              </p>
+            )}
+
+            <div className="profile-avatar-modal__actions">
+              <button
+                className="profile-avatar-modal__button profile-avatar-modal__button--secondary"
+                type="button"
+                disabled={isAvatarUploading}
+                onClick={closeAvatarPreview}
+              >
+                Отмена
+              </button>
+              <button
+                className="profile-avatar-modal__button profile-avatar-modal__button--primary"
+                type="button"
+                disabled={isAvatarUploading}
+                onClick={() => void handleAvatarUpload()}
+              >
+                {isAvatarUploading ? 'Загрузка...' : 'Сохранить'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {successMessage && (
         <div className="profile-toast" role="status">
@@ -385,6 +606,15 @@ function validateProfileForm(form: ProfileForm): ProfileErrors {
   }
 
   return errors
+}
+
+function getImageDimensions(url: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new window.Image()
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    image.onerror = reject
+    image.src = url
+  })
 }
 
 function DefaultAvatarIcon() {
