@@ -17,6 +17,7 @@ from .models import (
 LIMIT_REASONS = {
     'skipped_daily_limit',
     'skipped_chat_limit',
+    'task_spam',
     'workspace_daily_reply_limit',
     'chat_hourly_limit',
     'consecutive_reply_limit',

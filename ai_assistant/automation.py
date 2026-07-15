@@ -653,7 +653,15 @@ def _create_task_if_needed(event, analysis, deal):
         if usage.tasks_created >= AI_LIMITS['daily_task_creation']:
             return _record_action(event, action_type, {'status': 'skipped_daily_limit'})
         if _tasks_created_for_chat_24h(event.chat) >= AI_LIMITS['tasks_per_chat_24h']:
-            return _record_action(event, action_type, {'status': 'skipped_chat_limit'})
+            return _record_action(
+                event,
+                action_type,
+                {
+                    'status': 'skipped_chat_limit',
+                    'reason': 'task_spam',
+                    'limit_type': 'task_spam',
+                },
+            )
         body, response_status = create_task(
             workspace=event.workspace,
             user=None,

@@ -674,6 +674,53 @@ class AIAutomationTests(TestCase):
             action_type=AutomationActionType.TASK_CREATE,
         )
         self.assertEqual(task_action.result['status'], 'skipped_chat_limit')
+        self.assertEqual(task_action.result['reason'], 'task_spam')
+        self.assertEqual(task_action.result['limit_type'], 'task_spam')
+
+    def test_six_commitments_create_five_tasks_and_audit_task_spam(self):
+        messages = []
+        for index in range(6):
+            message = self.incoming(f'Просьба клиента номер {index + 1}.')
+            messages.append(message)
+            analyzer = DummyAnalyzer({
+                'task': {
+                    'confidence': 0.95,
+                    'create': True,
+                    'title': f'Выполнить просьбу {index + 1}',
+                },
+            })
+
+            outcome = process_automation_event(
+                message.ai_automation_event.id,
+                analyzer=analyzer,
+            )
+
+            self.assertEqual(outcome, 'completed')
+            AIAutomationEvent.objects.filter(
+                id=message.ai_automation_event.id,
+            ).update(processed_at=timezone.now() - timedelta(seconds=10))
+
+        self.assertEqual(Task.objects.filter(source_chat=self.chat).count(), 5)
+        usage = AIUsageDaily.objects.get(workspace=self.workspace)
+        self.assertEqual(usage.tasks_created, 5)
+        sixth_action = AIProcessedEvent.objects.get(
+            event=messages[-1].ai_automation_event,
+            action_type=AutomationActionType.TASK_CREATE,
+        )
+        self.assertEqual(sixth_action.result['status'], 'skipped_chat_limit')
+        self.assertEqual(sixth_action.result['reason'], 'task_spam')
+        audit = AIAutomationAuditLog.objects.get(
+            message=messages[-1],
+            action_type=AutomationActionType.TASK_CREATE,
+        )
+        self.assertEqual(audit.action, AIAutomationAuditAction.AI_LIMIT_REACHED)
+        self.assertEqual(audit.details['reason'], 'task_spam')
+        self.assertEqual(audit.details['limit_type'], 'task_spam')
+        notification = Notification.objects.get(
+            type=NotificationType.AI_LIMIT_REACHED,
+        )
+        self.assertEqual(notification.entity_type, 'chat')
+        self.assertEqual(notification.entity_id, str(self.chat.id))
 
     def test_task_limit_is_scoped_to_source_chat(self):
         old_chat = Chat.objects.create(
