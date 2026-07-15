@@ -49,19 +49,12 @@ def _write_audit_logs(*, settings_object, user, changes, request_id):
         if key.startswith('autopilot_')
     }
     if autopilot_changes:
-        enabled_change = autopilot_changes.get('autopilot_enabled')
-        if enabled_change is None:
-            action = AIAuditAction.AUTOPILOT_UPDATED
-        elif enabled_change['new']:
-            action = AIAuditAction.AUTOPILOT_ENABLED
-        else:
-            action = AIAuditAction.AUTOPILOT_DISABLED
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
-                action=action,
+                action=AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
                 changes=autopilot_changes,
                 request_id=request_id,
             ),

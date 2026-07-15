@@ -1,3 +1,5 @@
+import json
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
@@ -6,13 +8,23 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from contacts.models import Contact
-from users.models import User
-from workspaces.models import TelegramWebhookLog
+from ai_assistant.automation import process_automation_event
+from ai_assistant.models import (
+    AIAutomationAuditAction,
+    AIAutomationAuditLog,
+    AutomationActionType,
+)
+from contacts.models import Contact, ContactAuditAction, ContactAuditLog
+from deals.models import Deal
+from notifications.models import Notification, NotificationType
+from tasks.models import Task
+from users.models import User, UserRole
 from workspaces.crypto import encrypt_integration_secret
 from workspaces.models import (
     IntegrationStatus,
     IntegrationType,
+    TelegramWebhookLog,
+    WorkspaceAuditLog,
     WorkspaceIntegration,
 )
 from workspaces.telegram import TelegramApiUnavailable, TelegramMessageRejected
@@ -27,11 +39,15 @@ from .models import (
     MessageStatus,
 )
 from .outgoing import process_outgoing_message
-from .telegram import process_telegram_webhook_log
+from .telegram import (
+    process_pending_telegram_webhooks,
+    process_telegram_webhook_log,
+)
 
 
 @override_settings(
     PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+    CHAT_RETURNED_AFTER_DAYS=7,
 )
 class MessagingTests(TestCase):
     login_url = '/api/auth/login'
@@ -123,18 +139,303 @@ class MessagingTests(TestCase):
         self.assertEqual(contact.name, 'Пётр Петров')
         self.assertEqual(contact.telegram_user_id, 777000)
         self.assertEqual(contact.telegram, '@petr_petrov')
+        self.assertEqual(contact.comment, 'Создан AI из чата')
+        contact_audit = ContactAuditLog.objects.get(
+            contact_identifier=contact.id,
+            action=ContactAuditAction.CREATED,
+        )
+        self.assertEqual(
+            contact_audit.changes,
+            {
+                'source': 'ai',
+                'trigger': 'first_message',
+                'channel': 'telegram',
+            },
+        )
+        self.assertIsNotNone(contact_audit.correlation_id)
         chat = Chat.objects.get(workspace=self.user.workspace)
         self.assertEqual(chat.contact, contact)
         self.assertEqual(chat.last_message, 'Здравствуйте')
         self.assertEqual(chat.unread_count, 1)
         message = Message.objects.get(chat=chat)
+        self.assertTrue(message.ai_automation_event.contact_created)
+        self.assertEqual(
+            contact_audit.correlation_id,
+            message.ai_automation_event.id,
+        )
         self.assertEqual(message.sender_type, MessageSenderType.CONTACT)
         self.assertIsNone(message.status)
         self.assertEqual(message.source_update_id, 100)
+        self.assertEqual(message.telegram_message_id, 100)
+        audit = ChatAuditLog.objects.get(
+            action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
+            message_identifier=message.id,
+        )
+        self.assertIsNone(audit.user)
+        self.assertEqual(
+            audit.details,
+            {
+                'update_id': 100,
+                'telegram_message_id': 100,
+                'telegram_chat_id': 777000,
+                'telegram_user_id': 777000,
+            },
+        )
+        self.assertNotIn('text', audit.details)
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
+        self.assertEqual(notification.entity_type, 'chat')
+        self.assertEqual(notification.entity_id, str(chat.id))
+        self.assertEqual(notification.link, f'/chat/{chat.id}')
+        self.assertIn('Пётр Петров', notification.content)
+        self.assertIn('Здравствуйте', notification.content)
+
+    def test_first_message_groups_created_contact_deal_and_task(self):
+        webhook_log = self._webhook_log(
+            text='Здравствуйте, хочу CRM. Перезвоните мне.',
+        )
+        process_telegram_webhook_log(webhook_log.id)
+        message = Message.objects.get(source_update_id=webhook_log.update_id)
+        analyzer = Mock()
+        analyzer.analyze.return_value = {
+            'contact': {
+                'confidence': 0.95,
+                'fields': {'company': 'ООО Ромашка'},
+            },
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Интерес к CRM',
+            },
+            'task': {
+                'confidence': 0.95,
+                'create': True,
+                'title': 'Перезвонить клиенту',
+            },
+        }
+
+        outcome = process_automation_event(
+            message.ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        self.assertEqual(outcome, 'completed')
+        self.assertTrue(Deal.objects.filter(contact=message.chat.contact).exists())
+        self.assertTrue(Task.objects.filter(contact=message.chat.contact).exists())
+        actions = set(
+            AIAutomationAuditLog.objects.filter(
+                correlation_id=message.ai_automation_event.id,
+            ).values_list('action', flat=True),
+        )
+        self.assertTrue({
+            AIAutomationAuditAction.AI_CONTACT_CREATED,
+            AIAutomationAuditAction.AI_CONTACT_UPDATED,
+            AIAutomationAuditAction.AI_DEAL_CREATED,
+            AIAutomationAuditAction.AI_TASK_CREATED,
+        }.issubset(actions))
         self.assertTrue(
-            ChatAuditLog.objects.filter(
-                action=ChatAuditAction.MESSAGE_RECEIVED,
-                message_identifier=message.id,
+            AIAutomationAuditLog.objects.filter(
+                correlation_id=message.ai_automation_event.id,
+                action_type=AutomationActionType.CONTACT_CREATE,
+            ).exists(),
+        )
+        notification = Notification.objects.get(
+            type=NotificationType.AI_ACTIONS_GROUPED,
+        )
+        self.assertIn('• создан контакт', notification.content)
+        self.assertIn('• создана сделка', notification.content)
+        self.assertIn('• создана задача', notification.content)
+        self.assertNotIn('• обновлён контакт', notification.content)
+        response = self.client.get(
+            '/api/ai/audit',
+            {'type': 'contact'},
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item['action_type'] for item in response.data['logs']},
+            {
+                AutomationActionType.CONTACT_CREATE,
+                AutomationActionType.CONTACT_ENRICHMENT,
+            },
+        )
+
+    def test_first_message_extracts_contact_phone_and_email(self):
+        webhook_log = self._webhook_log(
+            text=(
+                'Свяжитесь со мной: client@example.com, '
+                '8 (999) 123-45-67.'
+            ),
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        contact = Contact.objects.get(workspace=self.user.workspace)
+        self.assertEqual(contact.email, 'client@example.com')
+        self.assertEqual(contact.phone, '+79991234567')
+
+    def test_first_message_reuses_contact_by_email(self):
+        existing = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Существующий клиент',
+            email='client@example.com',
+        )
+        webhook_log = self._webhook_log(
+            text='Моя почта client@example.com, хочу продолжить обсуждение.',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        self.assertEqual(Contact.objects.count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.telegram_user_id, 777000)
+        self.assertEqual(existing.telegram_chat_id, 777000)
+        self.assertEqual(Chat.objects.get().contact, existing)
+        self.assertFalse(
+            ContactAuditLog.objects.filter(
+                action=ContactAuditAction.CREATED,
+            ).exists(),
+        )
+
+    def test_first_message_reuses_contact_by_normalized_phone(self):
+        existing = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Существующий клиент',
+            phone='+79991234567',
+        )
+        webhook_log = self._webhook_log(
+            text='Мой номер 8 (999) 123-45-67, перезвоните.',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        self.assertEqual(Contact.objects.count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.telegram_user_id, 777000)
+        self.assertEqual(Chat.objects.get().contact, existing)
+
+    def test_first_message_contact_matching_is_workspace_scoped(self):
+        other = User.objects.create_user(
+            email='other-contact-owner@example.com',
+            password='StrongPass2',
+            first_name='Олег',
+            last_name='Другой',
+            is_confirmed=True,
+        )
+        foreign_contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Контакт другого workspace',
+            email='client@example.com',
+        )
+        webhook_log = self._webhook_log(
+            text='Моя почта client@example.com.',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        own_contact = Contact.objects.get(workspace=self.user.workspace)
+        self.assertNotEqual(own_contact.id, foreign_contact.id)
+        self.assertEqual(own_contact.email, 'client@example.com')
+        self.assertEqual(Chat.objects.get().contact, own_contact)
+
+    def test_incoming_message_notifies_active_workspace_users_only(self):
+        teammate = User.objects.create_user(
+            email='teammate@example.com',
+            password='StrongPass1',
+            first_name='Анна',
+            last_name='Иванова',
+            is_confirmed=True,
+            workspace=self.user.workspace,
+        )
+        other = User.objects.create_user(
+            email='other-workspace@example.com',
+            password='StrongPass1',
+            first_name='Олег',
+            last_name='Другой',
+            is_confirmed=True,
+        )
+        webhook_log = self._webhook_log(text='Нужна консультация')
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        notifications = Notification.objects.order_by('user__email')
+        self.assertEqual(notifications.count(), 2)
+        self.assertEqual(
+            {item.user_id for item in notifications},
+            {self.user.id, teammate.id},
+        )
+        self.assertFalse(Notification.objects.filter(user=other).exists())
+
+    def test_incoming_messages_are_aggregated_per_chat_for_one_minute(self):
+        first = self._webhook_log(update_id=101, text='Первое сообщение')
+        second = self._webhook_log(update_id=102, text='Второе сообщение')
+
+        process_telegram_webhook_log(first.id)
+        process_telegram_webhook_log(second.id)
+
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
+        self.assertIn('Второе сообщение', notification.content)
+        self.assertEqual(Message.objects.count(), 2)
+
+    def test_old_chat_creates_client_returned_notification(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Пётр Петров',
+            telegram_user_id=777000,
+            telegram_chat_id=777000,
+        )
+        chat = Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            last_message='До связи',
+            last_message_at=timezone.now() - timedelta(days=8),
+        )
+        webhook_log = self._webhook_log(
+            update_id=103,
+            text='Я снова вернулся к вопросу',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_RETURNED)
+        self.assertEqual(notification.title, 'Клиент вернулся')
+        self.assertEqual(notification.entity_id, str(chat.id))
+        self.assertEqual(notification.link, f'/chat/{chat.id}')
+        self.assertIn('Пётр Петров', notification.content)
+        self.assertIn('снова вышел на связь', notification.content)
+        self.assertFalse(
+            Notification.objects.filter(
+                type=NotificationType.CHAT_NEW_MESSAGE,
+            ).exists(),
+        )
+
+    def test_recent_existing_chat_keeps_new_message_notification(self):
+        contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Пётр Петров',
+            telegram_user_id=777000,
+            telegram_chat_id=777000,
+        )
+        Chat.objects.create(
+            workspace=self.user.workspace,
+            contact=contact,
+            last_message='Недавнее сообщение',
+            last_message_at=timezone.now() - timedelta(days=6),
+        )
+        webhook_log = self._webhook_log(
+            update_id=104,
+            text='Продолжим обсуждение',
+        )
+
+        process_telegram_webhook_log(webhook_log.id)
+
+        notification = Notification.objects.get(user=self.user)
+        self.assertEqual(notification.type, NotificationType.CHAT_NEW_MESSAGE)
+        self.assertFalse(
+            Notification.objects.filter(
+                type=NotificationType.CHAT_RETURNED,
             ).exists(),
         )
 
@@ -155,7 +456,85 @@ class MessagingTests(TestCase):
         processed_again = process_telegram_webhook_log(webhook_log.id)
 
         self.assertFalse(processed_again)
+        webhook_log.refresh_from_db()
+        self.assertEqual(webhook_log.processing_attempts, 1)
         self.assertEqual(Message.objects.count(), 1)
+        self.assertEqual(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
+            ).count(),
+            1,
+        )
+
+    def test_non_message_webhook_does_not_write_message_audit(self):
+        webhook_log = TelegramWebhookLog.objects.create(
+            workspace=self.user.workspace,
+            update_id=105,
+            payload={
+                'update_id': 105,
+                'callback_query': {'id': 'callback-1'},
+            },
+        )
+
+        processed = process_telegram_webhook_log(webhook_log.id)
+
+        self.assertTrue(processed)
+        webhook_log.refresh_from_db()
+        self.assertTrue(webhook_log.processed)
+        self.assertFalse(Message.objects.exists())
+        self.assertFalse(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_RECEIVED,
+            ).exists(),
+        )
+
+    @patch('messaging.telegram.process_telegram_webhook_log')
+    def test_webhook_queue_stops_after_three_failures_and_audits(self, process):
+        process.side_effect = RuntimeError('sensitive failure details')
+        webhook_log = self._webhook_log(update_id=909)
+
+        first = process_pending_telegram_webhooks()
+        second = process_pending_telegram_webhooks()
+        third = process_pending_telegram_webhooks()
+        fourth = process_pending_telegram_webhooks()
+
+        webhook_log.refresh_from_db()
+        self.assertEqual(first['failed'], 1)
+        self.assertEqual(second['failed'], 1)
+        self.assertEqual(third['failed'], 1)
+        self.assertEqual(third['permanently_failed'], 1)
+        self.assertEqual(
+            fourth,
+            {'processed': 0, 'failed': 0, 'permanently_failed': 0},
+        )
+        self.assertEqual(process.call_count, 3)
+        self.assertEqual(webhook_log.processing_attempts, 3)
+        self.assertIsNotNone(webhook_log.failed_at)
+        self.assertFalse(webhook_log.processed)
+        self.assertIn('sensitive failure details', webhook_log.processing_error)
+
+        audits = WorkspaceAuditLog.objects.filter(
+            workspace=self.user.workspace,
+            field='telegram_webhook_failed',
+        ).order_by('changed_at', 'id')
+        self.assertEqual(audits.count(), 3)
+        details = [json.loads(audit.new_value) for audit in audits]
+        self.assertEqual(
+            [item['attempt'] for item in details],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [item['final'] for item in details],
+            [False, False, True],
+        )
+        self.assertTrue(all(item['update_id'] == 909 for item in details))
+        self.assertTrue(
+            all(item['error_type'] == 'RuntimeError' for item in details),
+        )
+        self.assertNotIn(
+            'sensitive failure details',
+            ''.join(audit.new_value for audit in audits),
+        )
 
     def test_deleted_contact_is_reused_but_deleted_chat_is_not(self):
         contact = Contact.objects.create(
@@ -298,6 +677,112 @@ class MessagingTests(TestCase):
         self.assertTrue(chat.is_deleted)
         self.assertTrue(message.is_deleted)
 
+    def test_chat_settings_endpoint_updates_autopilot_override(self):
+        _, chat = self._contact_and_chat()
+
+        disabled = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+        inherited = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'ai_autopilot_enabled': None},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(disabled.status_code, status.HTTP_200_OK)
+        self.assertFalse(disabled.data['ai_autopilot_enabled'])
+        self.assertEqual(inherited.status_code, status.HTTP_200_OK)
+        self.assertIsNone(inherited.data['ai_autopilot_enabled'])
+        chat.refresh_from_db()
+        self.assertIsNone(chat.ai_autopilot_enabled)
+
+    def test_disabling_chat_autopilot_writes_idempotent_telegram_audit(self):
+        _, chat = self._contact_and_chat()
+        url = f'/api/chats/{chat.id}/settings'
+
+        first = self.client.patch(
+            url,
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+        second = self.client.patch(
+            url,
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        logs = WorkspaceAuditLog.objects.filter(
+            workspace=self.user.workspace,
+            field='telegram_autopilot_disabled_for_chat',
+        )
+        self.assertEqual(logs.count(), 1)
+        log = logs.get()
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(
+            json.loads(log.old_value),
+            {
+                'chat_id': str(chat.id),
+                'ai_autopilot_enabled': None,
+            },
+        )
+        self.assertEqual(
+            json.loads(log.new_value),
+            {
+                'chat_id': str(chat.id),
+                'ai_autopilot_enabled': False,
+            },
+        )
+
+    def test_chat_settings_endpoint_validates_payload(self):
+        _, chat = self._contact_and_chat()
+
+        response = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'enabled': False},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('enabled', response.data['errors'])
+
+    def test_chat_settings_endpoint_is_workspace_scoped(self):
+        other = User.objects.create_user(
+            email='other@example.com',
+            password='StrongPass1',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        contact = Contact.objects.create(
+            workspace=other.workspace,
+            name='Чужой контакт',
+        )
+        chat = Chat.objects.create(workspace=other.workspace, contact=contact)
+
+        response = self.client.patch(
+            f'/api/chats/{chat.id}/settings',
+            {'ai_autopilot_enabled': False},
+            format='json',
+            **self._auth(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(
+            WorkspaceAuditLog.objects.filter(
+                workspace=self.user.workspace,
+                field='telegram_autopilot_disabled_for_chat',
+            ).exists(),
+        )
+
     def test_chat_endpoints_require_authentication(self):
         response = APIClient().get('/api/chats')
 
@@ -363,10 +848,79 @@ class MessagingTests(TestCase):
         self.assertEqual(message.delivery_attempts, 1)
         self.assertIsNotNone(message.delivered_at)
         client.send_message.assert_called_once()
+        audit = ChatAuditLog.objects.get(
+            action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+            message_identifier=message.id,
+        )
+        self.assertEqual(audit.user, self.user)
+        self.assertEqual(
+            audit.details,
+            {
+                'status': MessageStatus.DELIVERED,
+                'sent_by_ai': False,
+                'telegram_message_id': 987,
+                'delivery_attempts': 1,
+            },
+        )
+
+        repeated = process_outgoing_message(message.id, client=client)
+
+        self.assertFalse(repeated)
+        self.assertEqual(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+                message_identifier=message.id,
+            ).count(),
+            1,
+        )
+
+    def test_ai_delivery_audit_includes_sent_by_ai(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+        message = Message.objects.create(
+            chat=chat,
+            sender_type=MessageSenderType.USER,
+            sender_id=self.user.id,
+            text='Автоматический ответ',
+            status=MessageStatus.SENT,
+            sent_by_ai=True,
+            next_delivery_attempt_at=timezone.now(),
+        )
+        client = Mock()
+        client.send_message.return_value = {'message_id': 654}
+
+        processed = process_outgoing_message(message.id, client=client)
+
+        self.assertTrue(processed)
+        audit = ChatAuditLog.objects.get(
+            action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+            message_identifier=message.id,
+        )
+        self.assertIsNone(audit.user)
+        self.assertTrue(audit.details['sent_by_ai'])
+        self.assertNotIn('text', audit.details)
 
     def test_temporary_delivery_error_retries_three_times(self):
         self._connect_telegram()
         _, chat = self._contact_and_chat()
+        admin = User.objects.create_user(
+            email='delivery-admin@example.com',
+            password='StrongPass2',
+            first_name='Анна',
+            last_name='Администратор',
+            workspace=self.user.workspace,
+            is_confirmed=True,
+            role=UserRole.ADMIN,
+        )
+        regular = User.objects.create_user(
+            email='delivery-user@example.com',
+            password='StrongPass3',
+            first_name='Пётр',
+            last_name='Пользователь',
+            workspace=self.user.workspace,
+            is_confirmed=True,
+            role=UserRole.USER,
+        )
         response = self._enqueue(chat)
         client = Mock()
         client.send_message.side_effect = TelegramApiUnavailable('offline')
@@ -395,6 +949,30 @@ class MessagingTests(TestCase):
         self.assertEqual(message.status, MessageStatus.FAILED)
         self.assertEqual(message.delivery_attempts, 3)
         self.assertIsNone(message.next_delivery_attempt_at)
+        notifications = Notification.objects.filter(
+            type=NotificationType.CHAT_MESSAGE_DELIVERY_FAILED,
+            entity_type='message',
+            entity_id=str(message.id),
+        )
+        self.assertEqual(
+            {notification.user_id for notification in notifications},
+            {self.user.id, admin.id},
+        )
+        self.assertFalse(notifications.filter(user=regular).exists())
+        notification = notifications.get(user=self.user)
+        self.assertEqual(notification.link, f'/chat/{chat.id}')
+        self.assertIn('не доставлено через Telegram', notification.content)
+
+        repeated = process_outgoing_message(message_id, client=client)
+
+        self.assertFalse(repeated)
+        self.assertEqual(notifications.count(), 2)
+        self.assertFalse(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+                message_identifier=message.id,
+            ).exists(),
+        )
 
     def test_permanent_delivery_error_fails_without_retry(self):
         self._connect_telegram()
@@ -409,6 +987,13 @@ class MessagingTests(TestCase):
         self.assertEqual(message.status, MessageStatus.FAILED)
         self.assertEqual(message.delivery_attempts, 1)
         self.assertIsNone(message.next_delivery_attempt_at)
+        notification = Notification.objects.get(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE_DELIVERY_FAILED,
+            entity_type='message',
+            entity_id=str(message.id),
+        )
+        self.assertEqual(notification.link, f'/chat/{message.chat_id}')
 
     def test_outgoing_message_text_is_validated(self):
         self._connect_telegram()

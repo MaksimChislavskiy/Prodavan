@@ -167,6 +167,19 @@ class TelegramIntegrationTests(TestCase):
             ),
         )
         self.assertNotIn(self.token, audit_text)
+        connected_audit = WorkspaceAuditLog.objects.get(
+            workspace=self.user.workspace,
+            field='telegram_bot_connected',
+        )
+        self.assertEqual(connected_audit.user, self.user)
+        self.assertEqual(
+            json.loads(connected_audit.new_value),
+            {
+                'bot_username': '@sales_bot',
+                'health_status': IntegrationHealth.HEALTHY,
+                'reconnected': False,
+            },
+        )
 
     @patch('workspaces.telegram.TelegramBotApiClient.get_webhook_info')
     @patch('workspaces.telegram.TelegramBotApiClient.get_me')
@@ -193,10 +206,13 @@ class TelegramIntegrationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         integration.refresh_from_db()
         self.assertEqual(integration.connected_at, connected_at)
+        connected_audits = WorkspaceAuditLog.objects.filter(
+            workspace=self.user.workspace,
+            field='telegram_bot_connected',
+        )
+        self.assertEqual(connected_audits.count(), 2)
         self.assertTrue(
-            WorkspaceAuditLog.objects.filter(
-                field='integration.telegram.reconnected',
-            ).exists(),
+            json.loads(connected_audits.first().new_value)['reconnected'],
         )
 
     @patch('workspaces.telegram.TelegramBotApiClient.get_webhook_info')
@@ -228,6 +244,58 @@ class TelegramIntegrationTests(TestCase):
         self.assertEqual(integration.webhook_secret_config, {})
         self.assertEqual(integration.webhook_secret_hash, '')
         self.delete_webhook.assert_called_once_with(self.token)
+        disconnected_audit = WorkspaceAuditLog.objects.get(
+            workspace=self.user.workspace,
+            field='telegram_bot_disconnected',
+        )
+        self.assertEqual(disconnected_audit.user, self.user)
+        self.assertEqual(
+            json.loads(disconnected_audit.new_value),
+            {
+                'bot_username': '@sales_bot',
+                'webhook_cleanup_confirmed': True,
+            },
+        )
+
+    @patch('workspaces.telegram.TelegramBotApiClient.get_webhook_info')
+    @patch('workspaces.telegram.TelegramBotApiClient.get_me')
+    def test_disconnect_audit_marks_unconfirmed_webhook_cleanup(
+        self,
+        get_me,
+        get_webhook_info,
+    ):
+        get_me.return_value = self._bot()
+        get_webhook_info.return_value = self._webhook()
+        access = self._login()
+        self.client.post(
+            self.connect_url,
+            {'bot_token': self.token},
+            format='json',
+            **self._auth(access),
+        )
+        self.delete_webhook.side_effect = TelegramApiUnavailable('offline')
+
+        response = self.client.post(
+            self.disconnect_url,
+            {},
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        integration = WorkspaceIntegration.objects.get(
+            workspace=self.user.workspace,
+        )
+        self.assertEqual(integration.status, IntegrationStatus.DISCONNECTED)
+        disconnected_audit = WorkspaceAuditLog.objects.get(
+            workspace=self.user.workspace,
+            field='telegram_bot_disconnected',
+        )
+        self.assertFalse(
+            json.loads(disconnected_audit.new_value)[
+                'webhook_cleanup_confirmed'
+            ],
+        )
 
     @patch('workspaces.telegram.TelegramBotApiClient.get_me')
     def test_connect_rejects_invalid_token(self, get_me):
@@ -419,6 +487,12 @@ class TelegramIntegrationTests(TestCase):
                 update_id=123,
             ).count(),
             1,
+        )
+        self.assertFalse(
+            WorkspaceAuditLog.objects.filter(
+                workspace=self.user.workspace,
+                field='integration.telegram.message_received',
+            ).exists(),
         )
         logs = self.client.get(
             self.webhook_logs_url,

@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    ContactAIInsightsView,
     ContactDetailView,
     ContactFindByNameView,
     ContactSearchView,
@@ -22,5 +23,10 @@ urlpatterns = [
         'contacts/<uuid:contact_id>',
         ContactDetailView.as_view(),
         name='contact-detail',
+    ),
+    path(
+        'contacts/<uuid:contact_id>/ai-insights',
+        ContactAIInsightsView.as_view(),
+        name='contact-ai-insights',
     ),
 ]

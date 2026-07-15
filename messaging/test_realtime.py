@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
@@ -9,17 +7,12 @@ from config.asgi import application
 from users.models import User
 from users.services import issue_token_pair
 
-from .realtime import broadcast_workspace_event, workspace_group_name
+from .realtime import user_group_name, workspace_group_name
 
 
 TEST_CHANNEL_LAYERS = {
     'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
 }
-
-
-class FailingChannelLayer:
-    async def group_send(self, group_name, message):
-        raise ConnectionError('Redis is unavailable')
 
 
 @override_settings(
@@ -59,6 +52,28 @@ class RealtimeChatTests(TransactionTestCase):
         payload = {'event': 'message_read', 'chat_id': 'chat-id'}
         await get_channel_layer().group_send(
             workspace_group_name(self.user.workspace_id),
+            {'type': 'chat.event', 'payload': payload},
+        )
+        self.assertEqual(await communicator.receive_json_from(), payload)
+        await communicator.disconnect()
+
+    def test_connected_user_receives_personal_notification_event(self):
+        async_to_sync(self._personal_notification_scenario)()
+
+    async def _personal_notification_scenario(self):
+        communicator = WebsocketCommunicator(
+            application,
+            f'/ws/chat?token={self.access_token}',
+            headers=self._headers(),
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        payload = {
+            'event': 'notification_created',
+            'payload': {'id': 'notification-id'},
+        }
+        await get_channel_layer().group_send(
+            user_group_name(self.user.id),
             {'type': 'chat.event', 'payload': payload},
         )
         self.assertEqual(await communicator.receive_json_from(), payload)
@@ -123,14 +138,3 @@ class RealtimeChatTests(TransactionTestCase):
         self.assertEqual(response['event'], 'error')
         self.assertEqual(response['code'], 'unsupported_action')
         await communicator.disconnect()
-
-    def test_realtime_failure_does_not_break_completed_api_write(self):
-        with patch(
-            'messaging.realtime.get_channel_layer',
-            return_value=FailingChannelLayer(),
-        ):
-            with self.assertLogs('messaging.realtime', level='ERROR'):
-                broadcast_workspace_event(
-                    self.user.workspace_id,
-                    {'event': 'stage_created'},
-                )

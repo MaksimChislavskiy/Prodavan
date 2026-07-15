@@ -11,6 +11,8 @@ from rest_framework.renderers import JSONRenderer
 
 from contacts.models import Contact
 from messaging.realtime import broadcast_workspace_event
+from notifications.models import NotificationType
+from notifications.services import create_workspace_notification
 
 from .models import (
     ChangedByType,
@@ -48,6 +50,42 @@ def _event(workspace_id, event, correlation_id, **data):
     transaction.on_commit(
         lambda: broadcast_workspace_event(workspace_id, payload),
     )
+
+
+def _notify_deal(*, workspace, deal, type, title, content):
+    create_workspace_notification(
+        workspace=workspace,
+        type=type,
+        title=title,
+        content=content,
+        link=f'/deals/{deal.id}',
+        entity_type='deal',
+        entity_id=str(deal.id),
+    )
+
+
+def _updated_fields_text(changes):
+    labels = {
+        'contact_id': 'контакт',
+        'name': 'название',
+        'amount': 'сумма',
+        'comment': 'комментарий',
+    }
+    return ', '.join(labels[field] for field in changes if field in labels)
+
+
+def _record_history(**kwargs):
+    history = DealHistory.objects.create(**kwargs)
+    previous = (
+        DealHistory.objects.filter(deal=history.deal)
+        .exclude(id=history.id)
+        .order_by('-created_at')
+        .first()
+    )
+    if previous is not None and history.created_at <= previous.created_at:
+        history.created_at = previous.created_at + timedelta(microseconds=1)
+        history.save(update_fields=('created_at',))
+    return history
 
 
 def _active_contact(workspace, contact_id, *, required=False):
@@ -134,7 +172,7 @@ def create_deal(*, workspace, user, data, idempotency_key, changed_by_type=Chang
             comment=data.get('comment'),
         )
         correlation_id = uuid.uuid4()
-        DealHistory.objects.create(
+        _record_history(
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.CREATED,
@@ -155,6 +193,14 @@ def create_deal(*, workspace, user, data, idempotency_key, changed_by_type=Chang
             deal_id=str(deal.id),
             stage_id=str(stage.id),
         )
+        if changed_by_type == ChangedByType.USER:
+            _notify_deal(
+                workspace=workspace,
+                deal=deal,
+                type=NotificationType.DEAL_CREATED,
+                title='Создана новая сделка',
+                content=f'Сделка «{deal.name}» создана на этапе «{stage.name}».',
+            )
     return body, status.HTTP_201_CREATED
 
 
@@ -219,7 +265,7 @@ def update_deal(
             'contact', 'name', 'amount', 'comment', 'version', 'updated_at',
         ))
         correlation_id = uuid.uuid4()
-        DealHistory.objects.create(
+        _record_history(
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.UPDATED,
@@ -235,6 +281,17 @@ def update_deal(
             deal_id=str(deal.id),
             stage_id=str(deal.stage_id),
         )
+        if changed_by_type == ChangedByType.USER:
+            fields_text = _updated_fields_text(changes)
+            _notify_deal(
+                workspace=workspace,
+                deal=deal,
+                type=NotificationType.DEAL_UPDATED,
+                title='Сделка изменена',
+                content=(
+                    f'В сделке «{deal.name}» обновлены поля: {fields_text}.'
+                ),
+            )
     return DealDetailSerializer(deal).data
 
 
@@ -281,11 +338,12 @@ def move_deal(*, workspace, user, deal_id, stage_id, submitted_version, idempote
             body = DealListSerializer(deal).data
         else:
             old_stage_id = deal.stage_id
+            old_stage_name = deal.stage.name
             deal.stage = stage
             deal.version += 1
             deal.save(update_fields=('stage', 'version', 'updated_at'))
             correlation_id = uuid.uuid4()
-            DealHistory.objects.create(
+            _record_history(
                 workspace=workspace,
                 deal=deal,
                 event_type=DealEvent.STAGE_CHANGED,
@@ -305,6 +363,16 @@ def move_deal(*, workspace, user, deal_id, stage_id, submitted_version, idempote
                 deal_id=str(deal.id),
                 from_stage_id=str(old_stage_id),
                 to_stage_id=str(stage.id),
+            )
+            _notify_deal(
+                workspace=workspace,
+                deal=deal,
+                type=NotificationType.DEAL_UPDATED,
+                title='Этап сделки изменён',
+                content=(
+                    f'Сделка «{deal.name}» перемещена: '
+                    f'«{old_stage_name}» → «{stage.name}».'
+                ),
             )
             body = DealListSerializer(deal).data
         if idempotency_key:
@@ -336,7 +404,7 @@ def delete_deal(*, workspace, user, deal_id):
             deal_ids=[deal.id],
         )
         correlation_id = uuid.uuid4()
-        DealHistory.objects.create(
+        _record_history(
             workspace=workspace,
             deal=deal,
             event_type=DealEvent.DELETED,
@@ -393,6 +461,7 @@ def create_stage(*, workspace, data):
         stage = SalesStage.objects.create(
             workspace=workspace,
             name=data['name'],
+            is_final=data.get('is_final', False),
             order=100 + len(stages) + 1,
         )
         position = min(data.get('order', len(stages) + 1), len(stages) + 1)
@@ -439,6 +508,9 @@ def update_stage(*, workspace, stage_id, submitted_version, data):
             _validate_stage_name(workspace, data['name'], exclude_id=stage.id)
             stage.name = data['name']
             changed = True
+        if 'is_final' in data and data['is_final'] != stage.is_final:
+            stage.is_final = data['is_final']
+            changed = True
         stages = list(SalesStage.objects.filter(
             workspace=workspace,
             is_deleted=False,
@@ -452,7 +524,13 @@ def update_stage(*, workspace, stage_id, submitted_version, data):
                 changed = True
         if changed:
             stage.version += 1
-            stage.save(update_fields=('name', 'name_normalized', 'version', 'updated_at'))
+            stage.save(update_fields=(
+                'name',
+                'name_normalized',
+                'is_final',
+                'version',
+                'updated_at',
+            ))
             correlation_id = uuid.uuid4()
             _event(
                 workspace.id,
@@ -503,7 +581,7 @@ def delete_stage(*, workspace, stage_id, submitted_version):
             deal.stage = system_stage
             deal.version += 1
             deal.save(update_fields=('stage', 'version', 'updated_at'))
-            DealHistory.objects.create(
+            _record_history(
                 workspace=workspace,
                 deal=deal,
                 event_type=DealEvent.STAGE_CHANGED,

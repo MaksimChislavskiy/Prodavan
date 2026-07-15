@@ -2,7 +2,7 @@ import hashlib
 import html
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, time as datetime_time, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -14,15 +14,21 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from contacts.models import Contact
+from contacts.serializers import (
+    normalize_email,
+    normalize_phone,
+    normalize_telegram,
+)
 from contacts.services import ContactServiceError, update_contact
 from deals.models import ChangedByType, Deal, DealEvent, DealHistory
 from deals.services import CRMServiceError, create_deal, update_deal
 from messaging.models import Message, MessageSenderType
-from tasks.dates import normalize_due_date
-from tasks.models import DueDateType, TaskSource
+from tasks.dates import normalize_due_date, workspace_timezone
+from tasks.models import DueDateType, Task, TaskSource
 from tasks.services import TaskServiceError, create_task
+from users.models import User
 
-from .audit import audit_automation_event
+from .audit import audit_automation_event, audit_automation_failure
 from .chat_client import (
     ChatCompletionClient,
     ChatConfigurationError,
@@ -30,6 +36,7 @@ from .chat_client import (
     ChatTimeoutError,
     EmptyChatResponseError,
 )
+from .insights import apply_structured_insights
 from .limits import AI_LIMITS
 from .models import (
     AIChatInsight,
@@ -40,6 +47,7 @@ from .models import (
     AutomationEventStatus,
     AutomationFailureType,
 )
+from .rate_limits import AIRateLimitExceeded, consume_workspace_ai_request
 
 
 EVENT_CHAT_MESSAGE_RECEIVED = 'chat_message_received'
@@ -64,6 +72,7 @@ class AutomationAnalysisClient:
 
     def analyze(self, *, event, context_messages):
         try:
+            consume_workspace_ai_request(event.workspace_id)
             result = self.chat_client.complete([
                 {
                     'role': 'system',
@@ -78,10 +87,18 @@ class AutomationAnalysisClient:
                         '"fields":{}},'
                         '"task":{"confidence":0,"create":false,"title":"",'
                         '"description":"","due_date":null,'
-                        '"due_date_type":"none","comment":""},'
+                        '"due_date_type":"none","duplicate":false,'
+                        '"comment":""},'
                         '"insight":{"summary":"","sentiment":"",'
-                        '"objections":[],"recommendations":[]}'
-                        '}.'
+                        '"needs":null,"budget":null,"timeline":null,'
+                        '"objections":[],"next_step":null,"probability":null,'
+                        '"confidence":0,"recommendations":[]}'
+                        '}. Для task ограничь description 500 символами. '
+                        'Относительный срок возвращай как YYYY-MM-DD с '
+                        'due_date_type=date, явное время — как datetime. '
+                        'Для времени без даты можно вернуть HH:MM. '
+                        'Если договорённость дублирует уже поставленную задачу, '
+                        'укажи duplicate=true.'
                     ),
                 },
                 {
@@ -89,6 +106,9 @@ class AutomationAnalysisClient:
                     'content': json.dumps(
                         {
                             'workspace_timezone': event.workspace.timezone,
+                            'current_datetime': timezone.now().astimezone(
+                                workspace_timezone(event.workspace),
+                            ).isoformat(),
                             'contact': _contact_context(event.chat.contact),
                             'current_message_id': str(event.message_id),
                             'current_message_text': event.message.text,
@@ -103,6 +123,8 @@ class AutomationAnalysisClient:
             raise AutomationBusinessError(
                 'AI chat client is not configured.',
             ) from error
+        except AIRateLimitExceeded as error:
+            raise AutomationTechnicalError('ai_rate_limit_exceeded') from error
         except (ChatTimeoutError, EmptyChatResponseError, ChatServiceError) as error:
             raise AutomationTechnicalError(str(error) or type(error).__name__) from error
 
@@ -110,12 +132,17 @@ class AutomationAnalysisClient:
 
 
 def enqueue_automation_event(message):
-    if message.sender_type != MessageSenderType.CONTACT:
+    if message.sender_type not in {
+        MessageSenderType.CONTACT,
+        MessageSenderType.USER,
+    }:
         return None
     if message.sent_by_ai or message.is_deleted:
         return None
 
     chat = message.chat
+    if not _workspace_has_authorized_user(chat.workspace_id):
+        return None
     event, _ = AIAutomationEvent.objects.get_or_create(
         message=message,
         defaults={
@@ -265,11 +292,23 @@ def _claim_event(event_id):
 def _should_ignore_event(event):
     message = event.message
     return (
-        message.sender_type != MessageSenderType.CONTACT
+        message.sender_type not in {
+            MessageSenderType.CONTACT,
+            MessageSenderType.USER,
+        }
         or message.sent_by_ai
         or message.is_deleted
         or event.event_type != EVENT_CHAT_MESSAGE_RECEIVED
+        or not _workspace_has_authorized_user(event.workspace_id)
     )
+
+
+def _workspace_has_authorized_user(workspace_id):
+    return User.objects.filter(
+        workspace_id=workspace_id,
+        is_active=True,
+        is_deleted=False,
+    ).exists()
 
 
 def _event_for_processing(event_id):
@@ -306,17 +345,24 @@ def _last_context_messages(chat, message):
 
 
 def _mark_business_failure(event_id, error):
+    error_text = _error_text(error)
     AIAutomationEvent.objects.filter(id=event_id).update(
         status=AutomationEventStatus.FAILED,
         processed_at=timezone.now(),
         locked_at=None,
         failure_type=AutomationFailureType.BUSINESS,
-        last_error=_error_text(error),
+        last_error=error_text,
+    )
+    audit_automation_failure(
+        event=_event_for_failure_audit(event_id),
+        error_text=error_text,
+        failure_type=AutomationFailureType.BUSINESS,
     )
 
 
 def _mark_technical_failure(event_id, error):
     now = timezone.now()
+    error_text = _error_text(error)
     with transaction.atomic():
         event = AIAutomationEvent.objects.select_for_update().get(id=event_id)
         if event.attempts <= len(RETRY_DELAYS):
@@ -329,7 +375,7 @@ def _mark_technical_failure(event_id, error):
             outcome = 'failed'
         event.locked_at = None
         event.failure_type = AutomationFailureType.TECHNICAL
-        event.last_error = _error_text(error)
+        event.last_error = error_text
         event.save(update_fields=(
             'status',
             'available_at',
@@ -339,27 +385,75 @@ def _mark_technical_failure(event_id, error):
             'last_error',
             'updated_at',
         ))
+    if outcome == 'failed':
+        audit_automation_failure(
+            event=_event_for_failure_audit(event_id),
+            error_text=error_text,
+            failure_type=AutomationFailureType.TECHNICAL,
+        )
     return outcome
+
+
+def _event_for_failure_audit(event_id):
+    return (
+        AIAutomationEvent.objects.select_related(
+            'workspace',
+            'chat',
+            'message',
+        )
+        .get(id=event_id)
+    )
 
 
 def _apply_actions(event, analysis):
     analysis = analysis if isinstance(analysis, dict) else {}
     results = {}
-    results[AutomationActionType.CONTACT_ENRICHMENT] = _enrich_contact(event, analysis)
+    if event.contact_created:
+        results[AutomationActionType.CONTACT_CREATE] = _record_action(
+            event,
+            AutomationActionType.CONTACT_CREATE,
+            {
+                'status': 'created',
+                'contact_id': str(event.chat.contact_id),
+            },
+        )
+    contact_message = event.message.sender_type == MessageSenderType.CONTACT
+    if contact_message:
+        results[AutomationActionType.CONTACT_ENRICHMENT] = _enrich_contact(
+            event,
+            analysis,
+        )
+    else:
+        results[AutomationActionType.CONTACT_ENRICHMENT] = _record_action(
+            event,
+            AutomationActionType.CONTACT_ENRICHMENT,
+            {'status': 'skipped_sender_not_eligible'},
+        )
     deal = _create_deal_if_needed(event, analysis)
     results[AutomationActionType.DEAL_CREATE] = deal['result']
     active_deal = deal['deal'] or _active_deal_for_contact(event.workspace, event.chat.contact)
-    results[AutomationActionType.DEAL_ENRICHMENT] = _enrich_deal(
-        event,
-        analysis,
-        active_deal,
-    )
+    if contact_message:
+        results[AutomationActionType.DEAL_ENRICHMENT] = _enrich_deal(
+            event,
+            analysis,
+            active_deal,
+        )
+    else:
+        results[AutomationActionType.DEAL_ENRICHMENT] = _record_action(
+            event,
+            AutomationActionType.DEAL_ENRICHMENT,
+            {'status': 'skipped_sender_not_eligible'},
+        )
     results[AutomationActionType.TASK_CREATE] = _create_task_if_needed(
         event,
         analysis,
         active_deal,
     )
-    results[AutomationActionType.INSIGHT] = _create_insight_if_due(event, analysis)
+    results[AutomationActionType.INSIGHT] = _create_insight_if_due(
+        event,
+        analysis,
+        active_deal,
+    )
     return results
 
 
@@ -395,6 +489,10 @@ def _enrich_contact(event, analysis):
             contact_id=contact.id,
             submitted_version=contact.version,
             data=updates,
+            audit_changes={
+                'source': 'ai',
+                'trigger': 'data_enrichment',
+            },
         )
         usage.contacts_updated += 1
         usage.save(update_fields=('contacts_updated',))
@@ -469,6 +567,13 @@ def _create_deal_if_needed(event, analysis):
         if response_status == status.HTTP_201_CREATED:
             usage.deals_created += 1
             usage.save(update_fields=('deals_created',))
+            now = timezone.now()
+            Contact.objects.filter(
+                id=contact.id,
+                workspace=event.workspace,
+                is_deleted=False,
+            ).update(last_ai_deal_created_at=now, updated_at=now)
+            contact.last_ai_deal_created_at = now
         deal = Deal.objects.filter(id=body.get('id')).first()
         result = _record_action(
             event,
@@ -533,6 +638,12 @@ def _create_task_if_needed(event, analysis, deal):
     wants_create = bool(task_data.get('create')) or bool(title)
     if not wants_create or _confidence(task_data) < _confidence_threshold() or not title:
         return _record_action(event, action_type, {'status': 'skipped_low_confidence'})
+    if (
+        task_data.get('duplicate') is True
+        or task_data.get('is_duplicate') is True
+        or _duplicate_ai_task(event.chat, title)
+    ):
+        return _record_action(event, action_type, {'status': 'skipped_duplicate'})
 
     due_date_type = task_data.get('due_date_type') or DueDateType.NONE
     if due_date_type not in DueDateType.values:
@@ -547,21 +658,30 @@ def _create_task_if_needed(event, analysis, deal):
         if usage.tasks_created >= AI_LIMITS['daily_task_creation']:
             return _record_action(event, action_type, {'status': 'skipped_daily_limit'})
         if _tasks_created_for_chat_24h(event.chat) >= AI_LIMITS['tasks_per_chat_24h']:
-            return _record_action(event, action_type, {'status': 'skipped_chat_limit'})
+            return _record_action(
+                event,
+                action_type,
+                {
+                    'status': 'skipped_chat_limit',
+                    'reason': 'task_spam',
+                    'limit_type': 'task_spam',
+                },
+            )
         body, response_status = create_task(
             workspace=event.workspace,
             user=None,
             data={
                 'title': title,
-                'description': _text(task_data.get('description'), 1000),
+                'description': _text(task_data.get('description'), 500),
                 'due_date': due_date,
                 'due_date_type': due_date_type,
                 'contact_id': event.chat.contact_id,
                 'deal_id': deal.id if deal else None,
-                'comment': _text(task_data.get('comment'), 500),
+                'comment': 'Создана AI из чата',
             },
             idempotency_key=idempotency_key,
             source=TaskSource.AI,
+            source_chat=event.chat,
         )
         if response_status == status.HTTP_201_CREATED:
             usage.tasks_created += 1
@@ -577,21 +697,21 @@ def _create_task_if_needed(event, analysis, deal):
         )
 
 
-def _create_insight_if_due(event, analysis):
+def _create_insight_if_due(event, analysis, deal):
     action_type = AutomationActionType.INSIGHT
     if _action_already_processed(event, action_type):
         return {'status': 'already_processed'}
 
-    message_count = Message.objects.filter(
-        chat=event.chat,
-        sender_type=MessageSenderType.CONTACT,
-        is_deleted=False,
-    ).count()
-    if not message_count or message_count % INSIGHT_MESSAGE_STEP != 0:
+    total_message_count, pending_message_count = _insight_message_counts(event)
+    if pending_message_count < INSIGHT_MESSAGE_STEP:
         return _record_action(
             event,
             action_type,
-            {'status': 'skipped_not_due', 'message_count': message_count},
+            {
+                'status': 'skipped_not_due',
+                'message_count': pending_message_count,
+                'total_message_count': total_message_count,
+            },
         )
 
     insight_data = _dict_value(analysis.get('insight'))
@@ -604,11 +724,17 @@ def _create_insight_if_due(event, analysis):
         workspace=event.workspace,
         chat=event.chat,
         source_message=event.message,
-        message_count=message_count,
+        message_count=total_message_count,
         summary=summary,
         sentiment=_text(insight_data.get('sentiment'), 32) or '',
         objections=_string_list(insight_data.get('objections')),
         recommendations=_string_list(insight_data.get('recommendations')),
+    )
+    structured_result = apply_structured_insights(
+        contact=event.chat.contact,
+        deal=deal,
+        insight_data=insight_data,
+        analyzed_at=insight.created_at,
     )
     return _record_action(
         event,
@@ -616,9 +742,36 @@ def _create_insight_if_due(event, analysis):
         {
             'status': 'created',
             'insight_id': str(insight.id),
-            'message_count': message_count,
+            'message_count': total_message_count,
+            'batch_message_count': INSIGHT_MESSAGE_STEP,
+            'structured': structured_result,
         },
     )
+
+
+def _insight_message_counts(event):
+    messages = Message.objects.filter(
+        chat=event.chat,
+        sender_type__in=(
+            MessageSenderType.CONTACT,
+            MessageSenderType.USER,
+        ),
+        sent_by_ai=False,
+        is_deleted=False,
+        created_at__lte=event.message.created_at,
+    )
+    total_message_count = messages.count()
+    last_insight = (
+        AIChatInsight.objects.filter(chat=event.chat)
+        .select_related('source_message')
+        .order_by('-source_message__created_at', '-created_at', '-id')
+        .first()
+    )
+    if last_insight is not None:
+        messages = messages.filter(
+            created_at__gt=last_insight.source_message.created_at,
+        )
+    return total_message_count, messages.count()
 
 
 def _record_action(event, action_type, result):
@@ -672,6 +825,7 @@ def _active_deal_for_contact(workspace, contact):
         Deal.objects.filter(
             workspace=workspace,
             contact=contact,
+            stage__is_final=False,
             is_deleted=False,
         )
         .order_by('-updated_at', '-id')
@@ -680,22 +834,42 @@ def _active_deal_for_contact(workspace, contact):
 
 
 def _ai_deal_created_recently(workspace, contact):
+    if contact is None:
+        return False
+    recent_after = timezone.now() - timedelta(hours=24)
+    if (
+        contact.last_ai_deal_created_at is not None
+        and contact.last_ai_deal_created_at >= recent_after
+    ):
+        return True
     return DealHistory.objects.filter(
         workspace=workspace,
         deal__contact=contact,
         event_type=DealEvent.CREATED,
         changed_by_type=ChangedByType.AI,
-        created_at__gte=timezone.now() - timedelta(hours=24),
+        created_at__gte=recent_after,
     ).exists()
 
 
 def _tasks_created_for_chat_24h(chat):
-    return AIProcessedEvent.objects.filter(
-        chat=chat,
-        action_type=AutomationActionType.TASK_CREATE,
-        result__status='created',
+    return Task.objects.filter(
+        workspace=chat.workspace,
+        source_chat=chat,
+        created_by_ai=True,
+        is_deleted=False,
         created_at__gte=timezone.now() - timedelta(hours=24),
     ).count()
+
+
+def _duplicate_ai_task(chat, title):
+    return Task.objects.filter(
+        workspace=chat.workspace,
+        source_chat=chat,
+        created_by_ai=True,
+        is_deleted=False,
+        title__iexact=title.strip(),
+        created_at__gte=timezone.now() - timedelta(hours=24),
+    ).exists()
 
 
 def _empty_contact_updates(contact, fields):
@@ -708,6 +882,11 @@ def _empty_contact_updates(contact, fields):
         'comment': None,
     }
     updates = {}
+    normalizers = {
+        'phone': normalize_phone,
+        'email': normalize_email,
+        'telegram': normalize_telegram,
+    }
     for field, max_length in allowed.items():
         current = getattr(contact, field)
         if field == 'name':
@@ -716,7 +895,18 @@ def _empty_contact_updates(contact, fields):
             empty = current in {None, ''}
         if not empty:
             continue
-        value = _text(fields.get(field), max_length)
+        value = _text(
+            fields.get(field),
+            None if field in normalizers else max_length,
+        )
+        normalizer = normalizers.get(field)
+        if normalizer is not None and value is not None:
+            try:
+                value = normalizer(value)
+            except ValidationError:
+                continue
+            if value is not None and len(value) > max_length:
+                continue
         if value is not None:
             updates[field] = value
     return updates
@@ -743,6 +933,26 @@ def _task_due_date(value, due_date_type, workspace):
     value = _text(value)
     if value is None:
         return None
+    if due_date_type == DueDateType.DATETIME:
+        time_only = re.fullmatch(
+            r'(?:в\s*)?([01]?\d|2[0-3]):([0-5]\d)',
+            value,
+            flags=re.IGNORECASE,
+        )
+        if time_only is not None:
+            zone = workspace_timezone(workspace)
+            local_now = timezone.now().astimezone(zone)
+            parsed = datetime.combine(
+                local_now.date(),
+                datetime_time(
+                    hour=int(time_only.group(1)),
+                    minute=int(time_only.group(2)),
+                ),
+                tzinfo=zone,
+            )
+            if parsed <= local_now:
+                parsed += timedelta(days=1)
+            return normalize_due_date(parsed, workspace=workspace)
     parsed = parse_datetime(value)
     try:
         return normalize_due_date(parsed or value, workspace=workspace)

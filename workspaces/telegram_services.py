@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import secrets
 import uuid
 from urllib.parse import urlparse
@@ -52,6 +53,15 @@ def _audit(user, workspace, request_id, field, old_value, new_value):
         old_value=old_value,
         new_value=new_value,
         request_id=request_id,
+    )
+
+
+def _audit_payload(value):
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
     )
 
 
@@ -221,14 +231,17 @@ def connect_telegram(*, workspace, user, bot_token, client=None):
             integration.deleted_at = None
             integration.save()
 
-            action = 'reconnected' if was_connected else 'connected'
             _audit(
                 user,
                 workspace,
                 request_id,
-                f'integration.telegram.{action}',
+                'telegram_bot_connected',
                 None,
-                action,
+                _audit_payload({
+                    'bot_username': integration.bot_username,
+                    'health_status': integration.health_status,
+                    'reconnected': was_connected,
+                }),
             )
             _audit(
                 user,
@@ -335,6 +348,7 @@ def disconnect_telegram(*, workspace, user, client=None):
                 status_code=404,
             )
         old_status = integration.status
+        old_bot_username = integration.bot_username
         integration.status = IntegrationStatus.DISCONNECTED
         integration.health_status = None
         integration.config = {}
@@ -351,6 +365,17 @@ def disconnect_telegram(*, workspace, user, client=None):
                 'webhook_secret_hash', 'bot_username', 'last_error',
                 'consecutive_failures', 'updated_at',
             ),
+        )
+        _audit(
+            user,
+            workspace,
+            request_id,
+            'telegram_bot_disconnected',
+            None,
+            _audit_payload({
+                'bot_username': old_bot_username,
+                'webhook_cleanup_confirmed': not bool(cleanup_error),
+            }),
         )
         _audit(
             user,
@@ -440,20 +465,6 @@ def receive_telegram_webhook(*, path_secret, header_secret, payload):
         update_id=update_id,
         defaults={'payload': payload},
     )
-    if created:
-        system_user = integration.workspace.users.filter(
-            is_active=True,
-            role='admin',
-        ).first()
-        if system_user is not None:
-            _audit(
-                system_user,
-                integration.workspace,
-                uuid.uuid4(),
-                'integration.telegram.message_received',
-                None,
-                str(update_id),
-            )
     return created
 
 

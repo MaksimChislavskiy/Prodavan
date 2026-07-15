@@ -19,6 +19,19 @@ class ChangedByType(models.TextChoices):
     SYSTEM = 'system', 'Система'
 
 
+def default_ai_insights():
+    return {
+        'needs': None,
+        'budget': None,
+        'timeline': None,
+        'objections': None,
+        'next_step': None,
+        'probability': None,
+        'last_analyzed_at': None,
+        'confidence': None,
+    }
+
+
 class SalesStage(TimestampMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
@@ -29,6 +42,7 @@ class SalesStage(TimestampMixin):
     name = models.CharField(max_length=100)
     name_normalized = models.CharField(max_length=100, editable=False)
     is_system = models.BooleanField(default=False)
+    is_final = models.BooleanField(default=False, db_index=True)
     order = models.PositiveSmallIntegerField()
     version = models.PositiveIntegerField(default=1)
     is_deleted = models.BooleanField(default=False, db_index=True)
@@ -89,6 +103,7 @@ class Deal(TimestampMixin):
     )
     currency = models.CharField(max_length=3, default='RUB')
     comment = models.CharField(max_length=500, null=True, blank=True)
+    ai_insights = models.JSONField(default=default_ai_insights, blank=True)
     version = models.PositiveIntegerField(default=1)
     is_deleted = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
