@@ -26,6 +26,7 @@ class NotificationType(models.TextChoices):
     AI_TASK_CREATED = 'ai_task_created', 'AI создал задачу'
     AI_INSIGHT_EXTRACTED = 'ai_insight_extracted', 'AI нашёл важную информацию'
     AI_AUTOPILOT_SENT = 'ai_autopilot_sent', 'Автопилот отправил ответ'
+    AI_ACTIONS_GROUPED = 'ai_actions_grouped', 'AI обработал переписку'
     AI_LIMIT_REACHED = 'ai_limit_reached', 'AI достиг лимита'
     AI_ACTION_FAILED = 'ai_action_failed', 'Ошибка AI-действия'
 

@@ -226,12 +226,52 @@ def _create_persistent_notifications(logs):
     users = list(_notification_users(logs[0].workspace_id))
     if not users:
         return
-    for log in logs:
-        payload = _notification_for_log(log)
-        if payload is None:
-            continue
+    entries = [
+        (log, payload)
+        for log in logs
+        if (payload := _notification_for_log(log)) is not None
+    ]
+    if not entries:
+        return
+    if len(entries) > 1:
+        payload = _grouped_notification(entries)
         for user in users:
             create_notification(user=user, **payload)
+        return
+    payload = entries[0][1]
+    for user in users:
+        create_notification(user=user, **payload)
+
+
+def _grouped_notification(entries):
+    logs = [entry[0] for entry in entries]
+    labels = [_grouped_action_label(log.action) for log in logs]
+    chat_id = next((str(log.chat_id) for log in logs if log.chat_id), '')
+    correlation_id = str(logs[0].correlation_id)
+    return {
+        'type': NotificationType.AI_ACTIONS_GROUPED,
+        'title': 'AI обработал переписку',
+        'content': 'AI обработал переписку:\n' + '\n'.join(
+            f'• {label}' for label in labels
+        ),
+        'link': f'/chat/{chat_id}' if chat_id else '',
+        'entity_type': 'ai_actions',
+        'entity_id': correlation_id,
+    }
+
+
+def _grouped_action_label(action):
+    return {
+        AIAutomationAuditAction.AI_CONTACT_CREATED: 'создан контакт',
+        AIAutomationAuditAction.AI_CONTACT_UPDATED: 'обновлён контакт',
+        AIAutomationAuditAction.AI_DEAL_CREATED: 'создана сделка',
+        AIAutomationAuditAction.AI_DEAL_UPDATED: 'обновлена сделка',
+        AIAutomationAuditAction.AI_TASK_CREATED: 'создана задача',
+        AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED: 'извлечена аналитика',
+        AIAutomationAuditAction.AI_AUTOPILOT_SENT: 'отправлен ответ клиенту',
+        AIAutomationAuditAction.AI_LIMIT_REACHED: 'достигнут лимит',
+        AIAutomationAuditAction.AI_ACTION_FAILED: 'действие завершилось ошибкой',
+    }[action]
 
 
 def _notification_for_log(log):

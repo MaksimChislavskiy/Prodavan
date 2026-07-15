@@ -139,22 +139,19 @@ class AIAuditApiTests(TestCase):
         self.assertIn(AIAutomationAuditAction.AI_DEAL_CREATED, actions)
         self.assertIn(AIAutomationAuditAction.AI_TASK_CREATED, actions)
         notifications = list(Notification.objects.order_by('type'))
-        self.assertEqual(len(notifications), 3)
+        self.assertEqual(len(notifications), 1)
+        grouped = notifications[0]
+        self.assertEqual(grouped.type, NotificationType.AI_ACTIONS_GROUPED)
+        self.assertEqual(grouped.user_id, self.user.id)
+        self.assertEqual(grouped.title, 'AI обработал переписку')
+        self.assertIn('• обновлён контакт', grouped.content)
+        self.assertIn('• создана сделка', grouped.content)
+        self.assertIn('• создана задача', grouped.content)
+        self.assertEqual(grouped.link, f'/chat/{self.chat.id}')
+        self.assertEqual(grouped.entity_type, 'ai_actions')
         self.assertEqual(
-            {item.type for item in notifications},
-            {
-                NotificationType.AI_DEAL_CREATED,
-                NotificationType.AI_TASK_CREATED,
-                NotificationType.CONTACT_AI_UPDATED,
-            },
-        )
-        self.assertEqual(
-            {item.user_id for item in notifications},
-            {self.user.id},
-        )
-        self.assertIn(
-            f'/contacts/{self.contact.id}',
-            {item.link for item in notifications},
+            grouped.entity_id,
+            str(message.ai_automation_event.id),
         )
         access = self._login()
         response = self.client.get(self.audit_url, **self._auth(access))
@@ -198,6 +195,22 @@ class AIAuditApiTests(TestCase):
 
         self.assertTrue(AIAutomationAuditLog.objects.exists())
         self.assertFalse(Notification.objects.exists())
+
+    def test_single_ai_action_keeps_specific_notification(self):
+        message = self.incoming('Компания называется ООО Ромашка.')
+        analyzer = DummyAnalyzer({
+            'contact': {
+                'confidence': 0.95,
+                'fields': {'company': 'ООО Ромашка'},
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        notification = Notification.objects.get()
+        self.assertEqual(notification.type, NotificationType.CONTACT_AI_UPDATED)
+        self.assertEqual(notification.entity_type, 'contact')
+        self.assertEqual(notification.entity_id, str(self.contact.id))
 
     def test_endpoint_exposes_audit_request_metadata(self):
         log = AIAutomationAuditLog.objects.create(
