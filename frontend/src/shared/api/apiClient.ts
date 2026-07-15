@@ -103,35 +103,61 @@ function isRefreshSessionResponse(data: unknown): data is RefreshSessionResponse
 }
 
 function getApiErrorMessage(data: unknown, status: number) {
-  if (
-    data &&
-    typeof data === 'object' &&
-    'error' in data &&
-    data.error &&
-    typeof data.error === 'object' &&
-    'message' in data.error &&
-    typeof data.error.message === 'string'
-  ) {
-    return data.error.message
+  return findApiErrorMessage(data) ?? `Ошибка запроса. Код: ${status}`
+}
+
+function findApiErrorMessage(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const message = value.trim()
+    return message || null
   }
 
-  if (
-    data &&
-    typeof data === 'object' &&
-    'detail' in data &&
-    typeof data.detail === 'string'
-  ) {
-    return data.detail
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = findApiErrorMessage(item)
+
+      if (message) {
+        return message
+      }
+    }
+
+    return null
   }
 
-  if (
-    data &&
-    typeof data === 'object' &&
-    'message' in data &&
-    typeof data.message === 'string'
-  ) {
-    return data.message
+  if (!value || typeof value !== 'object') {
+    return null
   }
 
-  return `Ошибка запроса. Код: ${status}`
+  const data = value as Record<string, unknown>
+  const priorityKeys = [
+    'error',
+    'detail',
+    'message',
+    'non_field_errors',
+    'email',
+    'code',
+    'name',
+    'surname',
+    'password',
+  ]
+
+  for (const key of priorityKeys) {
+    if (key in data) {
+      const message = findApiErrorMessage(data[key])
+
+      if (message) {
+        return message
+      }
+    }
+  }
+
+  for (const nestedValue of Object.values(data)) {
+    const message = findApiErrorMessage(nestedValue)
+
+    if (message) {
+      return message
+    }
+  }
+
+  return null
 }
