@@ -135,6 +135,8 @@ class TelegramWebhookLog(models.Model):
     received_at = models.DateTimeField(auto_now_add=True, db_index=True)
     processed = models.BooleanField(default=False, db_index=True)
     processing_error = models.TextField(blank=True, default='')
+    processing_attempts = models.PositiveSmallIntegerField(default=0)
+    failed_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         db_table = 'telegram_webhook_log'

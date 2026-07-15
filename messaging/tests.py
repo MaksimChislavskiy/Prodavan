@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
@@ -10,11 +11,12 @@ from rest_framework.test import APIClient
 from contacts.models import Contact
 from notifications.models import Notification, NotificationType
 from users.models import User, UserRole
-from workspaces.models import TelegramWebhookLog
 from workspaces.crypto import encrypt_integration_secret
 from workspaces.models import (
     IntegrationStatus,
     IntegrationType,
+    TelegramWebhookLog,
+    WorkspaceAuditLog,
     WorkspaceIntegration,
 )
 from workspaces.telegram import TelegramApiUnavailable, TelegramMessageRejected
@@ -29,7 +31,10 @@ from .models import (
     MessageStatus,
 )
 from .outgoing import process_outgoing_message
-from .telegram import process_telegram_webhook_log
+from .telegram import (
+    process_pending_telegram_webhooks,
+    process_telegram_webhook_log,
+)
 
 
 @override_settings(
@@ -266,7 +271,57 @@ class MessagingTests(TestCase):
         processed_again = process_telegram_webhook_log(webhook_log.id)
 
         self.assertFalse(processed_again)
+        webhook_log.refresh_from_db()
+        self.assertEqual(webhook_log.processing_attempts, 1)
         self.assertEqual(Message.objects.count(), 1)
+
+    @patch('messaging.telegram.process_telegram_webhook_log')
+    def test_webhook_queue_stops_after_three_failures_and_audits(self, process):
+        process.side_effect = RuntimeError('sensitive failure details')
+        webhook_log = self._webhook_log(update_id=909)
+
+        first = process_pending_telegram_webhooks()
+        second = process_pending_telegram_webhooks()
+        third = process_pending_telegram_webhooks()
+        fourth = process_pending_telegram_webhooks()
+
+        webhook_log.refresh_from_db()
+        self.assertEqual(first['failed'], 1)
+        self.assertEqual(second['failed'], 1)
+        self.assertEqual(third['failed'], 1)
+        self.assertEqual(third['permanently_failed'], 1)
+        self.assertEqual(
+            fourth,
+            {'processed': 0, 'failed': 0, 'permanently_failed': 0},
+        )
+        self.assertEqual(process.call_count, 3)
+        self.assertEqual(webhook_log.processing_attempts, 3)
+        self.assertIsNotNone(webhook_log.failed_at)
+        self.assertFalse(webhook_log.processed)
+        self.assertIn('sensitive failure details', webhook_log.processing_error)
+
+        audits = WorkspaceAuditLog.objects.filter(
+            workspace=self.user.workspace,
+            field='telegram_webhook_failed',
+        ).order_by('changed_at', 'id')
+        self.assertEqual(audits.count(), 3)
+        details = [json.loads(audit.new_value) for audit in audits]
+        self.assertEqual(
+            [item['attempt'] for item in details],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [item['final'] for item in details],
+            [False, False, True],
+        )
+        self.assertTrue(all(item['update_id'] == 909 for item in details))
+        self.assertTrue(
+            all(item['error_type'] == 'RuntimeError' for item in details),
+        )
+        self.assertNotIn(
+            'sensitive failure details',
+            ''.join(audit.new_value for audit in audits),
+        )
 
     def test_deleted_contact_is_reused_but_deleted_chat_is_not(self):
         contact = Contact.objects.create(

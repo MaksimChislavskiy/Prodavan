@@ -1,3 +1,5 @@
+import json
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -9,7 +11,7 @@ from contacts.models import Contact
 from contacts.services import create_contact
 from notifications.models import NotificationType
 from notifications.services import create_workspace_notification
-from workspaces.models import TelegramWebhookLog
+from workspaces.models import TelegramWebhookLog, WorkspaceAuditLog
 
 from .models import Chat, ChatAuditAction, Message, MessageSenderType
 from .realtime import broadcast_workspace_event
@@ -26,6 +28,7 @@ MEDIA_LABELS = (
     ('sticker', '[Стикер]'),
     ('animation', '[Анимация]'),
 )
+MAX_WEBHOOK_PROCESSING_ATTEMPTS = 3
 
 
 def _incoming_notification_text(contact, text):
@@ -83,11 +86,14 @@ def process_telegram_webhook_log(log_id):
         webhook_log = (
             TelegramWebhookLog.objects.select_for_update()
             .select_related('workspace')
-            .filter(id=log_id)
+            .filter(id=log_id, failed_at__isnull=True)
             .first()
         )
         if webhook_log is None or webhook_log.processed:
             return False
+
+        webhook_log.processing_attempts += 1
+        webhook_log.save(update_fields=('processing_attempts',))
 
         payload = webhook_log.payload
         message = payload.get('message') if isinstance(payload, dict) else None
@@ -258,21 +264,102 @@ def process_telegram_webhook_log(log_id):
     return True
 
 
+def _record_webhook_failure(log_id, error):
+    with transaction.atomic():
+        webhook_log = (
+            TelegramWebhookLog.objects.select_for_update()
+            .select_related('workspace')
+            .filter(id=log_id, processed=False, failed_at__isnull=True)
+            .first()
+        )
+        if webhook_log is None:
+            return False
+
+        webhook_log.processing_attempts += 1
+        is_final = (
+            webhook_log.processing_attempts >= MAX_WEBHOOK_PROCESSING_ATTEMPTS
+        )
+        webhook_log.processing_error = (
+            f'{type(error).__name__}: {error}'[:2000]
+        )
+        if is_final:
+            webhook_log.failed_at = timezone.now()
+        webhook_log.save(update_fields=(
+            'processing_attempts',
+            'processing_error',
+            'failed_at',
+        ))
+        _write_webhook_failure_audit(
+            webhook_log,
+            error_type=type(error).__name__,
+            is_final=is_final,
+        )
+        return is_final
+
+
+def _write_webhook_failure_audit(webhook_log, *, error_type, is_final):
+    system_user = (
+        webhook_log.workspace.users.filter(
+            role='admin',
+            is_active=True,
+            is_deleted=False,
+        )
+        .order_by('created_at', 'id')
+        .first()
+        or webhook_log.workspace.users.filter(
+            is_active=True,
+            is_deleted=False,
+        ).order_by('created_at', 'id').first()
+        or webhook_log.workspace.users.order_by('created_at', 'id').first()
+    )
+    if system_user is None:
+        return
+    details = json.dumps(
+        {
+            'update_id': webhook_log.update_id,
+            'attempt': webhook_log.processing_attempts,
+            'error_type': error_type,
+            'final': is_final,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    )
+    WorkspaceAuditLog.objects.create(
+        user=system_user,
+        workspace=webhook_log.workspace,
+        user_identifier=system_user.id,
+        workspace_identifier=webhook_log.workspace_id,
+        field='telegram_webhook_failed',
+        old_value=None,
+        new_value=details,
+        request_id=uuid.uuid4(),
+    )
+
+
 def process_pending_telegram_webhooks(*, limit=100):
     log_ids = list(
-        TelegramWebhookLog.objects.filter(processed=False)
+        TelegramWebhookLog.objects.filter(
+            processed=False,
+            failed_at__isnull=True,
+            processing_attempts__lt=MAX_WEBHOOK_PROCESSING_ATTEMPTS,
+        )
         .order_by('received_at', 'id')
         .values_list('id', flat=True)[:limit],
     )
     processed = 0
     failed = 0
+    permanently_failed = 0
     for log_id in log_ids:
         try:
             if process_telegram_webhook_log(log_id):
                 processed += 1
         except Exception as error:
             failed += 1
-            TelegramWebhookLog.objects.filter(id=log_id).update(
-                processing_error=f'{type(error).__name__}: {error}'[:2000],
-            )
-    return {'processed': processed, 'failed': failed}
+            if _record_webhook_failure(log_id, error):
+                permanently_failed += 1
+    return {
+        'processed': processed,
+        'failed': failed,
+        'permanently_failed': permanently_failed,
+    }

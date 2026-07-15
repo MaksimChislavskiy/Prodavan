@@ -16,6 +16,7 @@ class Command(BaseCommand):
         result = process_pending_telegram_webhooks(limit=limit)
         self.stdout.write(
             self.style.SUCCESS(
-                f"Обработано: {result['processed']}; ошибок: {result['failed']}.",
+                f"Обработано: {result['processed']}; ошибок: {result['failed']}; "
+                f"окончательных ошибок: {result['permanently_failed']}.",
             ),
         )
