@@ -2,9 +2,16 @@ import {
   useEffect,
   useRef,
   useState,
+  type ClipboardEvent,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
+import {
+  confirmRegistration,
+  startRegistration,
+  type RegisterRequest,
+} from './shared/api/authApi'
+import { setAccessToken } from './shared/api/authToken'
 import './RegisterModal.css'
 
 type RegisterModalProps = {
@@ -14,18 +21,31 @@ type RegisterModalProps = {
 
 type RegisterStep = 'form' | 'emailConfirm' | 'success'
 
-const CORRECT_CONFIRMATION_CODE = '3578'
+const PERSON_NAME_PATTERN = /^[A-Za-zА-Яа-яЁё -]+$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PASSWORD_HAS_DIGIT_OR_SPECIAL_PATTERN = /[0-9]|[^A-Za-zА-Яа-яЁё]/
+const RESEND_TIMEOUT_SECONDS = 59
 
 function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
   const codeInputRefs = useRef<Array<HTMLInputElement | null>>([])
+  const isConfirmingRef = useRef(false)
 
   const [registerStep, setRegisterStep] = useState<RegisterStep>('form')
+  const [name, setName] = useState('')
+  const [surname, setSurname] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [repeatPassword, setRepeatPassword] = useState('')
   const [confirmationCode, setConfirmationCode] = useState(['', '', '', ''])
-  const [isConfirmationCodeInvalid, setIsConfirmationCodeInvalid] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [confirmationError, setConfirmationError] = useState('')
+  const [resendSeconds, setResendSeconds] = useState(RESEND_TIMEOUT_SECONDS)
   const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [isRepeatPasswordVisible, setIsRepeatPasswordVisible] = useState(false)
+  const [isRegistering, setIsRegistering] = useState(false)
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [isResending, setIsResending] = useState(false)
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
@@ -53,6 +73,20 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     }
   }, [registerStep])
 
+  useEffect(() => {
+    if (registerStep !== 'emailConfirm' || resendSeconds <= 0) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1))
+    }, 1000)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [registerStep, resendSeconds])
+
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
       onClose()
@@ -65,43 +99,157 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     }
   }
 
-  const handleRegisterSubmit = () => {
-    setConfirmationCode(['', '', '', ''])
-    setIsConfirmationCodeInvalid(false)
-    setRegisterStep('emailConfirm')
+  const getRegistrationData = (): RegisterRequest => ({
+    name: name.trim(),
+    surname: surname.trim(),
+    email: email.trim().toLowerCase(),
+    password,
+  })
+
+  const getFormValidationError = () => {
+    const registrationData = getRegistrationData()
+
+    if (registrationData.name.length < 2 || registrationData.name.length > 50) {
+      return 'Имя должно содержать от 2 до 50 символов'
+    }
+
+    if (!PERSON_NAME_PATTERN.test(registrationData.name)) {
+      return 'В имени допустимы только буквы, пробел и дефис'
+    }
+
+    if (registrationData.surname.length < 2 || registrationData.surname.length > 50) {
+      return 'Фамилия должна содержать от 2 до 50 символов'
+    }
+
+    if (!PERSON_NAME_PATTERN.test(registrationData.surname)) {
+      return 'В фамилии допустимы только буквы, пробел и дефис'
+    }
+
+    if (!EMAIL_PATTERN.test(registrationData.email)) {
+      return 'Введите корректный e-mail'
+    }
+
+    if (password.length < 8 || password.length > 128) {
+      return 'Пароль должен содержать от 8 до 128 символов'
+    }
+
+    if (!PASSWORD_HAS_DIGIT_OR_SPECIAL_PATTERN.test(password)) {
+      return 'Пароль должен содержать цифру или специальный символ'
+    }
+
+    if (password !== repeatPassword) {
+      return 'Пароли не совпадают'
+    }
+
+    return ''
+  }
+
+  const handleRegisterSubmit = async () => {
+    const validationError = getFormValidationError()
+
+    if (validationError) {
+      setFormError(validationError)
+      return
+    }
+
+    const registrationData = getRegistrationData()
+
+    try {
+      setIsRegistering(true)
+      setFormError('')
+
+      await startRegistration(registrationData)
+
+      setEmail(registrationData.email)
+      setConfirmationCode(['', '', '', ''])
+      setConfirmationError('')
+      setResendSeconds(RESEND_TIMEOUT_SECONDS)
+      setRegisterStep('emailConfirm')
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : 'Не удалось отправить код подтверждения',
+      )
+    } finally {
+      setIsRegistering(false)
+    }
   }
 
   const handleBackToForm = () => {
     setConfirmationCode(['', '', '', ''])
-    setIsConfirmationCodeInvalid(false)
+    setConfirmationError('')
     setRegisterStep('form')
+  }
+
+  const handleConfirmCode = async (code: string) => {
+    if (code.length !== 4 || isConfirmingRef.current) {
+      return
+    }
+
+    try {
+      isConfirmingRef.current = true
+      setIsConfirming(true)
+      setConfirmationError('')
+
+      const data = await confirmRegistration({
+        email: email.trim().toLowerCase(),
+        code,
+      })
+
+      setAccessToken(data.access_token)
+      setRegisterStep('success')
+    } catch (error) {
+      setConfirmationError(
+        error instanceof Error ? error.message : 'Не удалось подтвердить код',
+      )
+    } finally {
+      isConfirmingRef.current = false
+      setIsConfirming(false)
+    }
   }
 
   const handleCodeChange = (index: number, value: string) => {
     const nextValue = value.replace(/\D/g, '').slice(-1)
-
     const nextCode = [...confirmationCode]
     nextCode[index] = nextValue
 
     setConfirmationCode(nextCode)
+    setConfirmationError('')
 
     const joinedCode = nextCode.join('')
-
-    if (joinedCode.length === 4) {
-      if (joinedCode === CORRECT_CONFIRMATION_CODE) {
-        setIsConfirmationCodeInvalid(false)
-        setRegisterStep('success')
-        return
-      }
-
-      setIsConfirmationCodeInvalid(true)
-    } else {
-      setIsConfirmationCodeInvalid(false)
-    }
 
     if (nextValue && index < codeInputRefs.current.length - 1) {
       codeInputRefs.current[index + 1]?.focus()
     }
+
+    if (joinedCode.length === 4) {
+      void handleConfirmCode(joinedCode)
+    }
+  }
+
+  const handleCodePaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const pastedCode = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4)
+
+    if (!pastedCode) {
+      return
+    }
+
+    event.preventDefault()
+
+    const nextCode = ['', '', '', '']
+
+    pastedCode.split('').forEach((digit, index) => {
+      nextCode[index] = digit
+    })
+
+    setConfirmationCode(nextCode)
+    setConfirmationError('')
+
+    if (pastedCode.length === 4) {
+      void handleConfirmCode(pastedCode)
+      return
+    }
+
+    codeInputRefs.current[pastedCode.length]?.focus()
   }
 
   const handleCodeKeyDown = (
@@ -113,13 +261,32 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
     }
   }
 
-  const handleResendCode = () => {
-    setConfirmationCode(['', '', '', ''])
-    setIsConfirmationCodeInvalid(false)
-    codeInputRefs.current[0]?.focus()
+  const handleResendCode = async () => {
+    if (resendSeconds > 0 || isResending || isConfirming) {
+      return
+    }
+
+    try {
+      setIsResending(true)
+      setConfirmationError('')
+
+      await startRegistration(getRegistrationData())
+
+      setConfirmationCode(['', '', '', ''])
+      setResendSeconds(RESEND_TIMEOUT_SECONDS)
+      window.setTimeout(() => codeInputRefs.current[0]?.focus(), 0)
+    } catch (error) {
+      setConfirmationError(
+        error instanceof Error ? error.message : 'Не удалось отправить новый код',
+      )
+    } finally {
+      setIsResending(false)
+    }
   }
 
-  const displayEmail = email || 'dvhjkdsvbksdskj@mail.ru'
+  const isConfirmationCodeInvalid = Boolean(confirmationError)
+  const displayEmail = email.trim().toLowerCase()
+  const resendTimer = `00:${String(resendSeconds).padStart(2, '0')}`
 
   const registerModalClassName = [
     'registerModal',
@@ -169,17 +336,37 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
               className="registerModalForm"
               onSubmit={(event) => {
                 event.preventDefault()
-                handleRegisterSubmit()
+                void handleRegisterSubmit()
               }}
             >
               <label className="registerField">
                 <span>Имя</span>
-                <input type="text" placeholder="Введите имя" />
+                <input
+                  type="text"
+                  placeholder="Введите имя"
+                  value={name}
+                  required
+                  disabled={isRegistering}
+                  onChange={(event) => {
+                    setName(event.target.value)
+                    setFormError('')
+                  }}
+                />
               </label>
 
               <label className="registerField">
                 <span>Фамилия</span>
-                <input type="text" placeholder="Введите фамилию" />
+                <input
+                  type="text"
+                  placeholder="Введите фамилию"
+                  value={surname}
+                  required
+                  disabled={isRegistering}
+                  onChange={(event) => {
+                    setSurname(event.target.value)
+                    setFormError('')
+                  }}
+                />
               </label>
 
               <label className="registerField">
@@ -188,7 +375,12 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                   type="email"
                   placeholder="Введите e-mail"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                  disabled={isRegistering}
+                  onChange={(event) => {
+                    setEmail(event.target.value)
+                    setFormError('')
+                  }}
                 />
               </label>
 
@@ -200,12 +392,20 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                     <input
                       type={isPasswordVisible ? 'text' : 'password'}
                       placeholder="Введите пароль"
+                      value={password}
+                      required
+                      disabled={isRegistering}
+                      onChange={(event) => {
+                        setPassword(event.target.value)
+                        setFormError('')
+                      }}
                     />
 
                     <button
                       className="registerPasswordToggle"
                       type="button"
                       aria-label={isPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                      disabled={isRegistering}
                       onClick={() => setIsPasswordVisible((value) => !value)}
                     >
                       <EyeSlashIcon />
@@ -226,12 +426,20 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                   <input
                     type={isRepeatPasswordVisible ? 'text' : 'password'}
                     placeholder="Повторите пароль"
+                    value={repeatPassword}
+                    required
+                    disabled={isRegistering}
+                    onChange={(event) => {
+                      setRepeatPassword(event.target.value)
+                      setFormError('')
+                    }}
                   />
 
                   <button
                     className="registerPasswordToggle"
                     type="button"
                     aria-label={isRepeatPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                    disabled={isRegistering}
                     onClick={() => setIsRepeatPasswordVisible((value) => !value)}
                   >
                     <EyeSlashIcon />
@@ -248,14 +456,30 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                 </p>
               </div>
 
-              <button className="registerSubmitButton" type="submit">
-                Зарегистрироваться
+              {formError && (
+                <p
+                  className="registerCodeErrorMessage"
+                  role="alert"
+                  style={{
+                    width: '420px',
+                    height: 'auto',
+                    margin: 0,
+                    cursor: 'default',
+                    textDecoration: 'none',
+                  }}
+                >
+                  {formError}
+                </p>
+              )}
+
+              <button className="registerSubmitButton" type="submit" disabled={isRegistering}>
+                {isRegistering ? 'Отправляем код...' : 'Зарегистрироваться'}
               </button>
 
               <div className="registerLoginLink">
                 <span>Есть аккаунт?</span>
 
-                <button type="button" onClick={onOpenLogin}>
+                <button type="button" disabled={isRegistering} onClick={onOpenLogin}>
                   Войти
                 </button>
               </div>
@@ -283,6 +507,7 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                 className="registerBackButton"
                 type="button"
                 aria-label="Вернуться назад"
+                disabled={isConfirming || isResending}
                 onClick={handleBackToForm}
               >
                 <ArrowLeftIcon />
@@ -302,7 +527,11 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                 <h3>Подтвердите ваш E-mail</h3>
 
                 {!isConfirmationCodeInvalid && (
-                  <p>Введите код, отправленный на почту {displayEmail}</p>
+                  <p>
+                    {isConfirming
+                      ? 'Проверяем код...'
+                      : `Введите код, отправленный на почту ${displayEmail}`}
+                  </p>
                 )}
               </div>
 
@@ -326,32 +555,44 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
                       autoComplete="one-time-code"
                       value={digit}
                       maxLength={1}
+                      disabled={isConfirming || isResending}
                       aria-label={`Цифра ${index + 1}`}
                       onChange={(event) => handleCodeChange(index, event.target.value)}
                       onKeyDown={(event) => handleCodeKeyDown(event, index)}
+                      onPaste={handleCodePaste}
                     />
                   ))}
                 </div>
 
                 {isConfirmationCodeInvalid && (
-                  <button
+                  <p
                     className="registerCodeErrorMessage"
-                    type="button"
-                    onClick={handleResendCode}
+                    role="alert"
+                    style={{ margin: 0, cursor: 'default', textDecoration: 'none' }}
                   >
-                    Проверьте правильность ввода или отправьте новый код
-                  </button>
+                    {confirmationError}
+                  </p>
                 )}
               </div>
 
               <div className="registerConfirmLinks">
-                <button className="registerResendButton" type="button" disabled>
-                  Отправить снова через 00:59
+                <button
+                  className={resendSeconds > 0 ? 'registerResendButton' : 'registerChangeEmailButton'}
+                  type="button"
+                  disabled={resendSeconds > 0 || isResending || isConfirming}
+                  onClick={() => void handleResendCode()}
+                >
+                  {isResending
+                    ? 'Отправляем новый код...'
+                    : resendSeconds > 0
+                      ? `Отправить снова через ${resendTimer}`
+                      : 'Отправить код снова'}
                 </button>
 
                 <button
                   className="registerChangeEmailButton"
                   type="button"
+                  disabled={isConfirming || isResending}
                   onClick={handleBackToForm}
                 >
                   Ввести другой адрес
@@ -377,9 +618,11 @@ function RegisterModal({ onClose, onOpenLogin }: RegisterModalProps) {
               <button
                 className="registerSuccessLoginButton"
                 type="button"
-                onClick={onOpenLogin || onClose}
+                onClick={() => {
+                  window.location.href = '/app'
+                }}
               >
-                Войти
+                Перейти в CRM
               </button>
             </div>
           </>
