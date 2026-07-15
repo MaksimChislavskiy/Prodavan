@@ -42,6 +42,7 @@ class SalesStage(TimestampMixin):
     name = models.CharField(max_length=100)
     name_normalized = models.CharField(max_length=100, editable=False)
     is_system = models.BooleanField(default=False)
+    is_final = models.BooleanField(default=False, db_index=True)
     order = models.PositiveSmallIntegerField()
     version = models.PositiveIntegerField(default=1)
     is_deleted = models.BooleanField(default=False, db_index=True)

@@ -461,6 +461,7 @@ def create_stage(*, workspace, data):
         stage = SalesStage.objects.create(
             workspace=workspace,
             name=data['name'],
+            is_final=data.get('is_final', False),
             order=100 + len(stages) + 1,
         )
         position = min(data.get('order', len(stages) + 1), len(stages) + 1)
@@ -507,6 +508,9 @@ def update_stage(*, workspace, stage_id, submitted_version, data):
             _validate_stage_name(workspace, data['name'], exclude_id=stage.id)
             stage.name = data['name']
             changed = True
+        if 'is_final' in data and data['is_final'] != stage.is_final:
+            stage.is_final = data['is_final']
+            changed = True
         stages = list(SalesStage.objects.filter(
             workspace=workspace,
             is_deleted=False,
@@ -520,7 +524,13 @@ def update_stage(*, workspace, stage_id, submitted_version, data):
                 changed = True
         if changed:
             stage.version += 1
-            stage.save(update_fields=('name', 'name_normalized', 'version', 'updated_at'))
+            stage.save(update_fields=(
+                'name',
+                'name_normalized',
+                'is_final',
+                'version',
+                'updated_at',
+            ))
             correlation_id = uuid.uuid4()
             _event(
                 workspace.id,

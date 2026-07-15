@@ -59,6 +59,7 @@ class DealApiTests(TestCase):
         self.assertEqual(self.stage.name, 'Новый лид')
         self.assertEqual(self.stage.order, 1)
         self.assertEqual(self.stage.version, 1)
+        self.assertFalse(self.stage.is_final)
 
         response = self.client.patch(
             f'/api/crm/stages/{self.stage.id}',
@@ -67,6 +68,27 @@ class DealApiTests(TestCase):
             **self.auth,
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_custom_stage_finality_is_created_and_versioned(self):
+        created = self.client.post(
+            '/api/crm/stages',
+            {'name': 'Закрыто успешно', 'is_final': True},
+            format='json',
+            **self.auth,
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(created.data['is_final'])
+        updated = self.client.patch(
+            f"/api/crm/stages/{created.data['id']}",
+            {'version': created.data['version'], 'is_final': False},
+            format='json',
+            **self.auth,
+        )
+
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertFalse(updated.data['is_final'])
+        self.assertEqual(updated.data['version'], created.data['version'] + 1)
 
     def test_creation_requires_and_replays_idempotency_key(self):
         payload = {'name': 'Сделка', 'contact_id': str(self.contact.id)}

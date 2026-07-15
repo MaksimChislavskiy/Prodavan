@@ -745,6 +745,7 @@ def _active_deal_for_contact(workspace, contact):
         Deal.objects.filter(
             workspace=workspace,
             contact=contact,
+            stage__is_final=False,
             is_deleted=False,
         )
         .order_by('-updated_at', '-id')

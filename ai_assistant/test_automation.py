@@ -298,6 +298,64 @@ class AIAutomationTests(TestCase):
         )
         self.assertEqual(action.result['status'], 'skipped_recent_ai_deal')
 
+    def test_non_final_deal_blocks_ai_deal_creation(self):
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        existing = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Активная сделка',
+        )
+        message = self.incoming('Хочу купить ещё один продукт.')
+        analyzer = DummyAnalyzer({
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Новая заявка',
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        self.assertEqual(list(Deal.objects.all()), [existing])
+        action = AIProcessedEvent.objects.get(
+            event=message.ai_automation_event,
+            action_type=AutomationActionType.DEAL_CREATE,
+        )
+        self.assertEqual(action.result['status'], 'skipped_active_deal_exists')
+
+    def test_final_deal_does_not_block_ai_deal_creation(self):
+        final_stage = SalesStage.objects.create(
+            workspace=self.workspace,
+            name='Закрыто успешно',
+            is_final=True,
+            order=2,
+        )
+        closed = Deal.objects.create(
+            workspace=self.workspace,
+            stage=final_stage,
+            contact=self.contact,
+            name='Завершённая сделка',
+        )
+        message = self.incoming('Хочу купить новый продукт.')
+        analyzer = DummyAnalyzer({
+            'deal': {
+                'interest_confidence': 0.95,
+                'create': True,
+                'name': 'Новый интерес',
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        created = Deal.objects.exclude(id=closed.id).get()
+        self.assertTrue(created.stage.is_system)
+        action = AIProcessedEvent.objects.get(
+            event=message.ai_automation_event,
+            action_type=AutomationActionType.DEAL_CREATE,
+        )
+        self.assertEqual(action.result['status'], 'created')
+
     def test_daily_limits_skip_mutations(self):
         AIUsageDaily.objects.create(
             workspace=self.workspace,

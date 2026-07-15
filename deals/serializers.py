@@ -37,7 +37,7 @@ class ContactDetailSerializer(serializers.ModelSerializer):
 class StageReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = SalesStage
-        fields = ('id', 'name', 'is_system', 'order', 'version')
+        fields = ('id', 'name', 'is_system', 'is_final', 'order', 'version')
 
 
 class DealListSerializer(serializers.ModelSerializer):
@@ -141,6 +141,7 @@ class DealStageUpdateSerializer(StrictSerializer):
 
 class StageCreateSerializer(StrictSerializer):
     name = serializers.CharField(max_length=100)
+    is_final = serializers.BooleanField(required=False, default=False)
     order = serializers.IntegerField(min_value=2, max_value=20, required=False)
 
     def validate_name(self, value):
@@ -153,6 +154,7 @@ class StageCreateSerializer(StrictSerializer):
 class StageUpdateSerializer(StageCreateSerializer):
     version = serializers.IntegerField(min_value=1)
     name = serializers.CharField(max_length=100, required=False)
+    is_final = serializers.BooleanField(required=False)
 
 
 class DealHistorySerializer(serializers.ModelSerializer):
