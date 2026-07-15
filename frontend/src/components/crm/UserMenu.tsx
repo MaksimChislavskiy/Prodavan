@@ -289,7 +289,11 @@ function applyProfileToButton(profile: ApiProfile) {
   } else {
     avatarImage?.remove()
     avatarText.hidden = false
-    avatarText.textContent = getProfileInitials(profile.name)
+
+    const initials = getProfileInitials(profile.name)
+    if (avatarText.textContent !== initials) {
+      avatarText.textContent = initials
+    }
   }
 
   button.setAttribute('aria-label', `Меню профиля пользователя ${profile.name}`)
