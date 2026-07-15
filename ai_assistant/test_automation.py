@@ -20,6 +20,7 @@ from .automation import (
     process_automation_event,
 )
 from .chat_client import ChatCompletionResult
+from .insights import apply_structured_insights
 from .limits import AI_LIMITS
 from .models import (
     AIChatInsight,
@@ -786,3 +787,143 @@ class AIAutomationTests(TestCase):
         )
         self.assertIn('structured', action.result)
         self.assertIn('contact', action.result['structured']['changes'])
+
+    def test_insight_counter_includes_manager_messages_and_resets(self):
+        first_batch = [
+            self.incoming('Сообщение клиента 1'),
+            self.outgoing('Ответ менеджера 1'),
+            self.incoming('Сообщение клиента 2'),
+            self.outgoing('Ответ менеджера 2'),
+            self.incoming('Сообщение клиента 3'),
+        ]
+        analyzer = DummyAnalyzer({
+            'insight': {
+                'summary': 'Сводка пяти сообщений.',
+                'needs': 'Автоматизация продаж',
+                'confidence': 0.8,
+            },
+        })
+
+        process_automation_event(
+            first_batch[-1].ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        first_insight = AIChatInsight.objects.get()
+        self.assertEqual(first_insight.message_count, 5)
+        AIAutomationEvent.objects.filter(
+            id=first_batch[-1].ai_automation_event.id,
+        ).update(processed_at=timezone.now() - timedelta(seconds=10))
+
+        second_batch = [
+            self.outgoing('Ответ менеджера 3'),
+            self.incoming('Сообщение клиента 4'),
+            self.outgoing('Ответ менеджера 4'),
+            self.incoming('Сообщение клиента 5'),
+        ]
+        process_automation_event(
+            second_batch[-1].ai_automation_event.id,
+            analyzer=analyzer,
+        )
+        self.assertEqual(AIChatInsight.objects.count(), 1)
+        AIAutomationEvent.objects.filter(
+            id=second_batch[-1].ai_automation_event.id,
+        ).update(processed_at=timezone.now() - timedelta(seconds=10))
+
+        tenth_message = self.outgoing('Ответ менеджера 5')
+        process_automation_event(
+            tenth_message.ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        self.assertEqual(AIChatInsight.objects.count(), 2)
+        newest = AIChatInsight.objects.order_by('-created_at').first()
+        self.assertEqual(newest.message_count, 10)
+
+    def test_newer_lower_confidence_insight_updates_with_audit_reason(self):
+        old_analyzed_at = timezone.now() - timedelta(days=1)
+        self.contact.ai_insights = {
+            'needs': 'Ручной учёт продаж',
+            'confidence': 0.9,
+            'last_analyzed_at': old_analyzed_at.isoformat(),
+        }
+        self.contact.save(update_fields=('ai_insights', 'updated_at'))
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Сделка для аналитики',
+            ai_insights={
+                'needs': 'Ручной учёт продаж',
+                'confidence': 0.9,
+                'last_analyzed_at': old_analyzed_at.isoformat(),
+            },
+        )
+        messages = [self.incoming(f'Новый контекст {index}') for index in range(5)]
+        analyzer = DummyAnalyzer({
+            'insight': {
+                'summary': 'Потребность уточнена.',
+                'needs': 'CRM с автоматизацией',
+                'confidence': 0.7,
+            },
+        })
+
+        process_automation_event(messages[-1].ai_automation_event.id, analyzer=analyzer)
+
+        self.contact.refresh_from_db()
+        deal.refresh_from_db()
+        self.assertEqual(self.contact.ai_insights['needs'], 'CRM с автоматизацией')
+        self.assertEqual(deal.ai_insights['needs'], 'CRM с автоматизацией')
+        audit = AIAutomationAuditLog.objects.get(
+            message=messages[-1],
+            action_type=AutomationActionType.INSIGHT,
+        )
+        self.assertEqual(audit.action, AIAutomationAuditAction.AI_INSIGHTS_EXTRACTED)
+        self.assertEqual(audit.confidence, 0.7)
+        need_change = audit.details['structured']['changes']['contact']['needs']
+        self.assertEqual(need_change['old'], 'Ручной учёт продаж')
+        self.assertEqual(need_change['new'], 'CRM с автоматизацией')
+        self.assertEqual(need_change['reason'], 'newer_analysis')
+
+    def test_older_insight_requires_higher_confidence(self):
+        current_analyzed_at = timezone.now()
+        self.contact.ai_insights = {
+            'needs': 'Текущее значение',
+            'confidence': 0.8,
+            'last_analyzed_at': current_analyzed_at.isoformat(),
+        }
+        self.contact.save(update_fields=('ai_insights', 'updated_at'))
+
+        skipped = apply_structured_insights(
+            contact=self.contact,
+            insight_data={
+                'needs': 'Старое значение с низкой уверенностью',
+                'confidence': 0.7,
+            },
+            analyzed_at=current_analyzed_at - timedelta(hours=1),
+        )
+        updated = apply_structured_insights(
+            contact=self.contact,
+            insight_data={
+                'needs': 'Старое значение с высокой уверенностью',
+                'confidence': 0.95,
+            },
+            analyzed_at=current_analyzed_at - timedelta(minutes=30),
+        )
+
+        self.contact.refresh_from_db()
+        self.assertEqual(skipped['status'], 'skipped_no_changes')
+        self.assertEqual(updated['status'], 'updated')
+        self.assertEqual(
+            self.contact.ai_insights['needs'],
+            'Старое значение с высокой уверенностью',
+        )
+        self.assertEqual(
+            self.contact.ai_insights['last_analyzed_at'],
+            current_analyzed_at.isoformat(),
+        )
+        self.assertEqual(
+            updated['changes']['contact']['needs']['reason'],
+            'higher_confidence',
+        )

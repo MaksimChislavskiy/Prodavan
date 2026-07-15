@@ -1,6 +1,8 @@
 from copy import deepcopy
+from datetime import timezone as datetime_timezone
 
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 
 INSIGHT_FIELDS = (
@@ -80,7 +82,7 @@ def update_object_insights(instance, structured):
     current = _normalized_existing(instance.ai_insights)
     proposed = deepcopy(current)
     changes = {}
-    update_allowed = _should_update(current, structured)
+    update_reason = _analysis_update_reason(current, structured)
     for field in INSIGHT_FIELDS:
         if field in {'last_analyzed_at', 'confidence'}:
             continue
@@ -89,16 +91,42 @@ def update_object_insights(instance, structured):
             continue
         if current.get(field) == value:
             continue
-        if current.get(field) in (None, '', []) or update_allowed:
-            changes[field] = {'old': current.get(field), 'new': value}
+        current_value = current.get(field)
+        reason = (
+            'empty_field'
+            if current_value in (None, '', [])
+            else update_reason
+        )
+        if reason is not None:
+            changes[field] = {
+                'old': current_value,
+                'new': value,
+                'reason': reason,
+            }
             proposed[field] = value
 
-    if changes or update_allowed:
+    if changes or update_reason is not None:
         for field in ('last_analyzed_at', 'confidence'):
             value = structured.get(field)
-            if value is not None and proposed.get(field) != value:
-                changes[field] = {'old': proposed.get(field), 'new': value}
-                proposed[field] = value
+            old_value = proposed.get(field)
+            if value is None or old_value == value:
+                continue
+            if (
+                field == 'last_analyzed_at'
+                and old_value is not None
+                and not _is_newer_analysis(current, structured)
+            ):
+                continue
+            changes[field] = {
+                'old': old_value,
+                'new': value,
+                'reason': update_reason or 'analysis_metadata',
+            }
+            if field == 'last_analyzed_at' and old_value is None:
+                changes[field]['reason'] = 'initial_analysis'
+            elif field == 'confidence' and old_value is None:
+                changes[field]['reason'] = 'initial_analysis'
+            proposed[field] = value
 
     if not changes:
         return {}
@@ -112,14 +140,38 @@ def _normalized_existing(value):
     return format_ai_insights(value)
 
 
-def _should_update(current, structured):
+def _analysis_update_reason(current, structured):
     old_confidence = _confidence(current.get('confidence'))
     new_confidence = _confidence(structured.get('confidence'))
-    if old_confidence is None:
-        return True
-    if new_confidence is not None and new_confidence >= old_confidence:
-        return True
-    return _text(structured.get('last_analyzed_at')) is not None
+    if new_confidence is not None and (
+        old_confidence is None
+        or new_confidence > old_confidence
+    ):
+        return 'higher_confidence'
+    if _is_newer_analysis(current, structured):
+        return 'newer_analysis'
+    return None
+
+
+def _is_newer_analysis(current, structured):
+    old_analyzed_at = _analyzed_at(current.get('last_analyzed_at'))
+    new_analyzed_at = _analyzed_at(structured.get('last_analyzed_at'))
+    return new_analyzed_at is not None and (
+        old_analyzed_at is None
+        or new_analyzed_at > old_analyzed_at
+    )
+
+
+def _analyzed_at(value):
+    value = _text(value)
+    if value is None:
+        return None
+    parsed = parse_datetime(value)
+    if parsed is None:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = parsed.replace(tzinfo=datetime_timezone.utc)
+    return parsed
 
 
 def _has_payload(structured):

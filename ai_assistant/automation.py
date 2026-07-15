@@ -668,16 +668,16 @@ def _create_insight_if_due(event, analysis, deal):
     if _action_already_processed(event, action_type):
         return {'status': 'already_processed'}
 
-    message_count = Message.objects.filter(
-        chat=event.chat,
-        sender_type=MessageSenderType.CONTACT,
-        is_deleted=False,
-    ).count()
-    if not message_count or message_count % INSIGHT_MESSAGE_STEP != 0:
+    total_message_count, pending_message_count = _insight_message_counts(event)
+    if pending_message_count < INSIGHT_MESSAGE_STEP:
         return _record_action(
             event,
             action_type,
-            {'status': 'skipped_not_due', 'message_count': message_count},
+            {
+                'status': 'skipped_not_due',
+                'message_count': pending_message_count,
+                'total_message_count': total_message_count,
+            },
         )
 
     insight_data = _dict_value(analysis.get('insight'))
@@ -690,7 +690,7 @@ def _create_insight_if_due(event, analysis, deal):
         workspace=event.workspace,
         chat=event.chat,
         source_message=event.message,
-        message_count=message_count,
+        message_count=total_message_count,
         summary=summary,
         sentiment=_text(insight_data.get('sentiment'), 32) or '',
         objections=_string_list(insight_data.get('objections')),
@@ -708,10 +708,36 @@ def _create_insight_if_due(event, analysis, deal):
         {
             'status': 'created',
             'insight_id': str(insight.id),
-            'message_count': message_count,
+            'message_count': total_message_count,
+            'batch_message_count': INSIGHT_MESSAGE_STEP,
             'structured': structured_result,
         },
     )
+
+
+def _insight_message_counts(event):
+    messages = Message.objects.filter(
+        chat=event.chat,
+        sender_type__in=(
+            MessageSenderType.CONTACT,
+            MessageSenderType.USER,
+        ),
+        sent_by_ai=False,
+        is_deleted=False,
+        created_at__lte=event.message.created_at,
+    )
+    total_message_count = messages.count()
+    last_insight = (
+        AIChatInsight.objects.filter(chat=event.chat)
+        .select_related('source_message')
+        .order_by('-source_message__created_at', '-created_at', '-id')
+        .first()
+    )
+    if last_insight is not None:
+        messages = messages.filter(
+            created_at__gt=last_insight.source_message.created_at,
+        )
+    return total_message_count, messages.count()
 
 
 def _record_action(event, action_type, result):

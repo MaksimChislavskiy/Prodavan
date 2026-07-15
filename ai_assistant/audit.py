@@ -186,6 +186,8 @@ def _confidence_for_action(analysis, action_type):
         section = analysis.get('deal') or {}
     elif action_type == AutomationActionType.TASK_CREATE:
         section = analysis.get('task') or {}
+    elif action_type == AutomationActionType.INSIGHT:
+        section = analysis.get('insight') or {}
     if not isinstance(section, dict):
         return None
     value = section.get('interest_confidence', section.get('confidence'))
