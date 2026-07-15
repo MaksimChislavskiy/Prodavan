@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, timezone as datetime_timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -10,7 +10,7 @@ from contacts.models import Contact, ContactAuditLog
 from deals.models import ChangedByType, Deal, DealHistory, SalesStage
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
 from notifications.models import Notification, NotificationType
-from tasks.models import Task
+from tasks.models import Task, TaskSource
 from users.models import User
 
 from .automation import (
@@ -243,6 +243,7 @@ class AIAutomationTests(TestCase):
         self.assertEqual(task.title, 'Связаться с клиентом')
         self.assertEqual(task.deal_id, deal.id)
         self.assertTrue(task.created_by_ai)
+        self.assertEqual(task.source_chat, self.chat)
         self.assertEqual(task.comment, 'Создана AI из чата')
         usage = AIUsageDaily.objects.get(workspace=self.workspace)
         self.assertEqual(usage.deals_created, 1)
@@ -500,6 +501,7 @@ class AIAutomationTests(TestCase):
             task = Task.objects.create(
                 workspace=self.workspace,
                 contact=self.contact,
+                source_chat=self.chat,
                 title=f'AI задача {index}',
                 created_by_ai=True,
                 comment='Создана AI из чата',
@@ -524,6 +526,100 @@ class AIAutomationTests(TestCase):
             action_type=AutomationActionType.TASK_CREATE,
         )
         self.assertEqual(task_action.result['status'], 'skipped_chat_limit')
+
+    def test_task_limit_is_scoped_to_source_chat(self):
+        old_chat = Chat.objects.create(
+            workspace=self.workspace,
+            contact=self.contact,
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        for index in range(5):
+            task = Task.objects.create(
+                workspace=self.workspace,
+                contact=self.contact,
+                source_chat=old_chat,
+                title=f'Задача старого чата {index}',
+                created_by_ai=True,
+            )
+            Task.objects.filter(id=task.id).update(
+                created_at=timezone.now() - timedelta(hours=1),
+            )
+        message = self.incoming('Напомните связаться со мной.')
+        analyzer = DummyAnalyzer({
+            'task': {
+                'confidence': 0.95,
+                'create': True,
+                'title': 'Связаться с клиентом',
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        created = Task.objects.get(source_chat=self.chat)
+        self.assertEqual(created.title, 'Связаться с клиентом')
+        self.assertEqual(Task.objects.count(), 6)
+
+    def test_task_time_only_rolls_to_next_day_and_uses_commitment_audit(self):
+        self.workspace.timezone = 'UTC'
+        self.workspace.save(update_fields=('timezone', 'updated_at'))
+        message = self.incoming('Позвоните в 00:00.')
+        analyzer = DummyAnalyzer({
+            'task': {
+                'confidence': 0.95,
+                'create': True,
+                'title': 'Позвонить клиенту',
+                'description': 'К' * 600,
+                'due_date': '00:00',
+                'due_date_type': 'datetime',
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        task = Task.objects.get(source_chat=self.chat)
+        local_due_date = task.due_date.astimezone(datetime_timezone.utc)
+        self.assertEqual(
+            local_due_date.date(),
+            (timezone.now() + timedelta(days=1)).date(),
+        )
+        self.assertEqual((local_due_date.hour, local_due_date.minute), (0, 0))
+        self.assertEqual(len(task.description), 500)
+        history = task.history.get()
+        self.assertEqual(history.source, TaskSource.AI)
+        self.assertEqual(history.data['source_chat_id'], str(self.chat.id))
+        audit = AIAutomationAuditLog.objects.get(
+            message=message,
+            action_type=AutomationActionType.TASK_CREATE,
+        )
+        self.assertEqual(audit.trigger, 'commitment_detected')
+        self.assertEqual(audit.details['source'], 'ai')
+
+    def test_recent_same_chat_ai_task_is_skipped_as_duplicate(self):
+        Task.objects.create(
+            workspace=self.workspace,
+            contact=self.contact,
+            source_chat=self.chat,
+            title='Отправить договор',
+            created_by_ai=True,
+        )
+        message = self.incoming('Напомните отправить договор.')
+        analyzer = DummyAnalyzer({
+            'task': {
+                'confidence': 0.95,
+                'create': True,
+                'title': 'Отправить договор',
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        self.assertEqual(Task.objects.count(), 1)
+        action = AIProcessedEvent.objects.get(
+            event=message.ai_automation_event,
+            action_type=AutomationActionType.TASK_CREATE,
+        )
+        self.assertEqual(action.result['status'], 'skipped_duplicate')
 
     def test_technical_error_is_rescheduled(self):
         message = self.incoming('Проверь retry.')

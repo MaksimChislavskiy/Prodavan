@@ -2,7 +2,7 @@ import hashlib
 import html
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, time as datetime_time, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -18,7 +18,7 @@ from contacts.services import ContactServiceError, update_contact
 from deals.models import ChangedByType, Deal, DealEvent, DealHistory
 from deals.services import CRMServiceError, create_deal, update_deal
 from messaging.models import Message, MessageSenderType
-from tasks.dates import normalize_due_date
+from tasks.dates import normalize_due_date, workspace_timezone
 from tasks.models import DueDateType, Task, TaskSource
 from tasks.services import TaskServiceError, create_task
 
@@ -81,12 +81,18 @@ class AutomationAnalysisClient:
                         '"fields":{}},'
                         '"task":{"confidence":0,"create":false,"title":"",'
                         '"description":"","due_date":null,'
-                        '"due_date_type":"none","comment":""},'
+                        '"due_date_type":"none","duplicate":false,'
+                        '"comment":""},'
                         '"insight":{"summary":"","sentiment":"",'
                         '"needs":null,"budget":null,"timeline":null,'
                         '"objections":[],"next_step":null,"probability":null,'
                         '"confidence":0,"recommendations":[]}'
-                        '}.'
+                        '}. Для task ограничь description 500 символами. '
+                        'Относительный срок возвращай как YYYY-MM-DD с '
+                        'due_date_type=date, явное время — как datetime. '
+                        'Для времени без даты можно вернуть HH:MM. '
+                        'Если договорённость дублирует уже поставленную задачу, '
+                        'укажи duplicate=true.'
                     ),
                 },
                 {
@@ -94,6 +100,9 @@ class AutomationAnalysisClient:
                     'content': json.dumps(
                         {
                             'workspace_timezone': event.workspace.timezone,
+                            'current_datetime': timezone.now().astimezone(
+                                workspace_timezone(event.workspace),
+                            ).isoformat(),
                             'contact': _contact_context(event.chat.contact),
                             'current_message_id': str(event.message_id),
                             'current_message_text': event.message.text,
@@ -603,6 +612,12 @@ def _create_task_if_needed(event, analysis, deal):
     wants_create = bool(task_data.get('create')) or bool(title)
     if not wants_create or _confidence(task_data) < _confidence_threshold() or not title:
         return _record_action(event, action_type, {'status': 'skipped_low_confidence'})
+    if (
+        task_data.get('duplicate') is True
+        or task_data.get('is_duplicate') is True
+        or _duplicate_ai_task(event.chat, title)
+    ):
+        return _record_action(event, action_type, {'status': 'skipped_duplicate'})
 
     due_date_type = task_data.get('due_date_type') or DueDateType.NONE
     if due_date_type not in DueDateType.values:
@@ -623,7 +638,7 @@ def _create_task_if_needed(event, analysis, deal):
             user=None,
             data={
                 'title': title,
-                'description': _text(task_data.get('description'), 1000),
+                'description': _text(task_data.get('description'), 500),
                 'due_date': due_date,
                 'due_date_type': due_date_type,
                 'contact_id': event.chat.contact_id,
@@ -632,6 +647,7 @@ def _create_task_if_needed(event, analysis, deal):
             },
             idempotency_key=idempotency_key,
             source=TaskSource.AI,
+            source_chat=event.chat,
         )
         if response_status == status.HTTP_201_CREATED:
             usage.tasks_created += 1
@@ -778,11 +794,22 @@ def _ai_deal_created_recently(workspace, contact):
 def _tasks_created_for_chat_24h(chat):
     return Task.objects.filter(
         workspace=chat.workspace,
-        contact=chat.contact,
+        source_chat=chat,
         created_by_ai=True,
         is_deleted=False,
         created_at__gte=timezone.now() - timedelta(hours=24),
     ).count()
+
+
+def _duplicate_ai_task(chat, title):
+    return Task.objects.filter(
+        workspace=chat.workspace,
+        source_chat=chat,
+        created_by_ai=True,
+        is_deleted=False,
+        title__iexact=title.strip(),
+        created_at__gte=timezone.now() - timedelta(hours=24),
+    ).exists()
 
 
 def _empty_contact_updates(contact, fields):
@@ -830,6 +857,26 @@ def _task_due_date(value, due_date_type, workspace):
     value = _text(value)
     if value is None:
         return None
+    if due_date_type == DueDateType.DATETIME:
+        time_only = re.fullmatch(
+            r'(?:в\s*)?([01]?\d|2[0-3]):([0-5]\d)',
+            value,
+            flags=re.IGNORECASE,
+        )
+        if time_only is not None:
+            zone = workspace_timezone(workspace)
+            local_now = timezone.now().astimezone(zone)
+            parsed = datetime.combine(
+                local_now.date(),
+                datetime_time(
+                    hour=int(time_only.group(1)),
+                    minute=int(time_only.group(2)),
+                ),
+                tzinfo=zone,
+            )
+            if parsed <= local_now:
+                parsed += timedelta(days=1)
+            return normalize_due_date(parsed, workspace=workspace)
     parsed = parse_datetime(value)
     try:
         return normalize_due_date(parsed or value, workspace=workspace)

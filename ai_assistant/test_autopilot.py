@@ -213,6 +213,7 @@ class AIAutopilotTests(TestCase):
         task = Task.objects.get(workspace=self.workspace)
         self.assertTrue(task.created_by_ai)
         self.assertEqual(task.contact_id, self.contact.id)
+        self.assertEqual(task.source_chat, self.chat)
         self.assertEqual(task.title, 'Срочно: клиент ожидает ответа')
         self.assertIn('no_relevant_knowledge', task.description)
         usage = AIUsageDaily.objects.get(workspace=self.workspace)

@@ -36,6 +36,7 @@ ACTION_BY_SUCCESS = {
 TRIGGER_BY_ACTION = {
     AutomationActionType.CONTACT_ENRICHMENT: 'data_enrichment',
     AutomationActionType.DEAL_ENRICHMENT: 'data_enrichment',
+    AutomationActionType.TASK_CREATE: 'commitment_detected',
 }
 
 

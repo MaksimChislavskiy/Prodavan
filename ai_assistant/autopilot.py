@@ -639,6 +639,7 @@ def _maybe_create_escalation_task(*, job, reason):
             },
             idempotency_key=_escalation_task_key(job.trigger_message_id),
             source=TaskSource.AI,
+            source_chat=job.chat,
         )
     except TaskServiceError as error:
         return {'status': 'failed', 'error': error.code}

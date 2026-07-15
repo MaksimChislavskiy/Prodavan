@@ -65,6 +65,13 @@ class Task(TimestampMixin):
         blank=True,
         related_name='tasks',
     )
+    source_chat = models.ForeignKey(
+        'messaging.Chat',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ai_created_tasks',
+    )
     comment = models.TextField(max_length=500, null=True, blank=True)
     created_by_ai = models.BooleanField(default=False)
     created_by_user = models.ForeignKey(
@@ -94,6 +101,10 @@ class Task(TimestampMixin):
             models.Index(
                 fields=('workspace', 'created_at'),
                 name='tasks_workspace_created_idx',
+            ),
+            models.Index(
+                fields=('source_chat', 'created_at'),
+                name='tasks_source_chat_created_idx',
             ),
         ]
 
