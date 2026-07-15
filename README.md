@@ -43,7 +43,15 @@ python manage.py check_task_deadlines
 python manage.py check_missed_chat_messages
 python manage.py check_deal_attention
 python manage.py check_telegram_integrations
+python manage.py cleanup_auth_records
+python manage.py close_inactive_ai_chat_sessions
 ```
+
+Две последние команды запускайте не реже одного раза в сутки. Первая удаляет
+истёкшие/отозванные временные auth-записи и освободившиеся e-mail-резервации.
+Вторая закрывает AI-chat сессии после периода неактивности из
+`AI_CHAT_SESSION_IDLE_MINUTES` (по умолчанию 30 минут), не удаляя историю:
+согласно ТЗ она хранится не менее 12 месяцев.
 
 ## Production-безопасность
 
