@@ -61,6 +61,7 @@ class DeploymentSettingsTests(SimpleTestCase):
                 'DJANGO_CSRF_COOKIE_SECURE': 'True',
                 'AUTH_COOKIE_SECURE': 'True',
                 'DJANGO_TRUST_PROXY_HEADERS': 'True',
+                'REDIS_URL': 'redis://127.0.0.1:6379/0',
             },
         )
 

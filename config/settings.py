@@ -4,6 +4,7 @@ from pathlib import Path
 
 from config.database import build_database_config
 from config.observability import build_logging_config
+from config.redis_config import build_redis_config
 from config.env import (
     env,
     env_base64_key,
@@ -34,7 +35,6 @@ TELEGRAM_REQUEST_TIMEOUT = env_int('TELEGRAM_REQUEST_TIMEOUT', 10)
 TELEGRAM_WEBHOOK_BASE_URL = env('TELEGRAM_WEBHOOK_BASE_URL', '').rstrip('/')
 CHAT_RETURNED_AFTER_DAYS = max(1, env_int('CHAT_RETURNED_AFTER_DAYS', 7))
 CHAT_MISSED_AFTER_MINUTES = max(1, env_int('CHAT_MISSED_AFTER_MINUTES', 15))
-CHANNEL_REDIS_URL = env('CHANNEL_REDIS_URL', '')
 AI_EMBEDDINGS_BASE_URL = env('AI_EMBEDDINGS_BASE_URL', '').rstrip('/')
 AI_EMBEDDINGS_API_KEY = env('AI_EMBEDDINGS_API_KEY', '')
 AI_EMBEDDINGS_MODEL = env('AI_EMBEDDINGS_MODEL', '')
@@ -57,6 +57,11 @@ AI_AUTOMATION_CONFIDENCE_THRESHOLD = env_float(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DJANGO_DEBUG', False)
 LOGGING = build_logging_config(debug=DEBUG)
+REDIS_CONFIG = build_redis_config(debug=DEBUG)
+CHANNEL_REDIS_URL = REDIS_CONFIG['channel_url']
+CACHE_REDIS_URL = REDIS_CONFIG['cache_url']
+CHANNEL_LAYERS = REDIS_CONFIG['channel_layers']
+CACHES = REDIS_CONFIG['caches']
 
 ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', ('localhost', '127.0.0.1'))
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
@@ -150,21 +155,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
-
-if CHANNEL_REDIS_URL:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            'CONFIG': {'hosts': [CHANNEL_REDIS_URL]},
-        },
-    }
-else:
-    # Только для локальной разработки и тестов. В production задайте Redis.
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels.layers.InMemoryChannelLayer',
-        },
-    }
 
 # Database
 DATABASES = build_database_config(BASE_DIR)

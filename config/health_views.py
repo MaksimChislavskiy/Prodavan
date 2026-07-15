@@ -1,5 +1,7 @@
 import logging
+import uuid
 
+from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
 from django.views.decorators.cache import never_cache
@@ -45,7 +47,36 @@ def readiness(request):
             checks={'database': 'unavailable'},
         )
 
+    cache_key = f'health:{uuid.uuid4().hex}'
+    cache_value = uuid.uuid4().hex
+    cache_written = False
+    try:
+        cache.set(cache_key, cache_value, timeout=5)
+        cache_written = True
+        if cache.get(cache_key) != cache_value:
+            raise RuntimeError('Cache health check value mismatch')
+        cache.delete(cache_key)
+        cache_written = False
+    except Exception as error:  # readiness must hide infrastructure details
+        if cache_written:
+            try:
+                cache.delete(cache_key)
+            except Exception:
+                pass
+        logger.warning(
+            'Cache readiness check failed (%s)',
+            error.__class__.__name__,
+        )
+        return _health_response(
+            status='unavailable',
+            status_code=503,
+            checks={
+                'database': 'ok',
+                'cache': 'unavailable',
+            },
+        )
+
     return _health_response(
         status='ok',
-        checks={'database': 'ok'},
+        checks={'database': 'ok', 'cache': 'ok'},
     )

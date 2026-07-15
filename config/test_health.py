@@ -32,7 +32,7 @@ class ReadinessEndpointTests(TestCase):
             {
                 'status': 'ok',
                 'service': 'prodavan',
-                'checks': {'database': 'ok'},
+                'checks': {'database': 'ok', 'cache': 'ok'},
             },
         )
         self.assertIn('no-store', response.headers['Cache-Control'])
@@ -65,6 +65,34 @@ class ReadinessEndpointTests(TestCase):
         cursor.assert_called_once_with()
         self.assertIn('OperationalError', logs.output[0])
         self.assertNotIn('private database failure details', logs.output[0])
+
+    @patch(
+        'config.health_views.cache.set',
+        side_effect=ConnectionError('redis://user:secret@redis.internal'),
+    )
+    def test_readiness_returns_sanitized_503_when_cache_is_unavailable(
+        self,
+        cache_set,
+    ):
+        with self.assertLogs('config.health_views', level='WARNING') as logs:
+            response = self.client.get(reverse('health-ready'))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json(),
+            {
+                'status': 'unavailable',
+                'service': 'prodavan',
+                'checks': {
+                    'database': 'ok',
+                    'cache': 'unavailable',
+                },
+            },
+        )
+        self.assertNotIn('secret', response.content.decode())
+        self.assertNotIn('secret', logs.output[0])
+        self.assertIn('ConnectionError', logs.output[0])
+        cache_set.assert_called_once()
 
     def test_readiness_rejects_mutating_methods(self):
         response = self.client.post(reverse('health-ready'))

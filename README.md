@@ -73,3 +73,13 @@ python manage.py check --deploy
 Логи пишутся только в stdout. Для production установите `LOG_LEVEL=INFO` и
 `LOG_FORMAT=json`; локально используются читаемые console-логи. Тела запросов,
 пароли, токены и другие секреты инфраструктурный логгер не записывает.
+
+## Redis
+
+В production Redis обязателен для Channels, общих rate limits и cache между
+workers. Обычно достаточно задать `REDIS_URL`; при необходимости используются
+отдельные `CHANNEL_REDIS_URL` и `CACHE_REDIS_URL`. При `DEBUG=True` без URL
+сохраняются локальные in-memory backend'ы для разработки и тестов.
+
+Readiness проверяет запись и чтение cache. При недоступности Redis endpoint
+возвращает `503`, не раскрывая адрес или реквизиты подключения.
