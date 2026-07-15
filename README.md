@@ -14,3 +14,26 @@ python manage.py process_ai_autopilot_jobs --watch --limit 1000 --poll-interval 
 ожидания, а пустая опрашивается с указанным интервалом. Интервал ограничен
 диапазоном 0.1–5 секунд согласно NFR. Без `--watch` каждая команда выполняет
 один проход, что удобно для ручной диагностики и внешнего планировщика.
+
+## Production-безопасность
+
+Перед развёртыванием создайте отдельный production `.env` и обязательно:
+
+- установите `DJANGO_DEBUG=False`;
+- укажите публичные домены в `DJANGO_ALLOWED_HOSTS`;
+- включите HTTPS redirect и установите `DJANGO_SESSION_COOKIE_SECURE=True`,
+  `DJANGO_CSRF_COOKIE_SECURE=True`, `AUTH_COOKIE_SECURE=True`;
+- настройте HSTS постепенно, затем увеличьте срок до `31536000`;
+- включайте `DJANGO_TRUST_PROXY_HEADERS` только за доверенным reverse proxy,
+  который перезаписывает заголовок `X-Forwarded-Proto`.
+
+Полный список параметров и безопасные комментарии находятся в `.env.example`.
+Перед запуском production выполните:
+
+```powershell
+python manage.py check --deploy
+python manage.py collectstatic --noinput
+```
+
+Команда `check --deploy` должна завершиться без предупреждений. Локальный
+профиль с `DJANGO_DEBUG=True` намеренно не включает HTTPS redirect и HSTS.
