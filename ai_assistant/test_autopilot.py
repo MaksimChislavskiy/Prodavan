@@ -34,8 +34,10 @@ class FakeCompletionClient:
     def __init__(self, content='Ответ из базы знаний.'):
         self.content = content
         self.messages = None
+        self.calls = 0
 
     def complete(self, messages):
+        self.calls += 1
         self.messages = messages
         return ChatCompletionResult(
             content=self.content,
@@ -165,6 +167,61 @@ class AIAutopilotTests(TestCase):
         prompt_ids = {item['id'] for item in prompt_payload['messages']}
         self.assertIn(str(first.id), prompt_ids)
         self.assertIn(str(second.id), prompt_ids)
+
+    def test_always_mode_batches_four_messages_from_eight_second_window(self):
+        self.enable_autopilot(mode=AutopilotMode.ALWAYS)
+        self.connect_telegram()
+        texts = ['Как?', 'Когда?', 'Сколько?', 'Где?']
+        messages = [self.incoming(text) for text in texts]
+        base = timezone.now()
+        for message, offset in zip(messages, (0, 2, 5, 8)):
+            Message.objects.filter(id=message.id).update(
+                created_at=base + timedelta(seconds=offset),
+            )
+        jobs = list(
+            AIAutopilotJob.objects.filter(
+                trigger_message__in=messages,
+            ).order_by('created_at', 'id'),
+        )
+        active_job = AIAutopilotJob.objects.get(trigger_message=messages[-1])
+        process_at = base + timedelta(seconds=18)
+        AIAutopilotJob.objects.filter(id=active_job.id).update(
+            available_at=process_at,
+        )
+        completion = FakeCompletionClient(
+            '{"answer":"Ответ на все четыре вопроса.","confidence":0.95}',
+        )
+        queries = []
+
+        outcome = process_autopilot_job(
+            active_job.id,
+            retrieval_func=lambda **kwargs: (
+                queries.append(kwargs['query']) or [fake_source()]
+            ),
+            completion_client=completion,
+            now=process_at,
+        )
+
+        self.assertEqual(outcome, 'sent')
+        self.assertEqual(completion.calls, 1)
+        self.assertEqual(queries, ['\n'.join(texts)])
+        self.assertEqual(
+            [job.status for job in jobs[:-1]],
+            [AutopilotJobStatus.CANCELLED] * 3,
+        )
+        active_job.refresh_from_db()
+        self.assertEqual(
+            active_job.batched_message_ids,
+            [str(message.id) for message in messages],
+        )
+        replies = list(
+            Message.objects.filter(
+                sender_type=MessageSenderType.USER,
+                sent_by_ai=True,
+            ),
+        )
+        self.assertEqual(len(replies), 1)
+        self.assertEqual(replies[0].text, 'Ответ на все четыре вопроса.')
 
     def test_fallback_job_is_cancelled_when_manager_replies(self):
         self.enable_autopilot(mode=AutopilotMode.FALLBACK, delay=5)
