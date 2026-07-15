@@ -454,6 +454,10 @@ def _enrich_contact(event, analysis):
             contact_id=contact.id,
             submitted_version=contact.version,
             data=updates,
+            audit_changes={
+                'source': 'ai',
+                'trigger': 'data_enrichment',
+            },
         )
         usage.contacts_updated += 1
         usage.save(update_fields=('contacts_updated',))

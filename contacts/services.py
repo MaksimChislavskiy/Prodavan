@@ -84,6 +84,7 @@ def update_contact(
     submitted_version,
     data,
     audit_context=None,
+    audit_changes=None,
 ):
     with transaction.atomic():
         contact = Contact.objects.select_for_update().filter(
@@ -120,12 +121,14 @@ def update_contact(
         contact.version += 1
         update_fields.extend(('version', 'updated_at'))
         contact.save(update_fields=update_fields)
+        audit_payload = dict(changes)
+        audit_payload.update(audit_changes or {})
         _audit(
             workspace=workspace,
             user=user,
             action=ContactAuditAction.UPDATED,
             contact_id=contact.id,
-            changes=changes,
+            changes=audit_payload,
             context=audit_context,
         )
     return contact

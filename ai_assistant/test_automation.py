@@ -1,11 +1,12 @@
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from contacts.models import Contact
+from contacts.models import Contact, ContactAuditLog
 from deals.models import ChangedByType, Deal, DealHistory, SalesStage
 from messaging.models import Chat, Message, MessageSenderType, MessageStatus
 from notifications.models import Notification, NotificationType
@@ -248,6 +249,111 @@ class AIAutomationTests(TestCase):
         self.assertEqual(usage.tasks_created, 1)
         self.assertEqual(usage.contacts_updated, 1)
         self.assertEqual(len(analyzer.calls[0]['context_messages']), 1)
+
+    def test_enrichment_updates_only_empty_fields_and_uses_ai_audit_metadata(self):
+        self.contact.company = 'Компания пользователя'
+        self.contact.email = 'owner-filled@example.com'
+        self.contact.save(update_fields=('company', 'email', 'updated_at'))
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Существующая сделка',
+            amount='50000.00',
+        )
+        message = self.incoming('Наш телефон +7 999 123-45-67, бюджет 120000.')
+        analyzer = DummyAnalyzer({
+            'contact': {
+                'confidence': 0.95,
+                'fields': {
+                    'company': 'Не перезаписывать',
+                    'email': 'do-not-overwrite@example.com',
+                    'phone': '+79991234567',
+                },
+            },
+            'deal': {
+                'confidence': 0.95,
+                'fields': {
+                    'amount': '120000',
+                    'comment': 'Бюджет подтверждён клиентом',
+                },
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        self.contact.refresh_from_db()
+        deal.refresh_from_db()
+        self.assertEqual(self.contact.company, 'Компания пользователя')
+        self.assertEqual(self.contact.email, 'owner-filled@example.com')
+        self.assertEqual(self.contact.phone, '+79991234567')
+        self.assertEqual(deal.amount, Decimal('50000.00'))
+        self.assertEqual(deal.comment, 'Бюджет подтверждён клиентом')
+        contact_audit = ContactAuditLog.objects.get(
+            contact_identifier=self.contact.id,
+        )
+        self.assertEqual(contact_audit.changes['source'], 'ai')
+        self.assertEqual(contact_audit.changes['trigger'], 'data_enrichment')
+        self.assertNotIn('company', contact_audit.changes)
+        self.assertNotIn('email', contact_audit.changes)
+        contact_log = AIAutomationAuditLog.objects.get(
+            message=message,
+            action_type=AutomationActionType.CONTACT_ENRICHMENT,
+        )
+        deal_log = AIAutomationAuditLog.objects.get(
+            message=message,
+            action_type=AutomationActionType.DEAL_ENRICHMENT,
+        )
+        self.assertEqual(contact_log.trigger, 'data_enrichment')
+        self.assertEqual(deal_log.trigger, 'data_enrichment')
+        self.assertEqual(contact_log.details['source'], 'ai')
+        self.assertEqual(deal_log.details['source'], 'ai')
+
+    def test_contact_and_deal_enrichment_share_daily_update_limit(self):
+        AIUsageDaily.objects.create(
+            workspace=self.workspace,
+            date=timezone.now().date(),
+            contacts_updated=49,
+        )
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Лимитная сделка',
+        )
+        message = self.incoming('Компания Ромашка, бюджет 120000.')
+        analyzer = DummyAnalyzer({
+            'contact': {
+                'confidence': 0.95,
+                'fields': {'company': 'ООО Ромашка'},
+            },
+            'deal': {
+                'confidence': 0.95,
+                'fields': {'amount': '120000'},
+            },
+        })
+
+        process_automation_event(message.ai_automation_event.id, analyzer=analyzer)
+
+        self.contact.refresh_from_db()
+        deal.refresh_from_db()
+        usage = AIUsageDaily.objects.get(workspace=self.workspace)
+        self.assertEqual(self.contact.company, 'ООО Ромашка')
+        self.assertIsNone(deal.amount)
+        self.assertEqual(usage.contacts_updated, 50)
+        deal_action = AIProcessedEvent.objects.get(
+            event=message.ai_automation_event,
+            action_type=AutomationActionType.DEAL_ENRICHMENT,
+        )
+        self.assertEqual(deal_action.result['status'], 'skipped_daily_limit')
+        limit_log = AIAutomationAuditLog.objects.get(
+            message=message,
+            action_type=AutomationActionType.DEAL_ENRICHMENT,
+        )
+        self.assertEqual(limit_log.action, AIAutomationAuditAction.AI_LIMIT_REACHED)
+        self.assertEqual(limit_log.trigger, 'data_enrichment')
 
     def test_repeat_processing_is_idempotent(self):
         message = self.incoming('Нужна цена и напоминание.')

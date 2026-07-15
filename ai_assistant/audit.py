@@ -33,6 +33,12 @@ ACTION_BY_SUCCESS = {
 }
 
 
+TRIGGER_BY_ACTION = {
+    AutomationActionType.CONTACT_ENRICHMENT: 'data_enrichment',
+    AutomationActionType.DEAL_ENRICHMENT: 'data_enrichment',
+}
+
+
 NOTIFICATION_BY_ACTION = {
     AIAutomationAuditAction.AI_CONTACT_CREATED: NotificationType.CONTACT_AI_CREATED,
     AIAutomationAuditAction.AI_CONTACT_UPDATED: NotificationType.CONTACT_AI_UPDATED,
@@ -51,17 +57,19 @@ def audit_automation_event(*, event, analysis, action_results):
     for action_type, result in action_results.items():
         if not isinstance(result, dict) or result.get('status') == 'already_processed':
             continue
+        details = dict(result)
+        details.setdefault('source', 'ai')
         log = _create_log(
             workspace=event.workspace,
             chat=event.chat,
             message=event.message,
             action_type=action_type,
-            trigger=event.event_type,
+            trigger=TRIGGER_BY_ACTION.get(action_type, event.event_type),
             correlation_id=event.id,
             raw_message=event.message.text,
             ai_response=analysis,
             confidence=_confidence_for_action(analysis, action_type),
-            details=result,
+            details=details,
         )
         if log is not None:
             logs.append(log)
