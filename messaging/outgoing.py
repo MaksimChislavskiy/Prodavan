@@ -235,6 +235,24 @@ def process_outgoing_message(message_id, *, client=None, now=None):
                     'last_delivery_error', 'updated_at',
                 ),
             )
+            audit_user = None
+            if not message.sent_by_ai:
+                audit_user = message.chat.workspace.users.filter(
+                    id=message.sender_id,
+                ).first()
+            write_chat_audit(
+                workspace=message.chat.workspace,
+                user=audit_user,
+                action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+                chat_id=message.chat_id,
+                message_id=message.id,
+                details={
+                    'status': MessageStatus.DELIVERED,
+                    'sent_by_ai': message.sent_by_ai,
+                    'telegram_message_id': message.telegram_message_id,
+                    'delivery_attempts': message.delivery_attempts,
+                },
+            )
             payload = {
                 'event': 'message_status_updated',
                 'chat_id': str(message.chat_id),

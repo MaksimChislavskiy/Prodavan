@@ -635,6 +635,57 @@ class MessagingTests(TestCase):
         self.assertEqual(message.delivery_attempts, 1)
         self.assertIsNotNone(message.delivered_at)
         client.send_message.assert_called_once()
+        audit = ChatAuditLog.objects.get(
+            action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+            message_identifier=message.id,
+        )
+        self.assertEqual(audit.user, self.user)
+        self.assertEqual(
+            audit.details,
+            {
+                'status': MessageStatus.DELIVERED,
+                'sent_by_ai': False,
+                'telegram_message_id': 987,
+                'delivery_attempts': 1,
+            },
+        )
+
+        repeated = process_outgoing_message(message.id, client=client)
+
+        self.assertFalse(repeated)
+        self.assertEqual(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+                message_identifier=message.id,
+            ).count(),
+            1,
+        )
+
+    def test_ai_delivery_audit_includes_sent_by_ai(self):
+        self._connect_telegram()
+        _, chat = self._contact_and_chat()
+        message = Message.objects.create(
+            chat=chat,
+            sender_type=MessageSenderType.USER,
+            sender_id=self.user.id,
+            text='Автоматический ответ',
+            status=MessageStatus.SENT,
+            sent_by_ai=True,
+            next_delivery_attempt_at=timezone.now(),
+        )
+        client = Mock()
+        client.send_message.return_value = {'message_id': 654}
+
+        processed = process_outgoing_message(message.id, client=client)
+
+        self.assertTrue(processed)
+        audit = ChatAuditLog.objects.get(
+            action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+            message_identifier=message.id,
+        )
+        self.assertIsNone(audit.user)
+        self.assertTrue(audit.details['sent_by_ai'])
+        self.assertNotIn('text', audit.details)
 
     def test_temporary_delivery_error_retries_three_times(self):
         self._connect_telegram()
@@ -703,6 +754,12 @@ class MessagingTests(TestCase):
 
         self.assertFalse(repeated)
         self.assertEqual(notifications.count(), 2)
+        self.assertFalse(
+            ChatAuditLog.objects.filter(
+                action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
+                message_identifier=message.id,
+            ).exists(),
+        )
 
     def test_permanent_delivery_error_fails_without_retry(self):
         self._connect_telegram()
