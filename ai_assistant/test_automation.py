@@ -394,6 +394,80 @@ class AIAutomationTests(TestCase):
         self.assertEqual(contact_log.details['source'], 'ai')
         self.assertEqual(deal_log.details['source'], 'ai')
 
+    def test_conversation_updates_contact_and_active_deal_with_normalized_data(self):
+        stage = SalesStage.objects.get(workspace=self.workspace, is_system=True)
+        deal = Deal.objects.create(
+            workspace=self.workspace,
+            stage=stage,
+            contact=self.contact,
+            name='Активная сделка',
+        )
+        message = self.incoming(
+            'Мой новый телефон: +7 123 456 78 90, '
+            'а компания сменилась на ООО «Новая».',
+        )
+        analyzer = DummyAnalyzer({
+            'contact': {
+                'confidence': 0.96,
+                'fields': {
+                    'phone': '+7 123 456 78 90',
+                    'company': 'ООО «Новая»',
+                    'email': 'некорректный email',
+                },
+            },
+            'deal': {
+                'confidence': 0.93,
+                'fields': {
+                    'comment': 'Клиент сообщил новые контактные данные.',
+                },
+            },
+        })
+
+        outcome = process_automation_event(
+            message.ai_automation_event.id,
+            analyzer=analyzer,
+        )
+
+        self.assertEqual(outcome, 'completed')
+        self.contact.refresh_from_db()
+        deal.refresh_from_db()
+        self.assertEqual(self.contact.phone, '+71234567890')
+        self.assertEqual(self.contact.company, 'ООО «Новая»')
+        self.assertIsNone(self.contact.email)
+        self.assertEqual(
+            deal.comment,
+            'Клиент сообщил новые контактные данные.',
+        )
+        contact_audit = ContactAuditLog.objects.get(
+            contact_identifier=self.contact.id,
+        )
+        self.assertEqual(
+            contact_audit.changes['phone']['new'],
+            '+71234567890',
+        )
+        self.assertEqual(contact_audit.changes['source'], 'ai')
+        deal_history = DealHistory.objects.get(deal=deal)
+        self.assertEqual(deal_history.changed_by_type, ChangedByType.AI)
+        logs = AIAutomationAuditLog.objects.filter(message=message)
+        self.assertEqual(
+            set(logs.filter(
+                action__in={
+                    AIAutomationAuditAction.AI_CONTACT_UPDATED,
+                    AIAutomationAuditAction.AI_DEAL_UPDATED,
+                },
+            ).values_list('action', flat=True)),
+            {
+                AIAutomationAuditAction.AI_CONTACT_UPDATED,
+                AIAutomationAuditAction.AI_DEAL_UPDATED,
+            },
+        )
+        notification = Notification.objects.get(
+            type=NotificationType.AI_ACTIONS_GROUPED,
+        )
+        self.assertIn('• обновлён контакт', notification.content)
+        self.assertIn('• обновлена сделка', notification.content)
+        self.assertEqual(notification.link, f'/chat/{self.chat.id}')
+
     def test_contact_and_deal_enrichment_share_daily_update_limit(self):
         AIUsageDaily.objects.create(
             workspace=self.workspace,

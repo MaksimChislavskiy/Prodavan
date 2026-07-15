@@ -14,6 +14,11 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from contacts.models import Contact
+from contacts.serializers import (
+    normalize_email,
+    normalize_phone,
+    normalize_telegram,
+)
 from contacts.services import ContactServiceError, update_contact
 from deals.models import ChangedByType, Deal, DealEvent, DealHistory
 from deals.services import CRMServiceError, create_deal, update_deal
@@ -877,6 +882,11 @@ def _empty_contact_updates(contact, fields):
         'comment': None,
     }
     updates = {}
+    normalizers = {
+        'phone': normalize_phone,
+        'email': normalize_email,
+        'telegram': normalize_telegram,
+    }
     for field, max_length in allowed.items():
         current = getattr(contact, field)
         if field == 'name':
@@ -885,7 +895,18 @@ def _empty_contact_updates(contact, fields):
             empty = current in {None, ''}
         if not empty:
             continue
-        value = _text(fields.get(field), max_length)
+        value = _text(
+            fields.get(field),
+            None if field in normalizers else max_length,
+        )
+        normalizer = normalizers.get(field)
+        if normalizer is not None and value is not None:
+            try:
+                value = normalizer(value)
+            except ValidationError:
+                continue
+            if value is not None and len(value) > max_length:
+                continue
         if value is not None:
             updates[field] = value
     return updates
