@@ -32,7 +32,11 @@ class ReadinessEndpointTests(TestCase):
             {
                 'status': 'ok',
                 'service': 'prodavan',
-                'checks': {'database': 'ok', 'cache': 'ok'},
+                'checks': {
+                    'database': 'ok',
+                    'cache': 'ok',
+                    'storage': 'ok',
+                },
             },
         )
         self.assertIn('no-store', response.headers['Cache-Control'])
@@ -93,6 +97,35 @@ class ReadinessEndpointTests(TestCase):
         self.assertNotIn('secret', logs.output[0])
         self.assertIn('ConnectionError', logs.output[0])
         cache_set.assert_called_once()
+
+    @patch(
+        'config.health_views.default_storage.exists',
+        side_effect=OSError('s3://access:secret@storage.internal'),
+    )
+    def test_readiness_returns_sanitized_503_when_storage_is_unavailable(
+        self,
+        storage_exists,
+    ):
+        with self.assertLogs('config.health_views', level='WARNING') as logs:
+            response = self.client.get(reverse('health-ready'))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json(),
+            {
+                'status': 'unavailable',
+                'service': 'prodavan',
+                'checks': {
+                    'database': 'ok',
+                    'cache': 'ok',
+                    'storage': 'unavailable',
+                },
+            },
+        )
+        self.assertNotIn('secret', response.content.decode())
+        self.assertNotIn('secret', logs.output[0])
+        self.assertIn('OSError', logs.output[0])
+        storage_exists.assert_called_once_with('.prodavan-healthcheck')
 
     def test_readiness_rejects_mutating_methods(self):
         response = self.client.post(reverse('health-ready'))

@@ -2,6 +2,7 @@ import logging
 import uuid
 
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.db import connection
 from django.http import JsonResponse
 from django.views.decorators.cache import never_cache
@@ -76,7 +77,28 @@ def readiness(request):
             },
         )
 
+    try:
+        default_storage.exists('.prodavan-healthcheck')
+    except Exception as error:  # readiness must hide storage credentials
+        logger.warning(
+            'Storage readiness check failed (%s)',
+            error.__class__.__name__,
+        )
+        return _health_response(
+            status='unavailable',
+            status_code=503,
+            checks={
+                'database': 'ok',
+                'cache': 'ok',
+                'storage': 'unavailable',
+            },
+        )
+
     return _health_response(
         status='ok',
-        checks={'database': 'ok', 'cache': 'ok'},
+        checks={
+            'database': 'ok',
+            'cache': 'ok',
+            'storage': 'ok',
+        },
     )

@@ -5,6 +5,7 @@ from pathlib import Path
 from config.database import build_database_config
 from config.observability import build_logging_config
 from config.redis_config import build_redis_config
+from config.storage_config import build_storage_config
 from config.env import (
     env,
     env_base64_key,
@@ -62,6 +63,8 @@ CHANNEL_REDIS_URL = REDIS_CONFIG['channel_url']
 CACHE_REDIS_URL = REDIS_CONFIG['cache_url']
 CHANNEL_LAYERS = REDIS_CONFIG['channel_layers']
 CACHES = REDIS_CONFIG['caches']
+STORAGE_CONFIG = build_storage_config(BASE_DIR, debug=DEBUG)
+STORAGES = STORAGE_CONFIG['storages']
 
 ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', ('localhost', '127.0.0.1'))
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
@@ -185,7 +188,7 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = STORAGE_CONFIG['media_root']
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

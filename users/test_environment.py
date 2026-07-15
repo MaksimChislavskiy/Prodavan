@@ -62,6 +62,9 @@ class DeploymentSettingsTests(SimpleTestCase):
                 'AUTH_COOKIE_SECURE': 'True',
                 'DJANGO_TRUST_PROXY_HEADERS': 'True',
                 'REDIS_URL': 'redis://127.0.0.1:6379/0',
+                'MEDIA_STORAGE_BACKEND': 's3',
+                'S3_BUCKET_NAME': 'prodavan-media',
+                'S3_REGION_NAME': 'eu-west-1',
             },
         )
 
