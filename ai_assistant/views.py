@@ -8,6 +8,11 @@ from rest_framework.views import APIView
 
 from users.models import UserRole
 from workspaces.models import Workspace
+from workspaces.models import OnboardingAuditEvent
+from workspaces.onboarding import (
+    record_onboarding_upload_event,
+    request_audit_context,
+)
 
 from .cursors import InvalidCursor, decode_cursor, encode_cursor
 from .knowledge import (
@@ -353,6 +358,14 @@ class KnowledgeFilesView(APIView):
             return error_response
         uploaded_files = list(request.FILES.getlist('files'))
         uploaded_files.extend(request.FILES.getlist('file'))
+        audit_context = request_audit_context(request)
+        record_onboarding_upload_event(
+            workspace_id=workspace.id,
+            user_id=request.user.id,
+            event=OnboardingAuditEvent.UPLOAD_STARTED,
+            details={'files_count': len(uploaded_files)},
+            **audit_context,
+        )
         try:
             documents = create_knowledge_documents(
                 workspace=workspace,
@@ -360,7 +373,30 @@ class KnowledgeFilesView(APIView):
                 uploaded_files=uploaded_files,
             )
         except KnowledgeServiceError as error:
+            record_onboarding_upload_event(
+                workspace_id=workspace.id,
+                user_id=request.user.id,
+                event=OnboardingAuditEvent.UPLOAD_FAILED,
+                details={'error': error.code},
+                **audit_context,
+            )
             return Response(error.response_data, status=error.status_code)
+        except Exception:
+            record_onboarding_upload_event(
+                workspace_id=workspace.id,
+                user_id=request.user.id,
+                event=OnboardingAuditEvent.UPLOAD_FAILED,
+                details={'error': 'INTERNAL_ERROR'},
+                **audit_context,
+            )
+            raise
+        record_onboarding_upload_event(
+            workspace_id=workspace.id,
+            user_id=request.user.id,
+            event=OnboardingAuditEvent.UPLOAD_SUCCESS,
+            details={'files_count': len(documents)},
+            **audit_context,
+        )
         return Response(
             {
                 'files': KnowledgeDocumentSerializer(documents, many=True).data,

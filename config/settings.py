@@ -218,6 +218,7 @@ REST_FRAMEWORK = {
         'registration_confirm': '20/hour',
         'password_reset_request': '5/hour',
         'password_reset_confirm': '20/hour',
+        'onboarding': '120/min',
         'telegram_connect': '10/min',
         'telegram_webhook': '100/sec',
     },

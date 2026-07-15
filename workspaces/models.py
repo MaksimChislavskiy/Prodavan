@@ -55,6 +55,63 @@ class Workspace(TimestampMixin):
         return self.name
 
 
+class OnboardingAuditEvent(models.TextChoices):
+    UPLOAD_STARTED = 'onboarding_upload_started', 'Загрузка начата'
+    UPLOAD_SUCCESS = 'onboarding_upload_success', 'Загрузка принята'
+    UPLOAD_FAILED = 'onboarding_upload_failed', 'Ошибка загрузки'
+    MATERIALS_VIEWED = 'onboarding_materials_viewed', 'Материалы просмотрены'
+    COMPLETED = 'onboarding_completed', 'Онбординг завершён'
+
+
+class WorkspaceOnboarding(TimestampMixin):
+    workspace = models.OneToOneField(
+        Workspace,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='onboarding',
+    )
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    materials_viewed = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'workspace_onboarding'
+
+
+class WorkspaceOnboardingAuditLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='onboarding_audit_logs',
+    )
+    workspace_identifier = models.UUIDField(db_index=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='onboarding_audit_logs',
+    )
+    user_identifier = models.UUIDField(null=True, blank=True, db_index=True)
+    event = models.CharField(
+        max_length=64,
+        choices=OnboardingAuditEvent.choices,
+        db_index=True,
+    )
+    details = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
+    correlation_id = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'workspace_onboarding_audit_log'
+        ordering = ('-created_at', '-id')
+
+
 class WorkspaceIntegration(TimestampMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(

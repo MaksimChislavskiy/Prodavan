@@ -12,6 +12,7 @@ from django.db.models import Q
 from django.utils import timezone
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+from workspaces.onboarding import onboarding_knowledge_state_changed
 
 from .embeddings import (
     EmbeddingClient,
@@ -240,6 +241,11 @@ def process_knowledge_document(document_id, *, embedding_client=None):
             )
             if locked is None:
                 return None
+            previous_has_ready = KnowledgeDocument.objects.filter(
+                workspace_id=locked.workspace_id,
+                status=KnowledgeDocumentStatus.READY,
+                is_deleted=False,
+            ).exclude(id=locked.id).exists()
             KnowledgeChunk.objects.filter(document=locked).delete()
             KnowledgeChunk.objects.bulk_create(
                 [
@@ -268,6 +274,16 @@ def process_knowledge_document(document_id, *, embedding_client=None):
                     'processed_at',
                     'updated_at',
                 ),
+            )
+            transaction.on_commit(
+                lambda: onboarding_knowledge_state_changed(
+                    workspace_id=locked.workspace_id,
+                    previous_has_ready=previous_has_ready,
+                    current_has_ready=True,
+                    user_id=locked.uploaded_by_id,
+                    trigger_document_id=locked.id,
+                ),
+                robust=True,
             )
             broadcast_document_status(locked)
         return KnowledgeDocumentStatus.READY

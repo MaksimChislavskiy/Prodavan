@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from messaging.realtime import broadcast_workspace_event
 from workspaces.models import Workspace
+from workspaces.onboarding import onboarding_knowledge_state_changed
 
 from .models import (
     AIAuditAction,
@@ -345,6 +346,12 @@ def delete_knowledge_document(*, workspace, user, document_id):
                 status_code=404,
             )
         file_name = document.file.name
+        was_ready = document.status == KnowledgeDocumentStatus.READY
+        has_other_ready = False
+        if was_ready:
+            has_other_ready = active_documents(workspace).filter(
+                status=KnowledgeDocumentStatus.READY,
+            ).exclude(id=document.id).exists()
         document.is_deleted = True
         document.deleted_at = timezone.now()
         document.save(update_fields=('is_deleted', 'deleted_at', 'updated_at'))
@@ -359,8 +366,22 @@ def delete_knowledge_document(*, workspace, user, document_id):
                 'name': document.original_name,
             },
         )
-        transaction.on_commit(lambda: default_storage.delete(file_name))
         broadcast_document_status(
             document,
             event='knowledge_document_deleted',
+        )
+        if was_ready and not has_other_ready:
+            transaction.on_commit(
+                lambda: onboarding_knowledge_state_changed(
+                    workspace_id=workspace.id,
+                    previous_has_ready=True,
+                    current_has_ready=False,
+                    user_id=user.id,
+                    trigger_document_id=document.id,
+                ),
+                robust=True,
+            )
+        transaction.on_commit(
+            lambda: default_storage.delete(file_name),
+            robust=True,
         )
