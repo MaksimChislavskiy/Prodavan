@@ -2,22 +2,20 @@ import json
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from .realtime import user_group_name, workspace_group_name
+from .realtime import workspace_group_name
 
 
-class ChatConsumer(AsyncJsonWebsocketConsumer):
+class ReadOnlyEventConsumer(AsyncJsonWebsocketConsumer):
+    def group_name_for_user(self, user):
+        raise NotImplementedError
+
     async def connect(self):
         user = self.scope.get('user')
         if user is None or not user.is_authenticated:
             await self.close(code=1008)
             return
-        self.group_name = workspace_group_name(user.workspace_id)
-        self.user_group_name = user_group_name(user.id)
+        self.group_name = self.group_name_for_user(user)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await self.channel_layer.group_add(
-            self.user_group_name,
-            self.channel_name,
-        )
         await self.accept(
             subprotocol=self.scope.get('accepted_subprotocol'),
         )
@@ -27,12 +25,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         if group_name:
             await self.channel_layer.group_discard(
                 group_name,
-                self.channel_name,
-            )
-        user_group = getattr(self, 'user_group_name', None)
-        if user_group:
-            await self.channel_layer.group_discard(
-                user_group,
                 self.channel_name,
             )
 
@@ -54,5 +46,13 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             },
         )
 
-    async def chat_event(self, event):
+    async def send_event_payload(self, event):
         await self.send_json(event['payload'])
+
+
+class ChatConsumer(ReadOnlyEventConsumer):
+    def group_name_for_user(self, user):
+        return workspace_group_name(user.workspace_id)
+
+    async def chat_event(self, event):
+        await self.send_event_payload(event)

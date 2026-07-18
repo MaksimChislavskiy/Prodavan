@@ -26,5 +26,5 @@ def broadcast_user_event(user_id, payload):
         return
     async_to_sync(channel_layer.group_send)(
         user_group_name(user_id),
-        {'type': 'chat.event', 'payload': payload},
+        {'type': 'notification.event', 'payload': payload},
     )
