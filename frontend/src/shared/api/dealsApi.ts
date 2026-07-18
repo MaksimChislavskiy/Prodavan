@@ -39,6 +39,11 @@ export type CreateSalesStageRequest = {
   order: number
 }
 
+export type MoveDealRequest = {
+  stage_id: string
+  version: number
+}
+
 export function getKanban() {
   return apiRequest<ApiKanbanResponse>('/api/crm/kanban')
 }
@@ -48,4 +53,22 @@ export function createSalesStage(data: CreateSalesStageRequest) {
     method: 'POST',
     body: data,
   })
+}
+
+export function moveDeal(dealId: string, data: MoveDealRequest) {
+  return apiRequest<ApiKanbanDeal>(`/api/crm/deals/${dealId}/stage`, {
+    method: 'PATCH',
+    headers: {
+      'Idempotency-Key': createIdempotencyKey(),
+    },
+    body: data,
+  })
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `deal-move-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
