@@ -1,8 +1,22 @@
 # Prodavan
 
+## Онбординг workspace
+
+Backend онбординга доступен только администратору текущего workspace:
+
+- `GET /api/user/onboarding-status` — актуальный статус и два шага;
+- `POST /api/user/onboarding/materials-viewed` — идемпотентная отметка материалов.
+
+Шаг базы знаний вычисляется по наличию хотя бы одного активного документа в
+статусе `ready`. После выполнения обоих шагов `completed` фиксируется
+транзакционно и больше не откатывается, даже если документы позднее удалены.
+Изменения отправляются событием `onboarding_status_updated` через workspace
+WebSocket-группу. Ключевые действия сохраняются в отдельном audit trail с
+correlation ID.
+
 ## Фоновые обработчики
 
-Для штатной работы очередей запустите пять отдельных процессов под
+Для штатной работы очередей запустите шесть отдельных процессов под
 управлением supervisor/systemd или аналогичного менеджера процессов:
 
 ```powershell
@@ -11,7 +25,17 @@ python manage.py process_outgoing_messages --watch --limit 1000 --poll-interval 
 python manage.py process_ai_automation_events --watch --limit 1000 --poll-interval 1
 python manage.py process_ai_autopilot_jobs --watch --limit 1000 --poll-interval 1
 python manage.py process_knowledge_documents --watch --limit 100 --poll-interval 1
+python manage.py process_auth_emails --watch --limit 100 --poll-interval 1
 ```
+
+Knowledge worker переводит документ, который находится в активной обработке
+более 30 минут, в статус `failed` с причиной `Processing timeout`. Такой
+документ не захватывается повторно автоматически: администратор может явно
+запустить retry через API базы знаний.
+
+Auth email worker повторяет неудачную отправку писем регистрации и
+восстановления пароля до трёх раз с SMTP timeout 10 секунд. Содержимое очереди,
+включая одноразовый код, хранится в БД только в зашифрованном виде.
 
 В режиме `--watch` заполненная очередь обрабатывается следующими пакетами без
 ожидания, а неполная опрашивается с указанным интервалом. Интервал ограничен
@@ -29,7 +53,27 @@ python manage.py check_task_deadlines
 python manage.py check_missed_chat_messages
 python manage.py check_deal_attention
 python manage.py check_telegram_integrations
+python manage.py cleanup_auth_records
+python manage.py close_inactive_ai_chat_sessions
 ```
+
+Две последние команды запускайте не реже одного раза в сутки. Первая удаляет
+истёкшие/отозванные временные auth-записи, завершённые записи почтовой очереди,
+освободившиеся e-mail-резервации и auth-аудит старше 366 дней.
+Вторая закрывает AI-chat сессии после периода неактивности из
+`AI_CHAT_SESSION_IDLE_MINUTES` (по умолчанию 30 минут), не удаляя историю:
+согласно ТЗ она хранится не менее 12 месяцев.
+
+## WebSocket-каналы
+
+- `/ws/chat` подписывает авторизованного пользователя на события его workspace;
+- `/ws/notifications` подписывает только на персональные события уведомлений.
+
+Access token передавайте через `Sec-WebSocket-Protocol` как пару протоколов
+`Bearer, <token>`; сервер подтверждает только `Bearer` и не возвращает токен.
+Недействительный, истёкший или отозванный через `token_version` JWT закрывается
+с кодом `1008`. Изменяющие команды через WebSocket не принимаются — для них
+используется REST API.
 
 ## Production-безопасность
 
@@ -122,7 +166,7 @@ persistent volume его можно явно разрешить через
 `EMAIL_BACKEND=smtp`, `DEFAULT_FROM_EMAIL`, `EMAIL_HOST` и порт. Соединение
 обязано использовать `EMAIL_USE_TLS=True` либо `EMAIL_USE_SSL=True`; одновременно
 эти режимы включать нельзя. `EMAIL_TIMEOUT` ограничивает зависание запроса при
-недоступности почтового сервера.
+недоступности почтового сервера и по ТЗ не может превышать 10 секунд.
 
 Console/locmem backend при `DEBUG=False` блокируется. Исключение для специальной
 staging-среды требует явного

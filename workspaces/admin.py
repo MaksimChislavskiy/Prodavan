@@ -5,6 +5,8 @@ from .models import (
     WorkspaceAuditLog,
     WorkspaceIdempotencyRecord,
     WorkspaceIntegration,
+    WorkspaceOnboarding,
+    WorkspaceOnboardingAuditLog,
     TelegramWebhookLog,
 )
 
@@ -14,6 +16,25 @@ class WorkspaceAdmin(admin.ModelAdmin):
     list_display = ('name', 'timezone', 'language', 'version', 'created_at')
     search_fields = ('name',)
     readonly_fields = ('version', 'created_at', 'updated_at')
+
+
+@admin.register(WorkspaceOnboarding)
+class WorkspaceOnboardingAdmin(admin.ModelAdmin):
+    list_display = ('workspace', 'completed', 'materials_viewed', 'completed_at')
+    list_filter = ('completed', 'materials_viewed')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(WorkspaceOnboardingAuditLog)
+class WorkspaceOnboardingAuditLogAdmin(admin.ModelAdmin):
+    list_display = ('event', 'workspace_identifier', 'user_identifier', 'created_at')
+    list_filter = ('event',)
+    search_fields = ('workspace_identifier', 'user_identifier', 'correlation_id')
+    readonly_fields = (
+        'workspace', 'workspace_identifier', 'user', 'user_identifier',
+        'event', 'details', 'ip_address', 'user_agent', 'correlation_id',
+        'created_at',
+    )
 
 
 @admin.register(WorkspaceIntegration)

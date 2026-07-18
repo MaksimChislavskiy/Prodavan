@@ -50,6 +50,10 @@ AI_CHAT_TIMEOUT = env_int('AI_CHAT_TIMEOUT', 30)
 AI_CHAT_RETRY_ATTEMPTS = env_int('AI_CHAT_RETRY_ATTEMPTS', 3)
 AI_CHAT_MAX_CONTEXT_TOKENS = env_int('AI_CHAT_MAX_CONTEXT_TOKENS', 20_000)
 AI_CHAT_RETRIEVAL_LIMIT = env_int('AI_CHAT_RETRIEVAL_LIMIT', 5)
+AI_CHAT_SESSION_IDLE_MINUTES = max(
+    1,
+    env_int('AI_CHAT_SESSION_IDLE_MINUTES', 30),
+)
 AI_RETRIEVAL_MIN_SCORE = env_float('AI_RETRIEVAL_MIN_SCORE', 0.2)
 AI_AUTOMATION_CONFIDENCE_THRESHOLD = env_float(
     'AI_AUTOMATION_CONFIDENCE_THRESHOLD',
@@ -179,6 +183,16 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# bcrypt is the primary password hasher required by the product specification.
+# Legacy Django hashes remain readable and are upgraded after a successful login.
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.ScryptPasswordHasher',
+]
+
 # Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
@@ -218,8 +232,10 @@ REST_FRAMEWORK = {
         'registration_confirm': '20/hour',
         'password_reset_request': '5/hour',
         'password_reset_confirm': '20/hour',
+        'onboarding': '120/min',
         'telegram_connect': '10/min',
         'telegram_webhook': '100/sec',
+        'knowledge_file_upload': '30/hour',
     },
 }
 

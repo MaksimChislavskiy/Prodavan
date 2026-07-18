@@ -101,6 +101,7 @@ def main():
         'AI_CHAT_RETRY_ATTEMPTS': '3',
         'AI_CHAT_MAX_CONTEXT_TOKENS': '20000',
         'AI_CHAT_RETRIEVAL_LIMIT': '5',
+        'AI_CHAT_SESSION_IDLE_MINUTES': '30',
         'AI_RETRIEVAL_MIN_SCORE': '0.2',
         'AUTH_REFRESH_COOKIE_NAME': 'refresh',
         'AUTH_COOKIE_SECURE': 'False',

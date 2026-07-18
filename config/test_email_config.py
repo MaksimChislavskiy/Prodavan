@@ -42,7 +42,7 @@ class EmailConfigurationTests(SimpleTestCase):
             'EMAIL_USE_SSL': 'False',
             'EMAIL_HOST_USER': 'prodavan',
             'EMAIL_HOST_PASSWORD': 'test-secret',
-            'EMAIL_TIMEOUT': '15',
+            'EMAIL_TIMEOUT': '10',
         }
         with patch.dict(os.environ, environment, clear=True):
             config = build_email_config(debug=False)
@@ -61,7 +61,22 @@ class EmailConfigurationTests(SimpleTestCase):
         self.assertEqual(backend.port, 587)
         self.assertTrue(backend.use_tls)
         self.assertFalse(backend.use_ssl)
-        self.assertEqual(backend.timeout, 15)
+        self.assertEqual(backend.timeout, 10)
+
+    def test_smtp_timeout_cannot_exceed_ten_seconds(self):
+        environment = {
+            'EMAIL_BACKEND': 'smtp',
+            'DEFAULT_FROM_EMAIL': 'noreply@prodavan.example',
+            'EMAIL_HOST': 'smtp.example.com',
+            'EMAIL_USE_TLS': 'True',
+            'EMAIL_TIMEOUT': '11',
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            with self.assertRaisesMessage(
+                ImproperlyConfigured,
+                'EMAIL_TIMEOUT должен быть от 1 до 10 секунд',
+            ):
+                build_email_config(debug=False)
 
     def test_smtp_requires_host_without_echoing_credentials(self):
         environment = {
