@@ -6,6 +6,7 @@ import {
   type ApiKanbanDeal,
   type ApiKanbanResponse,
 } from '../../shared/api/dealsApi'
+import { CreateDealModal } from './CreateDealModal'
 import './DealsPage.css'
 
 type DealsPageState = {
@@ -36,6 +37,7 @@ export function DealsPage() {
   const [dropTargetStageId, setDropTargetStageId] = useState('')
   const [movingDealId, setMovingDealId] = useState('')
   const [dealMoveError, setDealMoveError] = useState('')
+  const [isDealModalOpen, setIsDealModalOpen] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -132,6 +134,7 @@ export function DealsPage() {
         name,
         order: state.data.stages.length + 1,
       })
+
       setState((currentState) => {
         if (!currentState.data) {
           return currentState
@@ -164,6 +167,40 @@ export function DealsPage() {
     } finally {
       setIsStageSaving(false)
     }
+  }
+
+  const handleDealCreated = (createdDeal: ApiKanbanDeal) => {
+    setState((currentState) => {
+      if (!currentState.data) {
+        return currentState
+      }
+
+      const systemStage = currentState.data.stages.find((stage) => stage.is_system)
+
+      if (!systemStage) {
+        return currentState
+      }
+
+      const currentDeals = currentState.data.deals[systemStage.id] ?? []
+
+      return {
+        ...currentState,
+        data: {
+          stages: currentState.data.stages.map((stage) =>
+            stage.id === systemStage.id
+              ? { ...stage, deal_count: stage.deal_count + 1 }
+              : stage,
+          ),
+          deals: {
+            ...currentState.data.deals,
+            [systemStage.id]: [
+              createdDeal,
+              ...currentDeals.filter((deal) => deal.id !== createdDeal.id),
+            ],
+          },
+        },
+      }
+    })
   }
 
   const handleDealDragStart = (
@@ -325,136 +362,148 @@ export function DealsPage() {
   }
 
   return (
-    <section className="deals-page" aria-label="Сделки">
-      {dealMoveError && (
-        <p className="deals-page__error" role="alert">
-          {dealMoveError}
-        </p>
-      )}
+    <>
+      <section className="deals-page" aria-label="Сделки">
+        {dealMoveError && (
+          <p className="deals-page__error" role="alert">
+            {dealMoveError}
+          </p>
+        )}
 
-      <div className="deals-board" aria-label="Воронка сделок">
-        {state.data.stages.map((stage) => {
-          const stageDeals = state.data?.deals[stage.id] ?? []
-          const isDropTarget = dropTargetStageId === stage.id
+        <div className="deals-board" aria-label="Воронка сделок">
+          {state.data.stages.map((stage) => {
+            const stageDeals = state.data?.deals[stage.id] ?? []
+            const isDropTarget = dropTargetStageId === stage.id
 
-          return (
-            <article
-              className={`deals-column${isDropTarget ? ' deals-column--drop-target' : ''}`}
-              key={stage.id}
-              onDragOver={(event) => handleStageDragOver(event, stage.id)}
-              onDragLeave={(event) => handleStageDragLeave(event, stage.id)}
-              onDrop={(event) => handleStageDrop(event, stage.id)}
-            >
-              <header className="deals-stage">
-                <div className="deals-stage__meta">
-                  <span className="deals-stage__title" title={stage.name}>
-                    {stage.name}
-                  </span>
-                  <span className="deals-stage__count">{stage.deal_count}</span>
+            return (
+              <article
+                className={`deals-column${isDropTarget ? ' deals-column--drop-target' : ''}`}
+                key={stage.id}
+                onDragOver={(event) => handleStageDragOver(event, stage.id)}
+                onDragLeave={(event) => handleStageDragLeave(event, stage.id)}
+                onDrop={(event) => handleStageDrop(event, stage.id)}
+              >
+                <header className="deals-stage">
+                  <div className="deals-stage__meta">
+                    <span className="deals-stage__title" title={stage.name}>
+                      {stage.name}
+                    </span>
+                    <span className="deals-stage__count">{stage.deal_count}</span>
+                  </div>
+
+                  {stage.is_system ? (
+                    <button
+                      className="deals-stage__action deals-stage__action--add"
+                      type="button"
+                      aria-label="Добавить сделку"
+                      title="Создать сделку"
+                      onClick={() => setIsDealModalOpen(true)}
+                    >
+                      +
+                    </button>
+                  ) : (
+                    <button
+                      className="deals-stage__action"
+                      type="button"
+                      aria-label={`Меню этапа ${stage.name}`}
+                      title="Управление этапом добавим позже"
+                      disabled
+                    >
+                      ⋮
+                    </button>
+                  )}
+                </header>
+
+                <div className="deals-column__cards">
+                  {stageDeals.map((deal) => (
+                    <DealCard
+                      deal={deal}
+                      isMoving={movingDealId === deal.id}
+                      key={deal.id}
+                      onDragStart={(event) => handleDealDragStart(event, deal, stage.id)}
+                      onDragEnd={handleDealDragEnd}
+                    />
+                  ))}
+                </div>
+              </article>
+            )
+          })}
+
+          <article className="deals-column deals-column--add-stage">
+            {isStageEditorOpen ? (
+              <form
+                className="deals-stage-create"
+                onSubmit={(event) => void handleStageCreate(event)}
+              >
+                <div className="deals-stage-create__row">
+                  <input
+                    className="deals-stage-create__input"
+                    type="text"
+                    value={newStageName}
+                    maxLength={100}
+                    autoFocus
+                    placeholder="Название этапа"
+                    aria-label="Название нового этапа"
+                    disabled={isStageSaving}
+                    onChange={(event) => {
+                      setNewStageName(event.target.value)
+                      setStageCreateError('')
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        closeStageEditor()
+                      }
+                    }}
+                  />
+
+                  <button
+                    className="deals-stage-create__button deals-stage-create__button--save"
+                    type="submit"
+                    aria-label="Сохранить этап"
+                    disabled={isStageSaving || !newStageName.trim()}
+                  >
+                    {isStageSaving ? '…' : '✓'}
+                  </button>
+
+                  <button
+                    className="deals-stage-create__button"
+                    type="button"
+                    aria-label="Отменить создание этапа"
+                    disabled={isStageSaving}
+                    onClick={closeStageEditor}
+                  >
+                    ×
+                  </button>
                 </div>
 
-                {stage.is_system ? (
-                  <button
-                    className="deals-stage__action deals-stage__action--add"
-                    type="button"
-                    aria-label="Добавить сделку"
-                    title="Создание сделки добавим следующим этапом"
-                    disabled
-                  >
-                    +
-                  </button>
-                ) : (
-                  <button
-                    className="deals-stage__action"
-                    type="button"
-                    aria-label={`Меню этапа ${stage.name}`}
-                    title="Управление этапом добавим позже"
-                    disabled
-                  >
-                    ⋮
-                  </button>
+                {stageCreateError && (
+                  <p className="deals-stage-create__error" role="alert">
+                    {stageCreateError}
+                  </p>
                 )}
-              </header>
+              </form>
+            ) : (
+              <button
+                className="deals-add-stage"
+                type="button"
+                aria-label="Добавить этап"
+                onClick={openStageEditor}
+              >
+                +
+              </button>
+            )}
+          </article>
+        </div>
+      </section>
 
-              <div className="deals-column__cards">
-                {stageDeals.map((deal) => (
-                  <DealCard
-                    deal={deal}
-                    isMoving={movingDealId === deal.id}
-                    key={deal.id}
-                    onDragStart={(event) => handleDealDragStart(event, deal, stage.id)}
-                    onDragEnd={handleDealDragEnd}
-                  />
-                ))}
-              </div>
-            </article>
-          )
-        })}
-
-        <article className="deals-column deals-column--add-stage">
-          {isStageEditorOpen ? (
-            <form className="deals-stage-create" onSubmit={(event) => void handleStageCreate(event)}>
-              <div className="deals-stage-create__row">
-                <input
-                  className="deals-stage-create__input"
-                  type="text"
-                  value={newStageName}
-                  maxLength={100}
-                  autoFocus
-                  placeholder="Название этапа"
-                  aria-label="Название нового этапа"
-                  disabled={isStageSaving}
-                  onChange={(event) => {
-                    setNewStageName(event.target.value)
-                    setStageCreateError('')
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                      event.preventDefault()
-                      closeStageEditor()
-                    }
-                  }}
-                />
-
-                <button
-                  className="deals-stage-create__button deals-stage-create__button--save"
-                  type="submit"
-                  aria-label="Сохранить этап"
-                  disabled={isStageSaving || !newStageName.trim()}
-                >
-                  {isStageSaving ? '…' : '✓'}
-                </button>
-
-                <button
-                  className="deals-stage-create__button"
-                  type="button"
-                  aria-label="Отменить создание этапа"
-                  disabled={isStageSaving}
-                  onClick={closeStageEditor}
-                >
-                  ×
-                </button>
-              </div>
-
-              {stageCreateError && (
-                <p className="deals-stage-create__error" role="alert">
-                  {stageCreateError}
-                </p>
-              )}
-            </form>
-          ) : (
-            <button
-              className="deals-add-stage"
-              type="button"
-              aria-label="Добавить этап"
-              onClick={openStageEditor}
-            >
-              +
-            </button>
-          )}
-        </article>
-      </div>
-    </section>
+      {isDealModalOpen && (
+        <CreateDealModal
+          onClose={() => setIsDealModalOpen(false)}
+          onCreated={handleDealCreated}
+        />
+      )}
+    </>
   )
 }
 
