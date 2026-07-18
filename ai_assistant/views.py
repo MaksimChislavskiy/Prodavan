@@ -36,6 +36,7 @@ from .serializers import (
     AISettingsUpdateSerializer,
     KnowledgeDocumentSerializer,
 )
+from .throttles import KnowledgeUploadWorkspaceThrottle
 from .services import (
     AISettingsServiceError,
     get_ai_settings,
@@ -275,6 +276,7 @@ class AIAuditView(APIView):
 
 class KnowledgeFilesView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [KnowledgeUploadWorkspaceThrottle]
 
     def get(self, request):
         workspace, error_response = _admin_workspace_or_error(request)

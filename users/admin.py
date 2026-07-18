@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import (
+    AuthAuditLog,
+    AuthEmailDelivery,
     DeletedEmailReservation,
     PasswordResetToken,
     ProfileAuditLog,
@@ -84,6 +86,34 @@ class DeletedEmailReservationAdmin(admin.ModelAdmin):
     list_display = ('user_identifier', 'deleted_at', 'release_at')
     search_fields = ('user_identifier', 'email_hash')
     readonly_fields = ('email_hash',)
+
+
+@admin.register(AuthEmailDelivery)
+class AuthEmailDeliveryAdmin(admin.ModelAdmin):
+    list_display = (
+        'purpose', 'status', 'attempts', 'next_attempt_at', 'expires_at',
+        'created_at',
+    )
+    list_filter = ('purpose', 'status')
+    search_fields = ('recipient_hash',)
+    readonly_fields = (
+        'recipient_hash', 'purpose', 'encrypted_payload', 'status', 'attempts',
+        'next_attempt_at', 'expires_at', 'sent_at', 'last_error', 'created_at',
+        'updated_at',
+    )
+
+
+@admin.register(AuthAuditLog)
+class AuthAuditLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'action', 'successful', 'user_identifier', 'ip_address', 'created_at',
+    )
+    list_filter = ('action', 'successful')
+    search_fields = ('email_hash', 'user_identifier', 'user__email')
+    readonly_fields = (
+        'user', 'user_identifier', 'email_hash', 'action', 'successful',
+        'details', 'ip_address', 'user_agent', 'created_at',
+    )
 
 
 @admin.register(ProfileAuditLog)

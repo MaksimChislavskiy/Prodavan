@@ -127,6 +127,17 @@ class KnowledgeBaseApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.data['access_token']
 
+    def test_upload_is_rate_limited_per_workspace(self):
+        access = self._login()
+        auth = self._auth(access)
+
+        for _ in range(30):
+            response = self.client.post(self.url, {}, format='multipart', **auth)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        limited = self.client.post(self.url, {}, format='multipart', **auth)
+
+        self.assertEqual(limited.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
     @staticmethod
     def _auth(access):
         return {'HTTP_AUTHORIZATION': f'Bearer {access}'}

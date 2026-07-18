@@ -8,7 +8,13 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from .models import PasswordResetToken, RefreshToken, User
+from .models import (
+    AuthAuditAction,
+    AuthAuditLog,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+)
 
 
 @override_settings(
@@ -189,6 +195,23 @@ class PasswordResetApiTests(TestCase):
         self.assertEqual(
             refresh_response.status_code,
             status.HTTP_401_UNAUTHORIZED,
+        )
+        self.assertEqual(
+            set(
+                AuthAuditLog.objects.filter(
+                    action__in=(
+                        AuthAuditAction.PASSWORD_RESET_REQUESTED,
+                        AuthAuditAction.PASSWORD_RESET_CODE_CONFIRMED,
+                        AuthAuditAction.PASSWORD_RESET_COMPLETED,
+                    ),
+                    successful=True,
+                ).values_list('action', flat=True),
+            ),
+            {
+                AuthAuditAction.PASSWORD_RESET_REQUESTED,
+                AuthAuditAction.PASSWORD_RESET_CODE_CONFIRMED,
+                AuthAuditAction.PASSWORD_RESET_COMPLETED,
+            },
         )
 
     def test_reset_rejects_weak_password(self):

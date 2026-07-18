@@ -88,11 +88,6 @@ class NotificationsView(APIView):
             },
         )
 
-    def delete(self, request):
-        delete_all_notifications(user=request.user)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
 class NotificationUnreadCountView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -131,3 +126,14 @@ class NotificationMarkAllReadView(APIView):
     def post(self, request):
         updated = mark_all_read(user=request.user)
         return Response({'updated': updated, 'unread_count': 0})
+
+
+class NotificationDeleteAllView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        deleted_count = delete_all_notifications(user=request.user)
+        return Response(
+            {'deleted_count': deleted_count},
+            status=status.HTTP_200_OK,
+        )

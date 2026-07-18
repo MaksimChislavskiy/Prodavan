@@ -5,7 +5,7 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from .models import RefreshToken, User
+from .models import AuthAuditAction, AuthAuditLog, RefreshToken, User
 
 
 @override_settings(
@@ -44,6 +44,12 @@ class SessionApiTests(TestCase):
         self.assertEqual(response.data['user']['email'], 'owner@example.com')
         self.assertTrue(response.cookies['refresh']['httponly'])
         self.assertEqual(RefreshToken.objects.filter(user=self.user).count(), 1)
+        audit = AuthAuditLog.objects.get(
+            action=AuthAuditAction.LOGIN,
+            successful=True,
+        )
+        self.assertEqual(audit.user, self.user)
+        self.assertNotEqual(audit.email_hash, self.user.email)
 
     def test_login_rejects_unconfirmed_user(self):
         self.user.is_confirmed = False

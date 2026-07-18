@@ -23,6 +23,7 @@ class NotificationsApiTests(TestCase):
     notifications_url = '/api/notifications'
     unread_count_url = '/api/notifications/unread-count'
     mark_all_read_url = '/api/notifications/mark-all-read'
+    delete_all_url = '/api/notifications/all'
     login_url = '/api/auth/login'
 
     def setUp(self):
@@ -156,14 +157,15 @@ class NotificationsApiTests(TestCase):
             **self._auth(access),
         )
         deleted_all = self.client.delete(
-            self.notifications_url,
+            self.delete_all_url,
             **self._auth(access),
         )
 
         self.assertEqual(marked.status_code, status.HTTP_200_OK)
         self.assertEqual(marked.data['updated'], 3)
         self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(deleted_all.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(deleted_all.status_code, status.HTTP_200_OK)
+        self.assertEqual(deleted_all.data, {'deleted_count': 2})
         self.assertEqual(Notification.objects.count(), 3)
         self.assertFalse(
             Notification.objects.filter(is_deleted=False).exists(),

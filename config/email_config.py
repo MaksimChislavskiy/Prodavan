@@ -49,7 +49,7 @@ def build_email_config(*, debug):
             'EMAIL_BACKEND': backend,
             'DEFAULT_FROM_EMAIL': sender,
             'SERVER_EMAIL': sender,
-            'EMAIL_TIMEOUT': max(1, env_int('EMAIL_TIMEOUT', 10)),
+            'EMAIL_TIMEOUT': min(10, max(1, env_int('EMAIL_TIMEOUT', 10))),
         }
 
     host = env('EMAIL_HOST', '').strip()
@@ -94,9 +94,9 @@ def build_email_config(*, debug):
     sender = _validated_sender(sender)
 
     timeout = env_int('EMAIL_TIMEOUT', 10)
-    if timeout < 1:
+    if not 1 <= timeout <= 10:
         raise ImproperlyConfigured(
-            'EMAIL_TIMEOUT должен быть не меньше 1 секунды.',
+            'EMAIL_TIMEOUT должен быть от 1 до 10 секунд.',
         )
 
     return {

@@ -183,6 +183,16 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# bcrypt is the primary password hasher required by the product specification.
+# Legacy Django hashes remain readable and are upgraded after a successful login.
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.ScryptPasswordHasher',
+]
+
 # Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
@@ -225,6 +235,7 @@ REST_FRAMEWORK = {
         'onboarding': '120/min',
         'telegram_connect': '10/min',
         'telegram_webhook': '100/sec',
+        'knowledge_file_upload': '30/hour',
     },
 }
 

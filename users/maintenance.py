@@ -1,7 +1,12 @@
+from datetime import timedelta
+
 from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
+    AuthAuditLog,
+    AuthEmailDelivery,
+    AuthEmailDeliveryStatus,
     DeletedEmailReservation,
     PasswordResetToken,
     RefreshToken,
@@ -50,6 +55,26 @@ def cleanup_expired_auth_records(*, now=None, batch_size=1000):
         'email_reservations': _delete_in_batches(
             model=DeletedEmailReservation,
             queryset=DeletedEmailReservation.objects.filter(release_at__lte=now),
+            batch_size=batch_size,
+        ),
+        'auth_email_deliveries': _delete_in_batches(
+            model=AuthEmailDelivery,
+            queryset=AuthEmailDelivery.objects.filter(
+                status__in=(
+                    AuthEmailDeliveryStatus.SENT,
+                    AuthEmailDeliveryStatus.FAILED,
+                    AuthEmailDeliveryStatus.CANCELLED,
+                    AuthEmailDeliveryStatus.EXPIRED,
+                ),
+                updated_at__lte=now - timedelta(days=30),
+            ),
+            batch_size=batch_size,
+        ),
+        'auth_audit_logs': _delete_in_batches(
+            model=AuthAuditLog,
+            queryset=AuthAuditLog.objects.filter(
+                created_at__lt=now - timedelta(days=366),
+            ),
             batch_size=batch_size,
         ),
     }

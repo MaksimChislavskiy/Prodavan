@@ -151,6 +151,7 @@ activemq-data/
 # Environments
 .env
 .envrc
+cookies.txt
 .venv
 env/
 venv/

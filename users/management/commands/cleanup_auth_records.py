@@ -26,6 +26,8 @@ class Command(BaseCommand):
                 'password_reset={password_reset_tokens}, '
                 'refresh={refresh_tokens}, '
                 'email_reservations={email_reservations}, '
+                'email_deliveries={auth_email_deliveries}, '
+                'audit_logs={auth_audit_logs}, '
                 'total={total}.'.format(**counters),
             ),
         )
