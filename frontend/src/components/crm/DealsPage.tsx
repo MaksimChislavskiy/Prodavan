@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type DragEvent, type FormEvent } from 'react'
 import {
   createSalesStage,
   getKanban,
+  moveDeal,
   type ApiKanbanDeal,
   type ApiKanbanResponse,
 } from '../../shared/api/dealsApi'
@@ -11,6 +12,11 @@ type DealsPageState = {
   data: ApiKanbanResponse | null
   isLoading: boolean
   error: string
+}
+
+type DraggedDeal = {
+  deal: ApiKanbanDeal
+  sourceStageId: string
 }
 
 const initialState: DealsPageState = {
@@ -26,6 +32,10 @@ export function DealsPage() {
   const [newStageName, setNewStageName] = useState('')
   const [isStageSaving, setIsStageSaving] = useState(false)
   const [stageCreateError, setStageCreateError] = useState('')
+  const [draggedDeal, setDraggedDeal] = useState<DraggedDeal | null>(null)
+  const [dropTargetStageId, setDropTargetStageId] = useState('')
+  const [movingDealId, setMovingDealId] = useState('')
+  const [dealMoveError, setDealMoveError] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -122,7 +132,6 @@ export function DealsPage() {
         name,
         order: state.data.stages.length + 1,
       })
-
       setState((currentState) => {
         if (!currentState.data) {
           return currentState
@@ -157,6 +166,144 @@ export function DealsPage() {
     }
   }
 
+  const handleDealDragStart = (
+    event: DragEvent<HTMLElement>,
+    deal: ApiKanbanDeal,
+    sourceStageId: string,
+  ) => {
+    if (movingDealId) {
+      event.preventDefault()
+      return
+    }
+
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', deal.id)
+    setDraggedDeal({ deal, sourceStageId })
+    setDropTargetStageId('')
+    setDealMoveError('')
+  }
+
+  const handleDealDragEnd = () => {
+    setDraggedDeal(null)
+    setDropTargetStageId('')
+  }
+
+  const handleStageDragOver = (
+    event: DragEvent<HTMLElement>,
+    targetStageId: string,
+  ) => {
+    if (
+      !draggedDeal ||
+      movingDealId ||
+      draggedDeal.sourceStageId === targetStageId
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+
+    if (dropTargetStageId !== targetStageId) {
+      setDropTargetStageId(targetStageId)
+    }
+  }
+
+  const handleStageDragLeave = (
+    event: DragEvent<HTMLElement>,
+    stageId: string,
+  ) => {
+    const relatedTarget = event.relatedTarget
+
+    if (
+      dropTargetStageId === stageId &&
+      (!(relatedTarget instanceof Node) || !event.currentTarget.contains(relatedTarget))
+    ) {
+      setDropTargetStageId('')
+    }
+  }
+
+  const handleStageDrop = (
+    event: DragEvent<HTMLElement>,
+    targetStageId: string,
+  ) => {
+    event.preventDefault()
+    void moveDraggedDeal(targetStageId)
+  }
+
+  const moveDraggedDeal = async (targetStageId: string) => {
+    const dragged = draggedDeal
+
+    setDraggedDeal(null)
+    setDropTargetStageId('')
+
+    if (
+      !dragged ||
+      movingDealId ||
+      dragged.sourceStageId === targetStageId
+    ) {
+      return
+    }
+
+    setMovingDealId(dragged.deal.id)
+    setDealMoveError('')
+
+    try {
+      const updatedDeal = await moveDeal(dragged.deal.id, {
+        stage_id: targetStageId,
+        version: dragged.deal.version,
+      })
+
+      setState((currentState) => {
+        if (!currentState.data) {
+          return currentState
+        }
+
+        const sourceDeals = currentState.data.deals[dragged.sourceStageId] ?? []
+        const targetDeals = currentState.data.deals[targetStageId] ?? []
+
+        return {
+          ...currentState,
+          data: {
+            stages: currentState.data.stages.map((stage) => {
+              if (stage.id === dragged.sourceStageId) {
+                return {
+                  ...stage,
+                  deal_count: Math.max(0, stage.deal_count - 1),
+                }
+              }
+
+              if (stage.id === targetStageId) {
+                return {
+                  ...stage,
+                  deal_count: stage.deal_count + 1,
+                }
+              }
+
+              return stage
+            }),
+            deals: {
+              ...currentState.data.deals,
+              [dragged.sourceStageId]: sourceDeals.filter(
+                (deal) => deal.id !== dragged.deal.id,
+              ),
+              [targetStageId]: [
+                updatedDeal,
+                ...targetDeals.filter((deal) => deal.id !== dragged.deal.id),
+              ],
+            },
+          },
+        }
+      })
+    } catch (error) {
+      setDealMoveError(
+        error instanceof Error ? error.message : 'Не удалось переместить сделку.',
+      )
+      setRequestVersion((currentVersion) => currentVersion + 1)
+    } finally {
+      setMovingDealId('')
+    }
+  }
+
   if (state.isLoading) {
     return <DealsSkeleton />
   }
@@ -179,12 +326,25 @@ export function DealsPage() {
 
   return (
     <section className="deals-page" aria-label="Сделки">
+      {dealMoveError && (
+        <p className="deals-page__error" role="alert">
+          {dealMoveError}
+        </p>
+      )}
+
       <div className="deals-board" aria-label="Воронка сделок">
         {state.data.stages.map((stage) => {
           const stageDeals = state.data?.deals[stage.id] ?? []
+          const isDropTarget = dropTargetStageId === stage.id
 
           return (
-            <article className="deals-column" key={stage.id}>
+            <article
+              className={`deals-column${isDropTarget ? ' deals-column--drop-target' : ''}`}
+              key={stage.id}
+              onDragOver={(event) => handleStageDragOver(event, stage.id)}
+              onDragLeave={(event) => handleStageDragLeave(event, stage.id)}
+              onDrop={(event) => handleStageDrop(event, stage.id)}
+            >
               <header className="deals-stage">
                 <div className="deals-stage__meta">
                   <span className="deals-stage__title" title={stage.name}>
@@ -218,7 +378,13 @@ export function DealsPage() {
 
               <div className="deals-column__cards">
                 {stageDeals.map((deal) => (
-                  <DealCard deal={deal} key={deal.id} />
+                  <DealCard
+                    deal={deal}
+                    isMoving={movingDealId === deal.id}
+                    key={deal.id}
+                    onDragStart={(event) => handleDealDragStart(event, deal, stage.id)}
+                    onDragEnd={handleDealDragEnd}
+                  />
                 ))}
               </div>
             </article>
@@ -292,9 +458,22 @@ export function DealsPage() {
   )
 }
 
-function DealCard({ deal }: { deal: ApiKanbanDeal }) {
+type DealCardProps = {
+  deal: ApiKanbanDeal
+  isMoving: boolean
+  onDragStart: (event: DragEvent<HTMLElement>) => void
+  onDragEnd: () => void
+}
+
+function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
   return (
-    <article className="deals-card">
+    <article
+      className={`deals-card${isMoving ? ' deals-card--moving' : ''}`}
+      draggable={!isMoving}
+      aria-grabbed="false"
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
       <div className="deals-card__header">
         <h2 className="deals-card__title" title={deal.name}>
           {deal.name}

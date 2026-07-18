@@ -10,7 +10,14 @@ from rest_framework.test import APIClient
 
 from workspaces.models import Workspace
 
-from .models import RefreshToken, RegistrationToken, User, UserRole
+from .models import (
+    AuthAuditAction,
+    AuthAuditLog,
+    RefreshToken,
+    RegistrationToken,
+    User,
+    UserRole,
+)
 
 
 TEST_SETTINGS = {
@@ -171,6 +178,18 @@ class RegistrationApiTests(TestCase):
         self.assertEqual(RefreshToken.objects.filter(user=user).count(), 1)
         self.assertTrue(response.cookies['refresh']['httponly'])
         self.assertEqual(response.cookies['refresh']['samesite'], 'Lax')
+        self.assertEqual(
+            set(
+                AuthAuditLog.objects.filter(successful=True).values_list(
+                    'action',
+                    flat=True,
+                ),
+            ),
+            {
+                AuthAuditAction.REGISTRATION_REQUESTED,
+                AuthAuditAction.REGISTRATION_CONFIRMED,
+            },
+        )
 
     def test_confirm_increments_attempts_and_blocks_fifth_error(self):
         self._start_registration()

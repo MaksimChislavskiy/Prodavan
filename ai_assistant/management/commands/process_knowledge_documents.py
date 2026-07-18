@@ -14,5 +14,6 @@ class Command(QueueWorkerCommand):
     def format_result(self, result):
         return (
             f"Обработано: {result['processed']}; "
-            f"готово: {result['ready']}; ошибок: {result['failed']}."
+            f"готово: {result['ready']}; ошибок: {result['failed']}; "
+            f"таймаутов: {result.get('timed_out', 0)}."
         )

@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from .audit import write_auth_audit
+from .models import AuthAuditAction
 from .serializers import (
     ForgotPasswordSerializer,
     LoginSerializer,
@@ -99,10 +101,25 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegistrationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        audit_email = serializer.validated_data['email']
         try:
             email = start_registration(**serializer.validated_data)
         except RegistrationServiceError as error:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.REGISTRATION_REQUESTED,
+                email=audit_email,
+                successful=False,
+                details={'status_code': error.status_code},
+            )
             return Response(error.response_data, status=error.status_code)
+
+        write_auth_audit(
+            request=request,
+            action=AuthAuditAction.REGISTRATION_REQUESTED,
+            email=email,
+            successful=True,
+        )
 
         return Response(
             {
@@ -122,18 +139,40 @@ class ConfirmRegistrationView(APIView):
     def post(self, request):
         serializer = RegistrationConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
         try:
             user, access_token, refresh_token, refresh_expires_at = (
                 confirm_registration(**serializer.validated_data)
             )
         except RegistrationServiceError as error:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.REGISTRATION_CONFIRMED,
+                email=email,
+                successful=False,
+                details={'status_code': error.status_code},
+            )
             return Response(error.response_data, status=error.status_code)
         except IntegrityError:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.REGISTRATION_CONFIRMED,
+                email=email,
+                successful=False,
+                details={'status_code': status.HTTP_400_BAD_REQUEST},
+            )
             return Response(
                 {'email': ['Пользователь с таким e-mail уже существует.']},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        write_auth_audit(
+            request=request,
+            action=AuthAuditAction.REGISTRATION_CONFIRMED,
+            email=email,
+            successful=True,
+            user=user,
+        )
         response = Response(
             {
                 'message': 'Регистрация завершена',
@@ -158,18 +197,49 @@ class LoginView(APIView):
         ip_address = request.META.get('REMOTE_ADDR', '')
 
         if login_is_blocked(ip_address, email):
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.LOGIN,
+                email=email,
+                successful=False,
+                details={'reason': 'rate_limited'},
+            )
             return _too_many_login_attempts_response()
 
         user = User.objects.filter(email__iexact=email).first()
         if user is None or not user.is_active or not user.check_password(password):
             if record_failed_login(ip_address, email):
+                write_auth_audit(
+                    request=request,
+                    action=AuthAuditAction.LOGIN,
+                    email=email,
+                    successful=False,
+                    user=user,
+                    details={'reason': 'rate_limited'},
+                )
                 return _too_many_login_attempts_response()
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.LOGIN,
+                email=email,
+                successful=False,
+                user=user,
+                details={'reason': 'invalid_credentials'},
+            )
             return Response(
                 {'detail': 'Неверный e-mail или пароль.'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not user.is_confirmed:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.LOGIN,
+                email=email,
+                successful=False,
+                user=user,
+                details={'reason': 'email_not_confirmed'},
+            )
             return Response(
                 {'detail': 'E-mail не подтверждён.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -178,6 +248,13 @@ class LoginView(APIView):
         clear_login_failures(ip_address, email)
         update_last_login(None, user)
         access_token, refresh_token, refresh_expires_at, _ = issue_token_pair(user)
+        write_auth_audit(
+            request=request,
+            action=AuthAuditAction.LOGIN,
+            email=email,
+            successful=True,
+            user=user,
+        )
         response = Response(
             {
                 'access_token': access_token,
@@ -242,10 +319,25 @@ class ForgotPasswordView(APIView):
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
         try:
             start_password_reset(**serializer.validated_data)
         except PasswordResetServiceError as error:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.PASSWORD_RESET_REQUESTED,
+                email=email,
+                successful=False,
+                details={'status_code': error.status_code},
+            )
             return Response(error.response_data, status=error.status_code)
+
+        write_auth_audit(
+            request=request,
+            action=AuthAuditAction.PASSWORD_RESET_REQUESTED,
+            email=email,
+            successful=True,
+        )
 
         return Response(
             {'message': 'Код восстановления отправлен на e-mail'},
@@ -262,10 +354,25 @@ class ConfirmPasswordResetView(APIView):
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
         try:
             confirm_password_reset_code(**serializer.validated_data)
         except PasswordResetServiceError as error:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.PASSWORD_RESET_CODE_CONFIRMED,
+                email=email,
+                successful=False,
+                details={'status_code': error.status_code},
+            )
             return Response(error.response_data, status=error.status_code)
+
+        write_auth_audit(
+            request=request,
+            action=AuthAuditAction.PASSWORD_RESET_CODE_CONFIRMED,
+            email=email,
+            successful=True,
+        )
 
         return Response(
             {'message': 'Код подтверждён'},
@@ -280,10 +387,25 @@ class ResetPasswordView(APIView):
     def post(self, request):
         serializer = PasswordResetSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
         try:
             reset_password(**serializer.validated_data)
         except PasswordResetServiceError as error:
+            write_auth_audit(
+                request=request,
+                action=AuthAuditAction.PASSWORD_RESET_COMPLETED,
+                email=email,
+                successful=False,
+                details={'status_code': error.status_code},
+            )
             return Response(error.response_data, status=error.status_code)
+
+        write_auth_audit(
+            request=request,
+            action=AuthAuditAction.PASSWORD_RESET_COMPLETED,
+            email=email,
+            successful=True,
+        )
 
         return Response(
             {'message': 'Пароль успешно изменён'},

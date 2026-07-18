@@ -2,10 +2,8 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone as datetime_timezone
 
-from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.cache import cache
-from django.core.mail import send_mail
 from django.db import transaction
 from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
@@ -13,7 +11,9 @@ from rest_framework_simplejwt.tokens import RefreshToken as JWTRefreshToken
 
 from workspaces.models import Workspace
 
+from .email_delivery import deliver_or_enqueue_auth_email
 from .models import (
+    AuthEmailPurpose,
     DeletedEmailReservation,
     PasswordResetToken,
     RefreshToken,
@@ -239,21 +239,22 @@ def start_password_reset(*, email):
             used=True,
             updated_at=now,
         )
+        code_expires_at = now + PASSWORD_RESET_CODE_TTL
         PasswordResetToken.objects.create(
             user=user,
             reset_code_hash=make_password(code),
-            code_expires_at=now + PASSWORD_RESET_CODE_TTL,
+            code_expires_at=code_expires_at,
         )
-        send_mail(
+        deliver_or_enqueue_auth_email(
+            recipient=email,
+            purpose=AuthEmailPurpose.PASSWORD_RESET,
             subject='Код восстановления пароля в «Продаван»',
             message=(
                 f'Ваш код восстановления: {code}\n\n'
                 'Код действует 10 минут. Если вы не запрашивали восстановление, '
                 'просто проигнорируйте это письмо.'
             ),
-            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
-            recipient_list=[email],
-            fail_silently=False,
+            expires_at=code_expires_at,
         )
 
     _record_password_reset_request(email)
@@ -355,6 +356,7 @@ def start_registration(*, name, surname, email, password):
 
     with transaction.atomic():
         _release_or_reject_existing_user(email)
+        code_expires_at = timezone.now() + REGISTRATION_CODE_TTL
         RegistrationToken.objects.update_or_create(
             email=email,
             defaults={
@@ -362,21 +364,21 @@ def start_registration(*, name, surname, email, password):
                 'surname': surname,
                 'password_hash': make_password(password),
                 'confirmation_code_hash': make_password(code),
-                'code_expires_at': timezone.now() + REGISTRATION_CODE_TTL,
+                'code_expires_at': code_expires_at,
                 'attempts': 0,
                 'expired': False,
             },
         )
-        send_mail(
+        deliver_or_enqueue_auth_email(
+            recipient=email,
+            purpose=AuthEmailPurpose.REGISTRATION,
             subject='Код подтверждения регистрации в «Продаван»',
             message=(
                 f'Ваш код подтверждения: {code}\n\n'
                 'Код действует 10 минут. Если вы не регистрировались, '
                 'просто проигнорируйте это письмо.'
             ),
-            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
-            recipient_list=[email],
-            fail_silently=False,
+            expires_at=code_expires_at,
         )
 
     return email

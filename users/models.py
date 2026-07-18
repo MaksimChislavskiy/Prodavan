@@ -22,6 +22,37 @@ class ProfileAuditAction(models.TextChoices):
     ACCOUNT_DELETED = 'account_deleted', 'Удаление аккаунта'
 
 
+class AuthAuditAction(models.TextChoices):
+    REGISTRATION_REQUESTED = 'registration_requested', 'Запрос регистрации'
+    REGISTRATION_CONFIRMED = 'registration_confirmed', 'Регистрация подтверждена'
+    LOGIN = 'login', 'Вход'
+    PASSWORD_RESET_REQUESTED = (
+        'password_reset_requested',
+        'Запрос восстановления пароля',
+    )
+    PASSWORD_RESET_CODE_CONFIRMED = (
+        'password_reset_code_confirmed',
+        'Код восстановления подтверждён',
+    )
+    PASSWORD_RESET_COMPLETED = (
+        'password_reset_completed',
+        'Пароль восстановлен',
+    )
+
+
+class AuthEmailPurpose(models.TextChoices):
+    REGISTRATION = 'registration', 'Подтверждение регистрации'
+    PASSWORD_RESET = 'password_reset', 'Восстановление пароля'
+
+
+class AuthEmailDeliveryStatus(models.TextChoices):
+    PENDING = 'pending', 'Ожидает отправки'
+    SENT = 'sent', 'Отправлено'
+    FAILED = 'failed', 'Ошибка'
+    CANCELLED = 'cancelled', 'Отменено'
+    EXPIRED = 'expired', 'Истекло'
+
+
 class TariffChoices(models.TextChoices):
     FREE = 'free', 'Бесплатный'
     PRO = 'pro', 'Профессиональный'
@@ -286,6 +317,75 @@ class DeletedEmailReservation(TimestampMixin):
     class Meta:
         db_table = 'deleted_email_reservations'
         ordering = ('-deleted_at',)
+
+
+class AuthEmailDelivery(TimestampMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipient_hash = models.CharField(max_length=64, db_index=True)
+    purpose = models.CharField(max_length=32, choices=AuthEmailPurpose.choices)
+    encrypted_payload = models.JSONField()
+    status = models.CharField(
+        max_length=16,
+        choices=AuthEmailDeliveryStatus.choices,
+        default=AuthEmailDeliveryStatus.PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=1000, blank=True, default='')
+
+    class Meta:
+        db_table = 'auth_email_deliveries'
+        ordering = ('next_attempt_at', 'created_at')
+        indexes = [
+            models.Index(
+                fields=('status', 'next_attempt_at'),
+                name='auth_email_queue_idx',
+            ),
+            models.Index(
+                fields=('recipient_hash', 'purpose', 'status'),
+                name='auth_email_recipient_idx',
+            ),
+        ]
+
+
+class AuthAuditLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='auth_audit_logs',
+    )
+    user_identifier = models.UUIDField(null=True, blank=True, db_index=True)
+    email_hash = models.CharField(max_length=64, db_index=True)
+    action = models.CharField(
+        max_length=40,
+        choices=AuthAuditAction.choices,
+        db_index=True,
+    )
+    successful = models.BooleanField(default=False, db_index=True)
+    details = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'auth_audit_logs'
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(
+                fields=('action', 'successful', '-created_at'),
+                name='auth_audit_action_idx',
+            ),
+            models.Index(
+                fields=('email_hash', '-created_at'),
+                name='auth_audit_email_idx',
+            ),
+        ]
 
 
 class ProfileAuditLog(models.Model):

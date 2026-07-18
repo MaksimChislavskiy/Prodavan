@@ -4,6 +4,10 @@ from django.urls import include, path
 from config.health_views import liveness, readiness
 from users.profile_views import AvatarView, ChangePasswordView, ProfileView
 from workspaces.views import WorkspaceSettingsView
+from workspaces.onboarding_views import (
+    OnboardingMaterialsViewedView,
+    OnboardingStatusView,
+)
 from workspaces.telegram_views import (
     TelegramConnectView,
     TelegramDisconnectView,
@@ -25,6 +29,16 @@ urlpatterns = [
     path('api/', include('ai_assistant.urls')),
     path('api/profile', ProfileView.as_view(), name='profile'),
     path('api/profile/avatar', AvatarView.as_view(), name='profile-avatar'),
+    path(
+        'api/user/onboarding-status',
+        OnboardingStatusView.as_view(),
+        name='onboarding-status',
+    ),
+    path(
+        'api/user/onboarding/materials-viewed',
+        OnboardingMaterialsViewedView.as_view(),
+        name='onboarding-materials-viewed',
+    ),
     path(
         'api/profile/change-password',
         ChangePasswordView.as_view(),
