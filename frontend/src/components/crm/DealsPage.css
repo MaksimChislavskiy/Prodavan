@@ -7,6 +7,19 @@
   padding-bottom: 24px;
 }
 
+.deals-page__error {
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(226, 15, 15, 0.35);
+  border-radius: 10px;
+  background: rgba(226, 15, 15, 0.08);
+  color: #b10b0b;
+  font-size: 13px;
+  line-height: 18px;
+}
+
 .deals-board {
   width: max-content;
   min-width: 100%;
@@ -34,6 +47,7 @@
   border-radius: 10px;
   background: #ecf4ff;
   color: #0b2b55;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
 .deals-stage__meta {
@@ -97,6 +111,18 @@
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
+  border-radius: 10px;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.deals-column--drop-target .deals-stage {
+  background: #dcecff;
+  box-shadow: 0 0 0 2px rgba(11, 43, 85, 0.18);
+}
+
+.deals-column--drop-target .deals-column__cards {
+  background: rgba(220, 236, 255, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(11, 43, 85, 0.18);
 }
 
 .deals-card {
@@ -108,6 +134,23 @@
   border-radius: 10px;
   background: #ffffff;
   color: #0b2b55;
+  cursor: grab;
+  user-select: none;
+  transition: opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.deals-card:hover {
+  box-shadow: 0 4px 12px rgba(11, 43, 85, 0.12);
+}
+
+.deals-card:active {
+  cursor: grabbing;
+}
+
+.deals-card--moving {
+  opacity: 0.55;
+  cursor: wait;
+  pointer-events: none;
 }
 
 .deals-card__header {
