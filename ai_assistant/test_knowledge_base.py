@@ -3,12 +3,14 @@ import shutil
 import tempfile
 import uuid
 import zipfile
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -23,8 +25,12 @@ from .models import (
     KnowledgeDocumentStatus,
 )
 from .processing import (
+    PROCESSING_TIMEOUT,
+    PROCESSING_TIMEOUT_REASON,
     extract_document_text,
+    fail_timed_out_knowledge_documents,
     process_knowledge_document,
+    process_pending_knowledge_documents,
     split_into_chunks,
 )
 
@@ -32,6 +38,19 @@ from .processing import (
 class FakeEmbeddingClient:
     def create_embeddings(self, texts):
         return [[float(len(text)), 1.0] for text in texts]
+
+
+class TimeoutDuringEmbeddingClient(FakeEmbeddingClient):
+    def __init__(self, document_id):
+        self.document_id = document_id
+
+    def create_embeddings(self, texts):
+        now = timezone.now()
+        KnowledgeDocument.objects.filter(id=self.document_id).update(
+            processing_started_at=now - PROCESSING_TIMEOUT - timedelta(seconds=1),
+        )
+        fail_timed_out_knowledge_documents(now=now)
+        return super().create_embeddings(texts)
 
 
 def text_upload(name='Инструкция.txt', content='Полезный текст для клиента.'):
@@ -392,6 +411,85 @@ class KnowledgeBaseApiTests(TestCase):
         self.assertEqual(result, KnowledgeDocumentStatus.FAILED)
         self.assertEqual(document.status, KnowledgeDocumentStatus.FAILED)
         self.assertEqual(document.error_reason, 'Сервис эмбеддингов не настроен.')
+
+    def test_processing_timeout_uses_strict_thirty_minute_boundary(self):
+        now = timezone.now()
+        timed_out = self._document(
+            original_name='Просрочен.txt',
+            processing_started_at=now - PROCESSING_TIMEOUT - timedelta(microseconds=1),
+        )
+        at_boundary = self._document(
+            original_name='На границе.txt',
+            processing_started_at=now - PROCESSING_TIMEOUT,
+        )
+        active = self._document(
+            original_name='Активен.txt',
+            processing_started_at=now - timedelta(minutes=10),
+        )
+        deleted = self._document(
+            original_name='Удалён.txt',
+            processing_started_at=now - PROCESSING_TIMEOUT - timedelta(minutes=1),
+            is_deleted=True,
+            deleted_at=now,
+        )
+
+        count = fail_timed_out_knowledge_documents(now=now, limit=10)
+
+        self.assertEqual(count, 1)
+        timed_out.refresh_from_db()
+        self.assertEqual(timed_out.status, KnowledgeDocumentStatus.FAILED)
+        self.assertEqual(timed_out.error_reason, PROCESSING_TIMEOUT_REASON)
+        self.assertIsNone(timed_out.processing_started_at)
+        self.assertEqual(timed_out.processed_at, now)
+        for document in (at_boundary, active, deleted):
+            document.refresh_from_db()
+            self.assertEqual(document.status, KnowledgeDocumentStatus.PROCESSING)
+
+    def test_pending_worker_reports_timeout_without_reclaiming_active_lock(self):
+        now = timezone.now()
+        timed_out = self._document(
+            original_name='Просрочен.txt',
+            processing_started_at=now - PROCESSING_TIMEOUT - timedelta(seconds=1),
+        )
+        active = self._document(
+            original_name='Активен.txt',
+            processing_started_at=now - timedelta(minutes=10),
+        )
+
+        result = process_pending_knowledge_documents(
+            limit=10,
+            embedding_client=FakeEmbeddingClient(),
+            now=now,
+        )
+
+        self.assertEqual(
+            result,
+            {'processed': 1, 'ready': 0, 'failed': 1, 'timed_out': 1},
+        )
+        timed_out.refresh_from_db()
+        active.refresh_from_db()
+        self.assertEqual(timed_out.status, KnowledgeDocumentStatus.FAILED)
+        self.assertEqual(active.status, KnowledgeDocumentStatus.PROCESSING)
+
+    def test_late_worker_cannot_overwrite_processing_timeout(self):
+        access = self._login()
+        response = self._upload([text_upload()], access)
+        document = KnowledgeDocument.objects.get(id=response.data['files'][0]['id'])
+
+        result = process_knowledge_document(
+            document.id,
+            embedding_client=TimeoutDuringEmbeddingClient(document.id),
+        )
+
+        document.refresh_from_db()
+        self.assertIsNone(result)
+        self.assertEqual(document.status, KnowledgeDocumentStatus.FAILED)
+        self.assertEqual(document.error_reason, PROCESSING_TIMEOUT_REASON)
+        self.assertFalse(document.chunks.exists())
+
+    def test_timeout_cleanup_rejects_non_positive_limit(self):
+        with self.assertRaisesRegex(ValueError, 'limit'):
+            fail_timed_out_knowledge_documents(limit=0)
 
     def test_docx_and_csv_extractors_return_plain_text(self):
         access = self._login()

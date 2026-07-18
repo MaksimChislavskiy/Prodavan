@@ -8,7 +8,6 @@ from xml.etree import ElementTree
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -27,7 +26,8 @@ CHUNK_TOKENS = 750
 CHUNK_OVERLAP = 100
 MAX_EXTRACTED_CHARACTERS = 10_000_000
 MAX_CHUNKS = 10_000
-PROCESSING_LOCK_TIMEOUT = timedelta(minutes=10)
+PROCESSING_TIMEOUT = timedelta(minutes=30)
+PROCESSING_TIMEOUT_REASON = 'Processing timeout'
 
 
 class DocumentProcessingError(Exception):
@@ -150,7 +150,6 @@ def split_into_chunks(text):
 
 
 def _claim_document(document_id):
-    stale_before = timezone.now() - PROCESSING_LOCK_TIMEOUT
     with transaction.atomic():
         document = (
             KnowledgeDocument.objects.select_for_update()
@@ -160,10 +159,7 @@ def _claim_document(document_id):
         )
         if document is None or document.status != KnowledgeDocumentStatus.PROCESSING:
             return None
-        if (
-            document.processing_started_at is not None
-            and document.processing_started_at > stale_before
-        ):
+        if document.processing_started_at is not None:
             return None
         document.processing_started_at = timezone.now()
         document.processing_attempts += 1
@@ -199,15 +195,20 @@ def _embed_chunks(chunks, client):
     return vectors
 
 
-def _mark_failed(document_id, message):
+def _mark_failed(document_id, message, *, claimed_at):
     with transaction.atomic():
         document = (
             KnowledgeDocument.objects.select_for_update()
-            .filter(id=document_id, is_deleted=False)
+            .filter(
+                id=document_id,
+                is_deleted=False,
+                status=KnowledgeDocumentStatus.PROCESSING,
+                processing_started_at=claimed_at,
+            )
             .first()
         )
         if document is None:
-            return
+            return False
         document.status = KnowledgeDocumentStatus.FAILED
         document.error_reason = message[:1000]
         document.processing_started_at = None
@@ -222,12 +223,51 @@ def _mark_failed(document_id, message):
             ),
         )
         broadcast_document_status(document)
+    return True
+
+
+def fail_timed_out_knowledge_documents(*, now=None, limit=20):
+    if limit < 1:
+        raise ValueError('limit must be greater than zero')
+
+    now = now or timezone.now()
+    timed_out_before = now - PROCESSING_TIMEOUT
+    with transaction.atomic():
+        documents = list(
+            KnowledgeDocument.objects.select_for_update()
+            .filter(
+                status=KnowledgeDocumentStatus.PROCESSING,
+                is_deleted=False,
+                processing_started_at__lt=timed_out_before,
+            )
+            .order_by('processing_started_at', 'id')[:limit],
+        )
+        if not documents:
+            return 0
+
+        document_ids = [document.id for document in documents]
+        KnowledgeDocument.objects.filter(id__in=document_ids).update(
+            status=KnowledgeDocumentStatus.FAILED,
+            error_reason=PROCESSING_TIMEOUT_REASON,
+            processing_started_at=None,
+            processed_at=now,
+            updated_at=now,
+        )
+        for document in documents:
+            document.status = KnowledgeDocumentStatus.FAILED
+            document.error_reason = PROCESSING_TIMEOUT_REASON
+            document.processing_started_at = None
+            document.processed_at = now
+            document.updated_at = now
+            broadcast_document_status(document)
+    return len(documents)
 
 
 def process_knowledge_document(document_id, *, embedding_client=None):
     document = _claim_document(document_id)
     if document is None:
         return None
+    claimed_at = document.processing_started_at
     client = embedding_client or EmbeddingClient()
     try:
         text = clean_text(extract_document_text(document))
@@ -236,7 +276,12 @@ def process_knowledge_document(document_id, *, embedding_client=None):
         with transaction.atomic():
             locked = (
                 KnowledgeDocument.objects.select_for_update()
-                .filter(id=document.id, is_deleted=False)
+                .filter(
+                    id=document.id,
+                    is_deleted=False,
+                    status=KnowledgeDocumentStatus.PROCESSING,
+                    processing_started_at=claimed_at,
+                )
                 .first()
             )
             if locked is None:
@@ -295,25 +340,37 @@ def process_knowledge_document(document_id, *, embedding_client=None):
         message = str(error)
     except Exception:
         message = 'Не удалось обработать документ.'
-    _mark_failed(document.id, message)
-    return KnowledgeDocumentStatus.FAILED
+    if _mark_failed(document.id, message, claimed_at=claimed_at):
+        return KnowledgeDocumentStatus.FAILED
+    return None
 
 
-def process_pending_knowledge_documents(*, limit=20, embedding_client=None):
-    stale_before = timezone.now() - PROCESSING_LOCK_TIMEOUT
+def process_pending_knowledge_documents(*, limit=20, embedding_client=None, now=None):
+    timed_out = fail_timed_out_knowledge_documents(now=now, limit=limit)
+    remaining = limit - timed_out
+    if remaining == 0:
+        return {
+            'processed': timed_out,
+            'ready': 0,
+            'failed': timed_out,
+            'timed_out': timed_out,
+        }
+
     document_ids = list(
         KnowledgeDocument.objects.filter(
             status=KnowledgeDocumentStatus.PROCESSING,
             is_deleted=False,
-        )
-        .filter(
-            Q(processing_started_at__isnull=True)
-            | Q(processing_started_at__lte=stale_before),
+            processing_started_at__isnull=True,
         )
         .order_by('created_at', 'id')
-        .values_list('id', flat=True)[:limit],
+        .values_list('id', flat=True)[:remaining],
     )
-    result = {'processed': 0, 'ready': 0, 'failed': 0}
+    result = {
+        'processed': timed_out,
+        'ready': 0,
+        'failed': timed_out,
+        'timed_out': timed_out,
+    }
     for document_id in document_ids:
         status = process_knowledge_document(
             document_id,
