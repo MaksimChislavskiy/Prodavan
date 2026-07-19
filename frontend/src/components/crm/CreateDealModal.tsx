@@ -6,7 +6,11 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
-import { createContact } from '../../shared/api/contactsApi'
+import {
+  createContact,
+  searchContacts,
+  type ApiContactAutocomplete,
+} from '../../shared/api/contactsApi'
 import {
   createDeal,
   type ApiKanbanDeal,
@@ -18,12 +22,16 @@ type CreateDealModalProps = {
   onCreated: (deal: ApiKanbanDeal) => void
 }
 
+type ContactSearchState = 'idle' | 'loading' | 'success' | 'error'
+
 const CONTACT_NAME_PATTERN = /^[A-Za-zА-Яа-яЁё\- ]+$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const AMOUNT_PATTERN = /^\d+(?:[.,]\d{1,2})?$/
+const CONTACT_SEARCH_DELAY = 300
 
 export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
+  const contactNameInputRef = useRef<HTMLInputElement | null>(null)
   const [dealName, setDealName] = useState('')
   const [amount, setAmount] = useState('')
   const [contactName, setContactName] = useState('')
@@ -32,6 +40,13 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
   const [email, setEmail] = useState('')
   const [telegram, setTelegram] = useState('')
   const [comment, setComment] = useState('')
+  const [selectedContact, setSelectedContact] =
+    useState<ApiContactAutocomplete | null>(null)
+  const [contactSuggestions, setContactSuggestions] =
+    useState<ApiContactAutocomplete[]>([])
+  const [contactSearchState, setContactSearchState] =
+    useState<ContactSearchState>('idle')
+  const [contactSearchError, setContactSearchError] = useState('')
   const [isMessengerOpen, setIsMessengerOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
@@ -50,6 +65,51 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
     }
   }, [])
 
+  useEffect(() => {
+    const query = contactName.trim()
+
+    if (selectedContact || query.length < 2) {
+      setContactSuggestions([])
+      setContactSearchState('idle')
+      setContactSearchError('')
+      return
+    }
+
+    let isCurrentSearch = true
+    setContactSearchState('loading')
+    setContactSearchError('')
+
+    const timeoutId = window.setTimeout(() => {
+      void searchContacts(query)
+        .then((contacts) => {
+          if (!isCurrentSearch) {
+            return
+          }
+
+          setContactSuggestions(contacts)
+          setContactSearchState('success')
+        })
+        .catch((requestError) => {
+          if (!isCurrentSearch) {
+            return
+          }
+
+          setContactSuggestions([])
+          setContactSearchState('error')
+          setContactSearchError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Не удалось найти контакты.',
+          )
+        })
+    }, CONTACT_SEARCH_DELAY)
+
+    return () => {
+      isCurrentSearch = false
+      window.clearTimeout(timeoutId)
+    }
+  }, [contactName, selectedContact])
+
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (!isSaving && event.target === event.currentTarget) {
       onClose()
@@ -60,6 +120,36 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
     if (!isSaving && event.key === 'Escape') {
       onClose()
     }
+  }
+
+  const handleContactSelected = (contact: ApiContactAutocomplete) => {
+    setSelectedContact(contact)
+    setContactName(contact.name)
+    setCompany(contact.company ?? '')
+    setPhone(contact.phone ?? '')
+    setEmail(contact.email ?? '')
+    setTelegram(contact.telegram ?? '')
+    setIsMessengerOpen(Boolean(contact.telegram))
+    setContactSuggestions([])
+    setContactSearchState('idle')
+    setContactSearchError('')
+    setError('')
+  }
+
+  const handleContactCleared = () => {
+    setSelectedContact(null)
+    setContactName('')
+    setCompany('')
+    setPhone('')
+    setEmail('')
+    setTelegram('')
+    setIsMessengerOpen(false)
+    setContactSuggestions([])
+    setContactSearchState('idle')
+    setContactSearchError('')
+    setError('')
+
+    window.setTimeout(() => contactNameInputRef.current?.focus(), 0)
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -91,9 +181,9 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
       const hasContactData = [contactName, company, phone, email, telegram]
         .some((value) => value.trim())
 
-      let contactId: string | null = null
+      let contactId = selectedContact?.id ?? null
 
-      if (hasContactData) {
+      if (!contactId && hasContactData) {
         const contact = await createContact({
           name: contactName.trim(),
           company: emptyToNull(company),
@@ -124,6 +214,13 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
       setIsSaving(false)
     }
   }
+
+  const contactQuery = contactName.trim()
+  const isContactSearchOpen =
+    !selectedContact &&
+    contactQuery.length >= 2 &&
+    contactSearchState !== 'idle'
+  const areContactFieldsLocked = isSaving || Boolean(selectedContact)
 
   return (
     <div
@@ -187,20 +284,89 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
             </FieldRow>
 
             <div className="create-deal-form__contact-block">
-              <FieldRow label="ФИО">
-                <input
-                  className="create-deal-form__plain-input"
-                  type="text"
-                  value={contactName}
-                  maxLength={100}
-                  placeholder="Введите ФИО"
-                  disabled={isSaving}
-                  onChange={(event) => {
-                    setContactName(event.target.value)
-                    setError('')
-                  }}
-                />
-              </FieldRow>
+              <div className="create-deal-form__row">
+                <label htmlFor="create-deal-contact-name">ФИО</label>
+                <div className="create-deal-form__contact-search">
+                  <input
+                    ref={contactNameInputRef}
+                    id="create-deal-contact-name"
+                    className={`create-deal-form__plain-input${
+                      selectedContact
+                        ? ' create-deal-form__plain-input--selected'
+                        : ''
+                    }`}
+                    type="text"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={isContactSearchOpen}
+                    aria-controls="create-deal-contact-options"
+                    value={contactName}
+                    maxLength={100}
+                    placeholder="Введите ФИО"
+                    disabled={areContactFieldsLocked}
+                    onChange={(event) => {
+                      setContactName(event.target.value)
+                      setError('')
+                    }}
+                  />
+
+                  {selectedContact && (
+                    <button
+                      className="create-deal-form__contact-clear"
+                      type="button"
+                      aria-label="Выбрать другой контакт"
+                      title="Выбрать другой контакт"
+                      disabled={isSaving}
+                      onClick={handleContactCleared}
+                    >
+                      ×
+                    </button>
+                  )}
+
+                  {isContactSearchOpen && (
+                    <div
+                      id="create-deal-contact-options"
+                      className="create-deal-form__contact-options"
+                      role="listbox"
+                      aria-label="Найденные контакты"
+                    >
+                      {contactSearchState === 'loading' && (
+                        <p className="create-deal-form__contact-status">
+                          Ищем контакты…
+                        </p>
+                      )}
+
+                      {contactSearchState === 'error' && (
+                        <p className="create-deal-form__contact-status create-deal-form__contact-status--error">
+                          {contactSearchError}
+                        </p>
+                      )}
+
+                      {contactSearchState === 'success' &&
+                        contactSuggestions.length === 0 && (
+                          <p className="create-deal-form__contact-status">
+                            Совпадений не найдено. Будет создан новый контакт.
+                          </p>
+                        )}
+
+                      {contactSearchState === 'success' &&
+                        contactSuggestions.map((contact) => (
+                          <button
+                            className="create-deal-form__contact-option"
+                            type="button"
+                            role="option"
+                            aria-selected="false"
+                            key={contact.id}
+                            onClick={() => handleContactSelected(contact)}
+                          >
+                            <strong>{contact.name}</strong>
+                            <span>{getContactSummary(contact)}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <FieldRow label="Компания">
                 <input
@@ -209,7 +375,7 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
                   value={company}
                   maxLength={100}
                   placeholder="Введите название"
-                  disabled={isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setCompany(event.target.value)
                     setError('')
@@ -224,7 +390,7 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
                   value={phone}
                   maxLength={64}
                   placeholder="Введите номер"
-                  disabled={isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setPhone(event.target.value)
                     setError('')
@@ -239,7 +405,7 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
                   value={email}
                   maxLength={255}
                   placeholder="Введите e-mail"
-                  disabled={isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setEmail(event.target.value)
                     setError('')
@@ -254,7 +420,7 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
               <button
                 className="create-deal-form__messenger-button"
                 type="button"
-                disabled={isSaving}
+                disabled={areContactFieldsLocked}
                 onClick={() => setIsMessengerOpen((isOpen) => !isOpen)}
               >
                 {isMessengerOpen ? 'Убрать мессенджер' : 'Добавить мессенджер'}
@@ -268,7 +434,7 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
                     value={telegram}
                     maxLength={64}
                     placeholder="@username"
-                    disabled={isSaving}
+                    disabled={areContactFieldsLocked}
                     onChange={(event) => {
                       setTelegram(event.target.value)
                       setError('')
@@ -335,6 +501,13 @@ function FieldRow({ label, children }: FieldRowProps) {
       {children}
     </label>
   )
+}
+
+function getContactSummary(contact: ApiContactAutocomplete) {
+  const details = [contact.company, contact.phone, contact.email]
+    .filter((value): value is string => Boolean(value))
+
+  return details.join(' · ') || 'Контакт без дополнительных данных'
 }
 
 function getValidationError(data: {
