@@ -7,6 +7,7 @@ import {
   type ApiKanbanResponse,
 } from '../../shared/api/dealsApi'
 import { CreateDealModal } from './CreateDealModal'
+import { DealCardMenu } from './DealCardMenu'
 import './DealsPage.css'
 
 type DealsPageState = {
@@ -134,7 +135,6 @@ export function DealsPage() {
         name,
         order: state.data.stages.length + 1,
       })
-
       setState((currentState) => {
         if (!currentState.data) {
           return currentState
@@ -527,15 +527,7 @@ function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
         <h2 className="deals-card__title" title={deal.name}>
           {deal.name}
         </h2>
-        <button
-          className="deals-card__menu"
-          type="button"
-          aria-label={`Меню сделки ${deal.name}`}
-          title="Действия со сделкой добавим позже"
-          disabled
-        >
-          ⋮
-        </button>
+        <DealCardMenu dealName={deal.name} disabled={isMoving} />
       </div>
 
       <div className="deals-card__line" />
