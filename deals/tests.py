@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from rest_framework import status
@@ -417,15 +418,22 @@ class DealApiTests(TestCase):
         target = self.client.post(
             '/api/crm/stages', {'name': 'В работе'}, format='json', **self.auth,
         ).data
-        created = self.create_deal()
+        created = self.create_deal(contact_id=None)
         deal = Deal.objects.get(id=created.data['id'])
+        self.assertIsNone(deal.contact_id)
 
-        moved = self.client.patch(
-            f'/api/crm/deals/{deal.id}/stage',
-            {'stage_id': target['id'], 'version': deal.version},
-            format='json',
-            **self.auth,
-        )
+        with patch.object(
+            Deal.objects,
+            'select_for_update',
+            wraps=Deal.objects.select_for_update,
+        ) as select_for_update:
+            moved = self.client.patch(
+                f'/api/crm/deals/{deal.id}/stage',
+                {'stage_id': target['id'], 'version': deal.version},
+                format='json',
+                **self.auth,
+            )
+        select_for_update.assert_called_once_with(of=('self',))
         same = self.client.patch(
             f'/api/crm/deals/{deal.id}/stage',
             {'stage_id': target['id'], 'version': moved.data['version']},
@@ -434,6 +442,9 @@ class DealApiTests(TestCase):
         )
 
         self.assertEqual(moved.status_code, status.HTTP_200_OK)
+        deal.refresh_from_db()
+        self.assertEqual(deal.stage_id, uuid.UUID(target['id']))
+        self.assertEqual(deal.version, 2)
         self.assertEqual(same.data['version'], moved.data['version'])
         self.assertEqual(
             DealHistory.objects.filter(
