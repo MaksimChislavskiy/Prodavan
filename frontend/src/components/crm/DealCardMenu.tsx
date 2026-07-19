@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { EditDealModal } from './EditDealModal'
 import './DealCardMenu.css'
 
 type DealCardMenuProps = {
@@ -8,6 +9,7 @@ type DealCardMenuProps = {
 
 export function DealCardMenu({ dealName, disabled = false }: DealCardMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -38,59 +40,70 @@ export function DealCardMenu({ dealName, disabled = false }: DealCardMenuProps) 
     }
   }, [isOpen])
 
-  const closeMenu = () => {
+  const openEditModal = () => {
     setIsOpen(false)
+    setIsEditModalOpen(true)
   }
 
   return (
-    <div
-      className="deal-card-menu"
-      ref={rootRef}
-      onDragStart={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-      }}
-    >
-      <button
-        className="deal-card-menu__trigger"
-        type="button"
-        aria-label={`Меню сделки ${dealName}`}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        title="Действия со сделкой"
-        disabled={disabled}
-        draggable={false}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => setIsOpen((currentValue) => !currentValue)}
+    <>
+      <div
+        className="deal-card-menu"
+        ref={rootRef}
+        onDragStart={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
       >
-        ⋮
-      </button>
-
-      {isOpen && (
-        <div
-          className="deal-card-menu__popup"
-          role="menu"
-          aria-label={`Действия со сделкой ${dealName}`}
+        <button
+          className="deal-card-menu__trigger"
+          type="button"
+          aria-label={`Меню сделки ${dealName}`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          title="Действия со сделкой"
+          disabled={disabled}
+          draggable={false}
           onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setIsOpen((currentValue) => !currentValue)}
         >
-          <button
-            className="deal-card-menu__item"
-            type="button"
-            role="menuitem"
-            onClick={closeMenu}
+          ⋮
+        </button>
+
+        {isOpen && (
+          <div
+            className="deal-card-menu__popup"
+            role="menu"
+            aria-label={`Действия со сделкой ${dealName}`}
+            onPointerDown={(event) => event.stopPropagation()}
           >
-            Редактировать
-          </button>
-          <button
-            className="deal-card-menu__item"
-            type="button"
-            role="menuitem"
-            onClick={closeMenu}
-          >
-            Удалить
-          </button>
-        </div>
+            <button
+              className="deal-card-menu__item"
+              type="button"
+              role="menuitem"
+              onClick={openEditModal}
+            >
+              Редактировать
+            </button>
+            <button
+              className="deal-card-menu__item"
+              type="button"
+              role="menuitem"
+              title="Удаление подключим позже"
+              onClick={() => setIsOpen(false)}
+            >
+              Удалить
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isEditModalOpen && (
+        <EditDealModal
+          dealName={dealName}
+          onClose={() => setIsEditModalOpen(false)}
+        />
       )}
-    </div>
+    </>
   )
 }
