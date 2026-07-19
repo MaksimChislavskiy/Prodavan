@@ -66,6 +66,14 @@ export type CreateDealRequest = {
   comment?: string | null
 }
 
+export type UpdateDealRequest = {
+  version: number
+  name?: string
+  amount?: string | null
+  contact_id?: string | null
+  comment?: string | null
+}
+
 export type MoveDealRequest = {
   stage_id: string
   version: number
@@ -92,6 +100,13 @@ export function createDeal(data: CreateDealRequest) {
     headers: {
       'Idempotency-Key': createIdempotencyKey('deal-create'),
     },
+    body: data,
+  })
+}
+
+export function updateDeal(dealId: string, data: UpdateDealRequest) {
+  return apiRequest<ApiDealDetail>(`/api/crm/deals/${dealId}`, {
+    method: 'PATCH',
     body: data,
   })
 }
