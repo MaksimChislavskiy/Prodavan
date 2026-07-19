@@ -3,11 +3,16 @@ import { EditDealModal } from './EditDealModal'
 import './DealCardMenu.css'
 
 type DealCardMenuProps = {
+  dealId: string
   dealName: string
   disabled?: boolean
 }
 
-export function DealCardMenu({ dealName, disabled = false }: DealCardMenuProps) {
+export function DealCardMenu({
+  dealId,
+  dealName,
+  disabled = false,
+}: DealCardMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -100,6 +105,7 @@ export function DealCardMenu({ dealName, disabled = false }: DealCardMenuProps) 
 
       {isEditModalOpen && (
         <EditDealModal
+          dealId={dealId}
           dealName={dealName}
           onClose={() => setIsEditModalOpen(false)}
         />
