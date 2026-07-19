@@ -39,6 +39,14 @@ export type CreateSalesStageRequest = {
   order: number
 }
 
+export type CreateDealRequest = {
+  name: string
+  amount?: string | null
+  currency?: string
+  contact_id?: string | null
+  comment?: string | null
+}
+
 export type MoveDealRequest = {
   stage_id: string
   version: number
@@ -55,20 +63,30 @@ export function createSalesStage(data: CreateSalesStageRequest) {
   })
 }
 
-export function moveDeal(dealId: string, data: MoveDealRequest) {
-  return apiRequest<ApiKanbanDeal>(`/api/crm/deals/${dealId}/stage`, {
-    method: 'PATCH',
+export function createDeal(data: CreateDealRequest) {
+  return apiRequest<ApiKanbanDeal>('/api/crm/deals', {
+    method: 'POST',
     headers: {
-      'Idempotency-Key': createIdempotencyKey(),
+      'Idempotency-Key': createIdempotencyKey('deal-create'),
     },
     body: data,
   })
 }
 
-function createIdempotencyKey() {
+export function moveDeal(dealId: string, data: MoveDealRequest) {
+  return apiRequest<ApiKanbanDeal>(`/api/crm/deals/${dealId}/stage`, {
+    method: 'PATCH',
+    headers: {
+      'Idempotency-Key': createIdempotencyKey('deal-move'),
+    },
+    body: data,
+  })
+}
+
+function createIdempotencyKey(prefix: string) {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
+    return `${prefix}-${crypto.randomUUID()}`
   }
 
-  return `deal-move-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
