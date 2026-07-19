@@ -10,7 +10,8 @@ import {
 import {
   createContact,
   getContact,
-  updateContact,
+  searchContacts,
+  type ApiContactAutocomplete,
 } from '../../shared/api/contactsApi'
 import { getDeal, updateDeal } from '../../shared/api/dealsApi'
 import './EditDealModal.css'
@@ -22,9 +23,12 @@ type EditDealModalProps = {
   onClose: () => void
 }
 
+type ContactSearchState = 'idle' | 'loading' | 'success' | 'error'
+
 const CONTACT_NAME_PATTERN = /^[A-Za-zА-Яа-яЁё\- ]+$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const AMOUNT_PATTERN = /^\d+(?:[.,]\d{1,2})?$/
+const CONTACT_SEARCH_DELAY = 300
 
 export function EditDealModal({
   dealId,
@@ -32,6 +36,7 @@ export function EditDealModal({
   onClose,
 }: EditDealModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
+  const contactNameInputRef = useRef<HTMLInputElement | null>(null)
   const [dealName, setDealName] = useState(initialDealName)
   const [amount, setAmount] = useState('')
   const [contactName, setContactName] = useState('')
@@ -41,8 +46,13 @@ export function EditDealModal({
   const [telegram, setTelegram] = useState('')
   const [comment, setComment] = useState('')
   const [dealVersion, setDealVersion] = useState<number | null>(null)
-  const [contactId, setContactId] = useState<string | null>(null)
-  const [contactVersion, setContactVersion] = useState<number | null>(null)
+  const [selectedContact, setSelectedContact] =
+    useState<ApiContactAutocomplete | null>(null)
+  const [contactSuggestions, setContactSuggestions] =
+    useState<ApiContactAutocomplete[]>([])
+  const [contactSearchState, setContactSearchState] =
+    useState<ContactSearchState>('idle')
+  const [contactSearchError, setContactSearchError] = useState('')
   const [isMessengerOpen, setIsMessengerOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -73,11 +83,21 @@ export function EditDealModal({
           return
         }
 
+        const autocompleteContact = contact
+          ? {
+              id: contact.id,
+              name: contact.name,
+              company: contact.company,
+              phone: contact.phone,
+              email: contact.email,
+              telegram: contact.telegram,
+            }
+          : null
+
         setDealName(deal.name)
         setAmount(deal.amount ?? '')
         setDealVersion(deal.version)
-        setContactId(contact?.id ?? null)
-        setContactVersion(contact?.version ?? null)
+        setSelectedContact(autocompleteContact)
         setContactName(contact?.name ?? '')
         setCompany(contact?.company ?? '')
         setPhone(contact?.phone ?? '')
@@ -85,6 +105,9 @@ export function EditDealModal({
         setTelegram(contact?.telegram ?? '')
         setComment(deal.comment ?? '')
         setIsMessengerOpen(Boolean(contact?.telegram))
+        setContactSuggestions([])
+        setContactSearchState('idle')
+        setContactSearchError('')
         setIsLoading(false)
 
         window.setTimeout(() => {
@@ -111,6 +134,51 @@ export function EditDealModal({
     }
   }, [dealId])
 
+  useEffect(() => {
+    const query = contactName.trim()
+
+    if (isLoading || selectedContact || query.length < 2) {
+      setContactSuggestions([])
+      setContactSearchState('idle')
+      setContactSearchError('')
+      return
+    }
+
+    let isCurrentSearch = true
+    setContactSearchState('loading')
+    setContactSearchError('')
+
+    const timeoutId = window.setTimeout(() => {
+      void searchContacts(query)
+        .then((contacts) => {
+          if (!isCurrentSearch) {
+            return
+          }
+
+          setContactSuggestions(contacts)
+          setContactSearchState('success')
+        })
+        .catch((requestError) => {
+          if (!isCurrentSearch) {
+            return
+          }
+
+          setContactSuggestions([])
+          setContactSearchState('error')
+          setContactSearchError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Не удалось найти контакты.',
+          )
+        })
+    }, CONTACT_SEARCH_DELAY)
+
+    return () => {
+      isCurrentSearch = false
+      window.clearTimeout(timeoutId)
+    }
+  }, [contactName, isLoading, selectedContact])
+
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (!isSaving && event.target === event.currentTarget) {
       onClose()
@@ -123,19 +191,41 @@ export function EditDealModal({
     }
   }
 
-  const removeContact = () => {
-    setContactId(null)
-    setContactVersion(null)
+  const handleContactSelected = (contact: ApiContactAutocomplete) => {
+    setSelectedContact(contact)
+    setContactName(contact.name)
+    setCompany(contact.company ?? '')
+    setPhone(contact.phone ?? '')
+    setEmail(contact.email ?? '')
+    setTelegram(contact.telegram ?? '')
+    setIsMessengerOpen(Boolean(contact.telegram))
+    setContactSuggestions([])
+    setContactSearchState('idle')
+    setContactSearchError('')
+    setSaveError('')
+  }
+
+  const handleContactCleared = () => {
+    setSelectedContact(null)
     setContactName('')
     setCompany('')
     setPhone('')
     setEmail('')
     setTelegram('')
     setIsMessengerOpen(false)
+    setContactSuggestions([])
+    setContactSearchState('idle')
+    setContactSearchError('')
     setSaveError('')
+
+    window.setTimeout(() => contactNameInputRef.current?.focus(), 0)
   }
 
   const removeMessenger = () => {
+    if (selectedContact) {
+      return
+    }
+
     setTelegram('')
     setIsMessengerOpen(false)
     setSaveError('')
@@ -152,6 +242,8 @@ export function EditDealModal({
       dealName,
       amount,
       contactName,
+      company,
+      phone,
       email,
       telegram,
     })
@@ -165,28 +257,20 @@ export function EditDealModal({
       setIsSaving(true)
       setSaveError('')
 
-      const contactData = {
-        name: contactName.trim(),
-        company: emptyToNull(company),
-        phone: emptyToNull(phone),
-        email: emptyToNull(email.toLowerCase()),
-        telegram: emptyToNull(telegram),
-      }
+      const hasContactData = [contactName, company, phone, email, telegram]
+        .some((value) => value.trim())
 
-      let savedContactId = contactId
+      let savedContactId = selectedContact?.id ?? null
 
-      if (contactId && contactVersion !== null) {
-        const contact = await updateContact(contactId, {
-          version: contactVersion,
-          ...contactData,
+      if (!savedContactId && hasContactData) {
+        const contact = await createContact({
+          name: contactName.trim(),
+          company: emptyToNull(company),
+          phone: emptyToNull(phone),
+          email: emptyToNull(email.toLowerCase()),
+          telegram: emptyToNull(telegram),
         })
         savedContactId = contact.id
-        setContactVersion(contact.version)
-      } else {
-        const contact = await createContact(contactData)
-        savedContactId = contact.id
-        setContactId(contact.id)
-        setContactVersion(contact.version)
       }
 
       const deal = await updateDeal(dealId, {
@@ -215,6 +299,14 @@ export function EditDealModal({
     setSaveError('')
   }
 
+  const contactQuery = contactName.trim()
+  const isContactSearchOpen =
+    !selectedContact &&
+    contactQuery.length >= 2 &&
+    contactSearchState !== 'idle'
+  const isFormBusy = isLoading || isSaving
+  const areContactFieldsLocked = isFormBusy || Boolean(selectedContact)
+
   return (
     <div
       className="edit-deal-overlay"
@@ -228,7 +320,7 @@ export function EditDealModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-deal-title"
-        aria-busy={isLoading || isSaving}
+        aria-busy={isFormBusy}
         tabIndex={-1}
       >
         <header className="edit-deal-modal__header">
@@ -253,7 +345,7 @@ export function EditDealModal({
                 value={dealName}
                 maxLength={255}
                 placeholder="Введите название"
-                disabled={isLoading || isSaving}
+                disabled={isFormBusy}
                 onChange={(event) => {
                   setDealName(event.target.value)
                   clearSaveError()
@@ -271,7 +363,7 @@ export function EditDealModal({
                   maxLength={18}
                   aria-label="Сумма сделки"
                   placeholder="0"
-                  disabled={isLoading || isSaving}
+                  disabled={isFormBusy}
                   onChange={(event) => {
                     setAmount(event.target.value.replace(/[^\d.,]/g, ''))
                     clearSaveError()
@@ -282,32 +374,97 @@ export function EditDealModal({
             </EditFieldRow>
 
             <div className="edit-deal-form__contact-block">
-              <EditFieldRow label="ФИО">
-                <div className="edit-deal-form__contact-input-wrap">
-                  <input
-                    className="edit-deal-form__contact-input"
-                    type="text"
-                    value={contactName}
-                    maxLength={100}
-                    placeholder="Введите ФИО"
-                    disabled={isLoading || isSaving}
-                    onChange={(event) => {
-                      setContactName(event.target.value)
-                      clearSaveError()
-                    }}
-                  />
-                  <button
-                    className="edit-deal-form__remove"
-                    type="button"
-                    aria-label="Убрать контакт"
-                    title="Убрать контакт"
-                    disabled={isLoading || isSaving}
-                    onClick={removeContact}
+              <div className="edit-deal-form__row">
+                <label htmlFor="edit-deal-contact-name">ФИО</label>
+                <div className="edit-deal-form__contact-search">
+                  <div
+                    className={`edit-deal-form__contact-input-wrap${
+                      selectedContact
+                        ? ' edit-deal-form__contact-input-wrap--selected'
+                        : ''
+                    }`}
                   >
-                    ×
-                  </button>
+                    <input
+                      ref={contactNameInputRef}
+                      id="edit-deal-contact-name"
+                      className={`edit-deal-form__contact-input${
+                        selectedContact
+                          ? ' edit-deal-form__contact-input--selected'
+                          : ''
+                      }`}
+                      type="text"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={isContactSearchOpen}
+                      aria-controls="edit-deal-contact-options"
+                      value={contactName}
+                      maxLength={100}
+                      placeholder="Введите ФИО"
+                      disabled={areContactFieldsLocked}
+                      onChange={(event) => {
+                        setContactName(event.target.value)
+                        clearSaveError()
+                      }}
+                    />
+
+                    {selectedContact && (
+                      <button
+                        className="edit-deal-form__remove"
+                        type="button"
+                        aria-label="Выбрать другой контакт"
+                        title="Выбрать другой контакт"
+                        disabled={isFormBusy}
+                        onClick={handleContactCleared}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  {isContactSearchOpen && (
+                    <div
+                      id="edit-deal-contact-options"
+                      className="edit-deal-form__contact-options"
+                      role="listbox"
+                      aria-label="Найденные контакты"
+                    >
+                      {contactSearchState === 'loading' && (
+                        <p className="edit-deal-form__contact-status">
+                          Ищем контакты…
+                        </p>
+                      )}
+
+                      {contactSearchState === 'error' && (
+                        <p className="edit-deal-form__contact-status edit-deal-form__contact-status--error">
+                          {contactSearchError}
+                        </p>
+                      )}
+
+                      {contactSearchState === 'success' &&
+                        contactSuggestions.length === 0 && (
+                          <p className="edit-deal-form__contact-status">
+                            Совпадений не найдено. Будет создан новый контакт.
+                          </p>
+                        )}
+
+                      {contactSearchState === 'success' &&
+                        contactSuggestions.map((contact) => (
+                          <button
+                            className="edit-deal-form__contact-option"
+                            type="button"
+                            role="option"
+                            aria-selected="false"
+                            key={contact.id}
+                            onClick={() => handleContactSelected(contact)}
+                          >
+                            <strong>{contact.name}</strong>
+                            <span>{getContactSummary(contact)}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
                 </div>
-              </EditFieldRow>
+              </div>
 
               <EditFieldRow label="Компания">
                 <input
@@ -316,7 +473,7 @@ export function EditDealModal({
                   value={company}
                   maxLength={100}
                   placeholder="Введите название"
-                  disabled={isLoading || isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setCompany(event.target.value)
                     clearSaveError()
@@ -331,7 +488,7 @@ export function EditDealModal({
                   value={phone}
                   maxLength={64}
                   placeholder="Введите номер"
-                  disabled={isLoading || isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setPhone(event.target.value)
                     clearSaveError()
@@ -346,7 +503,7 @@ export function EditDealModal({
                   value={email}
                   maxLength={255}
                   placeholder="Введите e-mail"
-                  disabled={isLoading || isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setEmail(event.target.value)
                     clearSaveError()
@@ -368,22 +525,24 @@ export function EditDealModal({
                   maxLength={64}
                   placeholder="@username"
                   aria-label="Telegram"
-                  disabled={isLoading || isSaving}
+                  disabled={areContactFieldsLocked}
                   onChange={(event) => {
                     setTelegram(event.target.value)
                     clearSaveError()
                   }}
                 />
-                <button
-                  className="edit-deal-form__remove"
-                  type="button"
-                  aria-label="Убрать Telegram"
-                  title="Убрать Telegram"
-                  disabled={isLoading || isSaving}
-                  onClick={removeMessenger}
-                >
-                  ×
-                </button>
+                {!selectedContact && (
+                  <button
+                    className="edit-deal-form__remove"
+                    type="button"
+                    aria-label="Убрать Telegram"
+                    title="Убрать Telegram"
+                    disabled={isFormBusy}
+                    onClick={removeMessenger}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             )}
 
@@ -391,7 +550,12 @@ export function EditDealModal({
               <button
                 className="edit-deal-form__messenger-button"
                 type="button"
-                disabled={isLoading || isSaving || isMessengerOpen}
+                title={
+                  selectedContact
+                    ? 'Мессенджер существующего контакта изменяется в разделе «Контакты»'
+                    : undefined
+                }
+                disabled={areContactFieldsLocked || isMessengerOpen}
                 onClick={() => {
                   setIsMessengerOpen(true)
                   clearSaveError()
@@ -408,7 +572,7 @@ export function EditDealModal({
                 value={comment}
                 maxLength={500}
                 placeholder="Написать..."
-                disabled={isLoading || isSaving}
+                disabled={isFormBusy}
                 onChange={(event) => {
                   setComment(event.target.value)
                   clearSaveError()
@@ -435,7 +599,7 @@ export function EditDealModal({
           <button
             className="edit-deal-form__submit"
             type="submit"
-            disabled={isLoading || isSaving || Boolean(loadError) || !dealName.trim()}
+            disabled={isFormBusy || Boolean(loadError) || !dealName.trim()}
           >
             {isSaving ? 'Сохраняем…' : 'Сохранить'}
           </button>
@@ -468,10 +632,19 @@ function EditFieldRow({ label, children }: EditFieldRowProps) {
   )
 }
 
+function getContactSummary(contact: ApiContactAutocomplete) {
+  const details = [contact.company, contact.phone, contact.email]
+    .filter((value): value is string => Boolean(value))
+
+  return details.join(' · ') || 'Контакт без дополнительных данных'
+}
+
 function getValidationError(data: {
   dealName: string
   amount: string
   contactName: string
+  company: string
+  phone: string
   email: string
   telegram: string
 }) {
@@ -480,20 +653,31 @@ function getValidationError(data: {
   const normalizedContactName = data.contactName.trim()
   const normalizedEmail = data.email.trim()
   const normalizedTelegram = data.telegram.trim()
+  const hasContactData = [
+    data.contactName,
+    data.company,
+    data.phone,
+    data.email,
+    data.telegram,
+  ].some((value) => value.trim())
 
   if (!normalizedDealName) {
     return 'Введите название сделки.'
+  }
+
+  if (normalizedDealName.length > 255) {
+    return 'Название сделки должно содержать не больше 255 символов.'
   }
 
   if (normalizedAmount && !AMOUNT_PATTERN.test(normalizedAmount)) {
     return 'Введите сумму в формате 150000 или 150000,50.'
   }
 
-  if (!normalizedContactName) {
-    return 'Для сохранения сделки укажите ФИО контакта.'
+  if (hasContactData && !normalizedContactName) {
+    return 'Для сохранения контакта укажите ФИО.'
   }
 
-  if (!CONTACT_NAME_PATTERN.test(normalizedContactName)) {
+  if (normalizedContactName && !CONTACT_NAME_PATTERN.test(normalizedContactName)) {
     return 'ФИО должно содержать только буквы, пробелы и дефисы.'
   }
 
