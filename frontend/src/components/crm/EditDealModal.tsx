@@ -2,11 +2,17 @@ import {
   useEffect,
   useRef,
   useState,
+  type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from 'react'
-import { getDeal } from '../../shared/api/dealsApi'
+import {
+  createContact,
+  getContact,
+  updateContact,
+} from '../../shared/api/contactsApi'
+import { getDeal, updateDeal } from '../../shared/api/dealsApi'
 import './EditDealModal.css'
 import './EditDealModalState.css'
 
@@ -15,6 +21,10 @@ type EditDealModalProps = {
   dealName: string
   onClose: () => void
 }
+
+const CONTACT_NAME_PATTERN = /^[A-Za-zА-Яа-яЁё\- ]+$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const AMOUNT_PATTERN = /^\d+(?:[.,]\d{1,2})?$/
 
 export function EditDealModal({
   dealId,
@@ -30,9 +40,14 @@ export function EditDealModal({
   const [email, setEmail] = useState('')
   const [telegram, setTelegram] = useState('')
   const [comment, setComment] = useState('')
+  const [dealVersion, setDealVersion] = useState<number | null>(null)
+  const [contactId, setContactId] = useState<string | null>(null)
+  const [contactVersion, setContactVersion] = useState<number | null>(null)
   const [isMessengerOpen, setIsMessengerOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
@@ -52,6 +67,7 @@ export function EditDealModal({
         setLoadError('')
 
         const deal = await getDeal(dealId)
+        const contact = deal.contact ? await getContact(deal.contact.id) : null
 
         if (!isMounted) {
           return
@@ -59,13 +75,16 @@ export function EditDealModal({
 
         setDealName(deal.name)
         setAmount(deal.amount ?? '')
-        setContactName(deal.contact?.name ?? '')
-        setCompany(deal.contact?.company ?? '')
-        setPhone(deal.contact?.phone ?? '')
-        setEmail(deal.contact?.email ?? '')
-        setTelegram(deal.contact?.telegram ?? '')
+        setDealVersion(deal.version)
+        setContactId(contact?.id ?? null)
+        setContactVersion(contact?.version ?? null)
+        setContactName(contact?.name ?? '')
+        setCompany(contact?.company ?? '')
+        setPhone(contact?.phone ?? '')
+        setEmail(contact?.email ?? '')
+        setTelegram(contact?.telegram ?? '')
         setComment(deal.comment ?? '')
-        setIsMessengerOpen(Boolean(deal.contact?.telegram))
+        setIsMessengerOpen(Boolean(contact?.telegram))
         setIsLoading(false)
 
         window.setTimeout(() => {
@@ -93,27 +112,107 @@ export function EditDealModal({
   }, [dealId])
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
+    if (!isSaving && event.target === event.currentTarget) {
       onClose()
     }
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
+    if (!isSaving && event.key === 'Escape') {
       onClose()
     }
   }
 
   const removeContact = () => {
+    setContactId(null)
+    setContactVersion(null)
     setContactName('')
     setCompany('')
     setPhone('')
     setEmail('')
+    setTelegram('')
+    setIsMessengerOpen(false)
+    setSaveError('')
   }
 
   const removeMessenger = () => {
     setTelegram('')
     setIsMessengerOpen(false)
+    setSaveError('')
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (isLoading || isSaving || dealVersion === null) {
+      return
+    }
+
+    const validationError = getValidationError({
+      dealName,
+      amount,
+      contactName,
+      email,
+      telegram,
+    })
+
+    if (validationError) {
+      setSaveError(validationError)
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setSaveError('')
+
+      const contactData = {
+        name: contactName.trim(),
+        company: emptyToNull(company),
+        phone: emptyToNull(phone),
+        email: emptyToNull(email.toLowerCase()),
+        telegram: emptyToNull(telegram),
+      }
+
+      let savedContactId = contactId
+
+      if (contactId && contactVersion !== null) {
+        const contact = await updateContact(contactId, {
+          version: contactVersion,
+          ...contactData,
+        })
+        savedContactId = contact.id
+        setContactVersion(contact.version)
+      } else {
+        const contact = await createContact(contactData)
+        savedContactId = contact.id
+        setContactId(contact.id)
+        setContactVersion(contact.version)
+      }
+
+      const deal = await updateDeal(dealId, {
+        version: dealVersion,
+        name: dealName.trim(),
+        amount: normalizeAmount(amount),
+        contact_id: savedContactId,
+        comment: emptyToNull(comment),
+      })
+
+      setDealVersion(deal.version)
+      onClose()
+      window.location.reload()
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось сохранить изменения.',
+      )
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const clearSaveError = () => {
+    setSaveError('')
   }
 
   return (
@@ -129,7 +228,7 @@ export function EditDealModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-deal-title"
-        aria-busy={isLoading}
+        aria-busy={isLoading || isSaving}
         tabIndex={-1}
       >
         <header className="edit-deal-modal__header">
@@ -138,13 +237,14 @@ export function EditDealModal({
             className="edit-deal-modal__close"
             type="button"
             aria-label="Закрыть окно"
+            disabled={isSaving}
             onClick={onClose}
           >
             ×
           </button>
         </header>
 
-        <form className="edit-deal-form" onSubmit={(event) => event.preventDefault()}>
+        <form className="edit-deal-form" onSubmit={(event) => void handleSubmit(event)}>
           <div className="edit-deal-form__content">
             <EditFieldRow label="Название сделки">
               <input
@@ -153,8 +253,11 @@ export function EditDealModal({
                 value={dealName}
                 maxLength={255}
                 placeholder="Введите название"
-                disabled={isLoading}
-                onChange={(event) => setDealName(event.target.value)}
+                disabled={isLoading || isSaving}
+                onChange={(event) => {
+                  setDealName(event.target.value)
+                  clearSaveError()
+                }}
               />
             </EditFieldRow>
 
@@ -168,8 +271,11 @@ export function EditDealModal({
                   maxLength={18}
                   aria-label="Сумма сделки"
                   placeholder="0"
-                  disabled={isLoading}
-                  onChange={(event) => setAmount(event.target.value.replace(/[^\d.,]/g, ''))}
+                  disabled={isLoading || isSaving}
+                  onChange={(event) => {
+                    setAmount(event.target.value.replace(/[^\d.,]/g, ''))
+                    clearSaveError()
+                  }}
                 />
                 <span>₽</span>
               </div>
@@ -184,15 +290,18 @@ export function EditDealModal({
                     value={contactName}
                     maxLength={100}
                     placeholder="Введите ФИО"
-                    disabled={isLoading}
-                    onChange={(event) => setContactName(event.target.value)}
+                    disabled={isLoading || isSaving}
+                    onChange={(event) => {
+                      setContactName(event.target.value)
+                      clearSaveError()
+                    }}
                   />
                   <button
                     className="edit-deal-form__remove"
                     type="button"
                     aria-label="Убрать контакт"
                     title="Убрать контакт"
-                    disabled={isLoading}
+                    disabled={isLoading || isSaving}
                     onClick={removeContact}
                   >
                     ×
@@ -207,8 +316,11 @@ export function EditDealModal({
                   value={company}
                   maxLength={100}
                   placeholder="Введите название"
-                  disabled={isLoading}
-                  onChange={(event) => setCompany(event.target.value)}
+                  disabled={isLoading || isSaving}
+                  onChange={(event) => {
+                    setCompany(event.target.value)
+                    clearSaveError()
+                  }}
                 />
               </EditFieldRow>
 
@@ -219,8 +331,11 @@ export function EditDealModal({
                   value={phone}
                   maxLength={64}
                   placeholder="Введите номер"
-                  disabled={isLoading}
-                  onChange={(event) => setPhone(event.target.value)}
+                  disabled={isLoading || isSaving}
+                  onChange={(event) => {
+                    setPhone(event.target.value)
+                    clearSaveError()
+                  }}
                 />
               </EditFieldRow>
 
@@ -231,8 +346,11 @@ export function EditDealModal({
                   value={email}
                   maxLength={255}
                   placeholder="Введите e-mail"
-                  disabled={isLoading}
-                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={isLoading || isSaving}
+                  onChange={(event) => {
+                    setEmail(event.target.value)
+                    clearSaveError()
+                  }}
                 />
               </EditFieldRow>
             </div>
@@ -250,15 +368,18 @@ export function EditDealModal({
                   maxLength={64}
                   placeholder="@username"
                   aria-label="Telegram"
-                  disabled={isLoading}
-                  onChange={(event) => setTelegram(event.target.value)}
+                  disabled={isLoading || isSaving}
+                  onChange={(event) => {
+                    setTelegram(event.target.value)
+                    clearSaveError()
+                  }}
                 />
                 <button
                   className="edit-deal-form__remove"
                   type="button"
                   aria-label="Убрать Telegram"
                   title="Убрать Telegram"
-                  disabled={isLoading}
+                  disabled={isLoading || isSaving}
                   onClick={removeMessenger}
                 >
                   ×
@@ -270,8 +391,11 @@ export function EditDealModal({
               <button
                 className="edit-deal-form__messenger-button"
                 type="button"
-                disabled={isLoading}
-                onClick={() => setIsMessengerOpen(true)}
+                disabled={isLoading || isSaving || isMessengerOpen}
+                onClick={() => {
+                  setIsMessengerOpen(true)
+                  clearSaveError()
+                }}
               >
                 Добавить мессенджер
               </button>
@@ -284,8 +408,11 @@ export function EditDealModal({
                 value={comment}
                 maxLength={500}
                 placeholder="Написать..."
-                disabled={isLoading}
-                onChange={(event) => setComment(event.target.value)}
+                disabled={isLoading || isSaving}
+                onChange={(event) => {
+                  setComment(event.target.value)
+                  clearSaveError()
+                }}
               />
             </label>
 
@@ -299,13 +426,18 @@ export function EditDealModal({
             </button>
           </div>
 
+          {saveError && (
+            <p className="edit-deal-form__error" role="alert">
+              {saveError}
+            </p>
+          )}
+
           <button
             className="edit-deal-form__submit"
-            type="button"
-            disabled
-            title="Сохранение подключим следующим этапом"
+            type="submit"
+            disabled={isLoading || isSaving || Boolean(loadError) || !dealName.trim()}
           >
-            Сохранить
+            {isSaving ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </form>
 
@@ -334,6 +466,60 @@ function EditFieldRow({ label, children }: EditFieldRowProps) {
       {children}
     </label>
   )
+}
+
+function getValidationError(data: {
+  dealName: string
+  amount: string
+  contactName: string
+  email: string
+  telegram: string
+}) {
+  const normalizedDealName = data.dealName.trim()
+  const normalizedAmount = data.amount.trim()
+  const normalizedContactName = data.contactName.trim()
+  const normalizedEmail = data.email.trim()
+  const normalizedTelegram = data.telegram.trim()
+
+  if (!normalizedDealName) {
+    return 'Введите название сделки.'
+  }
+
+  if (normalizedAmount && !AMOUNT_PATTERN.test(normalizedAmount)) {
+    return 'Введите сумму в формате 150000 или 150000,50.'
+  }
+
+  if (!normalizedContactName) {
+    return 'Для сохранения сделки укажите ФИО контакта.'
+  }
+
+  if (!CONTACT_NAME_PATTERN.test(normalizedContactName)) {
+    return 'ФИО должно содержать только буквы, пробелы и дефисы.'
+  }
+
+  if (normalizedEmail && !EMAIL_PATTERN.test(normalizedEmail)) {
+    return 'Введите корректный e-mail.'
+  }
+
+  if (normalizedTelegram) {
+    const username = normalizedTelegram.replace(/^@/, '')
+
+    if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) {
+      return 'Telegram должен содержать 5–32 латинских символа, цифры или _.'
+    }
+  }
+
+  return ''
+}
+
+function emptyToNull(value: string) {
+  const normalizedValue = value.trim()
+  return normalizedValue || null
+}
+
+function normalizeAmount(value: string) {
+  const normalizedValue = value.trim().replace(',', '.')
+  return normalizedValue || null
 }
 
 function TelegramIcon() {
