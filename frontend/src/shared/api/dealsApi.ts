@@ -111,6 +111,12 @@ export function updateDeal(dealId: string, data: UpdateDealRequest) {
   })
 }
 
+export function deleteDeal(dealId: string) {
+  return apiRequest<void>(`/api/crm/deals/${dealId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function moveDeal(dealId: string, data: MoveDealRequest) {
   return apiRequest<ApiKanbanDeal>(`/api/crm/deals/${dealId}/stage`, {
     method: 'PATCH',
