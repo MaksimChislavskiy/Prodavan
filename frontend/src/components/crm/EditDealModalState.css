@@ -1,0 +1,32 @@
+.edit-deal-modal__state {
+  position: absolute;
+  z-index: 4;
+  top: 57px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(240, 244, 245, 0.76);
+  color: #0b2b55;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  backdrop-filter: blur(2px);
+}
+
+.edit-deal-modal__state--error {
+  color: #b10b0b;
+}
+
+.edit-deal-form__submit:disabled,
+.edit-deal-form__chat-button:disabled,
+.edit-deal-form__messenger-button:disabled,
+.edit-deal-form__remove:disabled,
+.edit-deal-form input:disabled,
+.edit-deal-form textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
