@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { EditDealModal } from './EditDealModal'
+import { ViewDealModal } from './ViewDealModal'
 import './DealCardMenu.css'
 
 type DealCardMenuProps = {
@@ -14,8 +15,10 @@ export function DealCardMenu({
   disabled = false,
 }: DealCardMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const isDraggingRef = useRef(false)
 
   useEffect(() => {
     if (!isOpen) {
@@ -44,6 +47,56 @@ export function DealCardMenu({
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    const card = rootRef.current?.closest<HTMLElement>('.deals-card')
+
+    if (!card) {
+      return
+    }
+
+    let dragEndTimeout: number | undefined
+
+    const handleCardDragStart = () => {
+      isDraggingRef.current = true
+    }
+
+    const handleCardDragEnd = () => {
+      dragEndTimeout = window.setTimeout(() => {
+        isDraggingRef.current = false
+      }, 0)
+    }
+
+    const handleCardClick = (event: Event) => {
+      if (disabled || isDraggingRef.current || !(event.target instanceof Element)) {
+        return
+      }
+
+      if (
+        event.target.closest('.deal-card-menu') ||
+        event.target.closest('.view-deal-overlay') ||
+        event.target.closest('.edit-deal-overlay')
+      ) {
+        return
+      }
+
+      setIsViewModalOpen(true)
+    }
+
+    card.addEventListener('dragstart', handleCardDragStart)
+    card.addEventListener('dragend', handleCardDragEnd)
+    card.addEventListener('click', handleCardClick)
+
+    return () => {
+      if (dragEndTimeout !== undefined) {
+        window.clearTimeout(dragEndTimeout)
+      }
+
+      card.removeEventListener('dragstart', handleCardDragStart)
+      card.removeEventListener('dragend', handleCardDragEnd)
+      card.removeEventListener('click', handleCardClick)
+    }
+  }, [disabled])
 
   const openEditModal = () => {
     setIsOpen(false)
@@ -102,6 +155,14 @@ export function DealCardMenu({
           </div>
         )}
       </div>
+
+      {isViewModalOpen && (
+        <ViewDealModal
+          dealId={dealId}
+          dealName={dealName}
+          onClose={() => setIsViewModalOpen(false)}
+        />
+      )}
 
       {isEditModalOpen && (
         <EditDealModal
