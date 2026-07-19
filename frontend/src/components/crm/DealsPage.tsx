@@ -5,9 +5,11 @@ import {
   moveDeal,
   type ApiKanbanDeal,
   type ApiKanbanResponse,
+  type ApiSalesStage,
 } from '../../shared/api/dealsApi'
 import { CreateDealModal } from './CreateDealModal'
 import { DealCardMenu } from './DealCardMenu'
+import { StageMenu } from './StageMenu'
 import './DealsPage.css'
 
 type DealsPageState = {
@@ -168,6 +170,28 @@ export function DealsPage() {
     } finally {
       setIsStageSaving(false)
     }
+  }
+
+  const handleStageRenamed = (updatedStage: ApiSalesStage) => {
+    setState((currentState) => {
+      if (!currentState.data) {
+        return currentState
+      }
+
+      return {
+        ...currentState,
+        data: {
+          ...currentState.data,
+          stages: currentState.data.stages.map((stage) =>
+            stage.id === updatedStage.id ? updatedStage : stage,
+          ),
+        },
+      }
+    })
+  }
+
+  const handleStageDeleted = (_stageId: string) => {
+    setRequestVersion((currentVersion) => currentVersion + 1)
   }
 
   const handleDealCreated = (createdDeal: ApiKanbanDeal) => {
@@ -395,6 +419,9 @@ export function DealsPage() {
     )
   }
 
+  const systemStageName =
+    state.data.stages.find((stage) => stage.is_system)?.name ?? 'Новый лид'
+
   return (
     <>
       <section className="deals-page" aria-label="Сделки">
@@ -408,6 +435,9 @@ export function DealsPage() {
           {state.data.stages.map((stage) => {
             const stageDeals = state.data?.deals[stage.id] ?? []
             const isDropTarget = dropTargetStageId === stage.id
+            const otherStageNames = state.data.stages
+              .filter((otherStage) => otherStage.id !== stage.id)
+              .map((otherStage) => otherStage.name)
 
             return (
               <article
@@ -436,15 +466,13 @@ export function DealsPage() {
                       +
                     </button>
                   ) : (
-                    <button
-                      className="deals-stage__action"
-                      type="button"
-                      aria-label={`Меню этапа ${stage.name}`}
-                      title="Управление этапом добавим позже"
-                      disabled
-                    >
-                      ⋮
-                    </button>
+                    <StageMenu
+                      stage={stage}
+                      otherStageNames={otherStageNames}
+                      systemStageName={systemStageName}
+                      onRenamed={handleStageRenamed}
+                      onDeleted={handleStageDeleted}
+                    />
                   )}
                 </header>
 
