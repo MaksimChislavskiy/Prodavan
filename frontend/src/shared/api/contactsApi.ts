@@ -21,9 +21,24 @@ export type CreateContactRequest = {
   telegram?: string | null
 }
 
+export type UpdateContactRequest = CreateContactRequest & {
+  version: number
+}
+
+export function getContact(contactId: string) {
+  return apiRequest<ApiContact>(`/api/contacts/${contactId}`)
+}
+
 export function createContact(data: CreateContactRequest) {
   return apiRequest<ApiContact>('/api/contacts', {
     method: 'POST',
+    body: data,
+  })
+}
+
+export function updateContact(contactId: string, data: UpdateContactRequest) {
+  return apiRequest<ApiContact>(`/api/contacts/${contactId}`, {
+    method: 'PATCH',
     body: data,
   })
 }
