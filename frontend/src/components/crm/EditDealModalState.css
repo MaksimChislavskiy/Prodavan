@@ -21,12 +21,37 @@
   color: #b10b0b;
 }
 
+.edit-deal-form__error {
+  box-sizing: border-box;
+  width: 500px;
+  min-height: 18px;
+  margin: 10px 0 0;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(226, 15, 15, 0.1);
+  color: #b10b0b;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.edit-deal-form__submit:not(:disabled) {
+  cursor: pointer;
+}
+
 .edit-deal-form__submit:disabled,
 .edit-deal-form__chat-button:disabled,
 .edit-deal-form__messenger-button:disabled,
 .edit-deal-form__remove:disabled,
+.edit-deal-modal__close:disabled,
 .edit-deal-form input:disabled,
 .edit-deal-form textarea:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+@media (max-width: 620px) {
+  .edit-deal-form__error {
+    width: 100%;
+  }
 }
