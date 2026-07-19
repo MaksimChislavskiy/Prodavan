@@ -13,6 +13,11 @@ export type ApiContact = {
   updated_at: string
 }
 
+export type ApiContactAutocomplete = Pick<
+  ApiContact,
+  'id' | 'name' | 'company' | 'phone' | 'email' | 'telegram'
+>
+
 export type CreateContactRequest = {
   name: string
   company?: string | null
@@ -27,6 +32,17 @@ export type UpdateContactRequest = CreateContactRequest & {
 
 export function getContact(contactId: string) {
   return apiRequest<ApiContact>(`/api/contacts/${contactId}`)
+}
+
+export function searchContacts(query: string, limit = 5) {
+  const searchParams = new URLSearchParams({
+    query,
+    limit: String(limit),
+  })
+
+  return apiRequest<ApiContactAutocomplete[]>(
+    `/api/contacts/search?${searchParams.toString()}`,
+  )
 }
 
 export function createContact(data: CreateContactRequest) {
