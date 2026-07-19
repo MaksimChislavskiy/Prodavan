@@ -26,3 +26,10 @@ a {
 .deals-stage__action:disabled {
   cursor: pointer !important;
 }
+
+.create-deal-form__contact-search:not(:focus-within)
+  .create-deal-form__contact-options,
+.edit-deal-form__contact-search:not(:focus-within)
+  .edit-deal-form__contact-options {
+  display: none;
+}
