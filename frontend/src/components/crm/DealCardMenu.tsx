@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { DeleteDealConfirmModal } from './DeleteDealConfirmModal'
 import { EditDealModal } from './EditDealModal'
 import { ViewDealModal } from './ViewDealModal'
 import './DealCardMenu.css'
@@ -17,6 +18,7 @@ export function DealCardMenu({
   const [isOpen, setIsOpen] = useState(false)
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
 
@@ -75,7 +77,8 @@ export function DealCardMenu({
       if (
         event.target.closest('.deal-card-menu') ||
         event.target.closest('.view-deal-overlay') ||
-        event.target.closest('.edit-deal-overlay')
+        event.target.closest('.edit-deal-overlay') ||
+        event.target.closest('.delete-deal-overlay')
       ) {
         return
       }
@@ -101,6 +104,15 @@ export function DealCardMenu({
   const openEditModal = () => {
     setIsOpen(false)
     setIsEditModalOpen(true)
+  }
+
+  const openDeleteConfirm = () => {
+    setIsOpen(false)
+    setIsDeleteConfirmOpen(true)
+  }
+
+  const closeDeleteConfirm = () => {
+    setIsDeleteConfirmOpen(false)
   }
 
   return (
@@ -147,8 +159,7 @@ export function DealCardMenu({
               className="deal-card-menu__item"
               type="button"
               role="menuitem"
-              title="Удаление подключим позже"
-              onClick={() => setIsOpen(false)}
+              onClick={openDeleteConfirm}
             >
               Удалить
             </button>
@@ -169,6 +180,14 @@ export function DealCardMenu({
           dealId={dealId}
           dealName={dealName}
           onClose={() => setIsEditModalOpen(false)}
+        />
+      )}
+
+      {isDeleteConfirmOpen && (
+        <DeleteDealConfirmModal
+          dealName={dealName}
+          onCancel={closeDeleteConfirm}
+          onConfirm={closeDeleteConfirm}
         />
       )}
     </>
