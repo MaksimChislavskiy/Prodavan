@@ -311,7 +311,7 @@ def move_deal(*, workspace, user, deal_id, stage_id, submitted_version, idempote
         request_hash = None
 
     with transaction.atomic():
-        deal = Deal.objects.select_for_update().select_related('contact', 'stage').filter(
+        deal = Deal.objects.select_for_update(of=('self',)).select_related('contact', 'stage').filter(
             id=deal_id,
             workspace=workspace,
             is_deleted=False,
