@@ -125,8 +125,10 @@
   gap: 24px;
 }
 
-.edit-deal-form__row > span {
+.edit-deal-form__row > span,
+.edit-deal-form__row > label {
   flex: 0 0 auto;
+  margin: 0;
   color: #0b2b55;
   font-size: 14px;
   font-weight: 400;
@@ -205,9 +207,15 @@
   gap: 16px;
 }
 
+.edit-deal-form__contact-search {
+  position: relative;
+  width: 235px;
+  flex: 0 0 235px;
+}
+
 .edit-deal-form__contact-input-wrap {
   box-sizing: border-box;
-  width: 213px;
+  width: 100%;
   min-height: 34px;
   display: flex;
   align-items: center;
@@ -217,6 +225,10 @@
   border-radius: 12px;
 }
 
+.edit-deal-form__contact-input-wrap--selected {
+  border-color: #27958f;
+}
+
 .edit-deal-form__contact-input {
   width: auto;
   min-width: 0;
@@ -224,6 +236,74 @@
   flex: 1;
   padding: 0;
   text-align: left;
+}
+
+.edit-deal-form__contact-input--selected {
+  font-weight: 600;
+}
+
+.edit-deal-form__contact-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  box-sizing: border-box;
+  width: 320px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(11, 43, 85, 0.16);
+  border-radius: 12px;
+  background: #f8fcfd;
+  box-shadow: 0 12px 30px rgba(11, 43, 85, 0.2);
+}
+
+.edit-deal-form__contact-option {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.edit-deal-form__contact-option:hover,
+.edit-deal-form__contact-option:focus-visible {
+  background: #e7f0ff;
+  outline: none;
+}
+
+.edit-deal-form__contact-option strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
+.edit-deal-form__contact-option span {
+  color: rgba(11, 43, 85, 0.68);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.edit-deal-form__contact-status {
+  margin: 0;
+  padding: 9px 10px;
+  color: rgba(11, 43, 85, 0.72);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+}
+
+.edit-deal-form__contact-status--error {
+  color: #b10b0b;
 }
 
 .edit-deal-form__remove {
@@ -400,5 +480,14 @@
 
   .edit-deal-form__plain-input {
     width: min(235px, 52vw);
+  }
+
+  .edit-deal-form__contact-search {
+    width: min(235px, 52vw);
+    flex-basis: min(235px, 52vw);
+  }
+
+  .edit-deal-form__contact-options {
+    width: min(320px, calc(100vw - 48px));
   }
 }
