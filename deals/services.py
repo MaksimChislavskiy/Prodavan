@@ -214,7 +214,7 @@ def update_deal(
     changed_by_type=ChangedByType.USER,
 ):
     with transaction.atomic():
-        deal = Deal.objects.select_for_update().select_related('contact', 'stage').filter(
+        deal = Deal.objects.select_for_update(of=('self',)).select_related('contact', 'stage').filter(
             id=deal_id,
             workspace=workspace,
             is_deleted=False,

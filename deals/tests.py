@@ -241,12 +241,18 @@ class DealApiTests(TestCase):
             format='json',
             **self.auth,
         )
-        changed = self.client.patch(
-            f'/api/crm/deals/{deal_id}',
-            {'name': 'Обновлённая', 'version': detail.data['version']},
-            format='json',
-            **self.auth,
-        )
+        with patch.object(
+            Deal.objects,
+            'select_for_update',
+            wraps=Deal.objects.select_for_update,
+        ) as select_for_update:
+            changed = self.client.patch(
+                f'/api/crm/deals/{deal_id}',
+                {'name': 'Обновлённая', 'version': detail.data['version']},
+                format='json',
+                **self.auth,
+            )
+        select_for_update.assert_called_once_with(of=('self',))
         stale = self.client.patch(
             f'/api/crm/deals/{deal_id}',
             {'name': 'Устаревшая', 'version': detail.data['version']},
@@ -255,6 +261,7 @@ class DealApiTests(TestCase):
         )
 
         self.assertEqual(unchanged.data['version'], detail.data['version'])
+        self.assertEqual(changed.status_code, status.HTTP_200_OK)
         self.assertEqual(changed.data['version'], detail.data['version'] + 1)
         self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(stale.data['error']['current_version'], changed.data['version'])
