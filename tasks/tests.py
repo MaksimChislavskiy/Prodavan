@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.test import TestCase, override_settings
@@ -273,12 +274,22 @@ class TaskApiTests(TestCase):
         task_id = created.data['id']
         contact_response = self.client.delete(f'/api/contacts/{self.contact.id}')
         after_contact = Task.objects.get(id=task_id)
-        deal_response = self.client.delete(f'/api/crm/deals/{self.deal.id}')
+        with patch.object(
+            Task.objects,
+            'select_for_update',
+            wraps=Task.objects.select_for_update,
+        ) as select_for_update:
+            deal_response = self.client.delete(f'/api/crm/deals/{self.deal.id}')
+        select_for_update.assert_called_once_with(of=('self',))
         after_deal = Task.objects.get(id=task_id)
+        self.deal.refresh_from_db()
 
         self.assertEqual(contact_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertIsNone(after_contact.contact_id)
         self.assertEqual(deal_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(self.deal.is_deleted)
+        self.assertFalse(after_deal.is_deleted)
+        self.assertIsNone(after_deal.contact_id)
         self.assertIsNone(after_deal.deal_id)
         system_entries = TaskHistory.objects.filter(
             task_id=task_id,

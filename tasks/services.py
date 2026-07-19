@@ -510,7 +510,7 @@ def _detach_related_tasks(*, workspace, field, object_ids):
     if not object_ids:
         return
     lookup = {f'{field}_id__in': object_ids}
-    tasks = list(Task.objects.select_for_update().select_related(
+    tasks = list(Task.objects.select_for_update(of=('self',)).select_related(
         'workspace', 'contact', 'deal',
     ).filter(workspace=workspace, is_deleted=False, **lookup))
     for task in tasks:
