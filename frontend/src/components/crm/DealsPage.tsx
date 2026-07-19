@@ -135,6 +135,7 @@ export function DealsPage() {
         name,
         order: state.data.stages.length + 1,
       })
+
       setState((currentState) => {
         if (!currentState.data) {
           return currentState
@@ -527,7 +528,11 @@ function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
         <h2 className="deals-card__title" title={deal.name}>
           {deal.name}
         </h2>
-        <DealCardMenu dealName={deal.name} disabled={isMoving} />
+        <DealCardMenu
+          dealId={deal.id}
+          dealName={deal.name}
+          disabled={isMoving}
+        />
       </div>
 
       <div className="deals-card__line" />
