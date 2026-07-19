@@ -69,6 +69,14 @@
   outline-offset: 2px;
 }
 
+.deals-card .deal-card-menu,
+.deals-card .deal-card-menu__popup,
+.deals-card .view-deal-overlay,
+.deals-card .edit-deal-overlay,
+.deals-card .delete-deal-overlay {
+  cursor: default;
+}
+
 @media (max-width: 520px) {
   .deal-card-menu__popup {
     width: min(340px, calc(100vw - 32px));
