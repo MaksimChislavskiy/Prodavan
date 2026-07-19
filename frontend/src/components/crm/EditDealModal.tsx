@@ -6,14 +6,21 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react'
+import { getDeal } from '../../shared/api/dealsApi'
 import './EditDealModal.css'
+import './EditDealModalState.css'
 
 type EditDealModalProps = {
+  dealId: string
   dealName: string
   onClose: () => void
 }
 
-export function EditDealModal({ dealName: initialDealName, onClose }: EditDealModalProps) {
+export function EditDealModal({
+  dealId,
+  dealName: initialDealName,
+  onClose,
+}: EditDealModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
   const [dealName, setDealName] = useState(initialDealName)
   const [amount, setAmount] = useState('')
@@ -24,20 +31,66 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
   const [telegram, setTelegram] = useState('')
   const [comment, setComment] = useState('')
   const [isMessengerOpen, setIsMessengerOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
-    const timeoutId = window.setTimeout(() => {
-      modalRef.current?.querySelector<HTMLInputElement>('input')?.focus()
-    }, 0)
-
     return () => {
       document.body.style.overflow = originalOverflow
-      window.clearTimeout(timeoutId)
     }
   }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadDeal() {
+      try {
+        setIsLoading(true)
+        setLoadError('')
+
+        const deal = await getDeal(dealId)
+
+        if (!isMounted) {
+          return
+        }
+
+        setDealName(deal.name)
+        setAmount(deal.amount ?? '')
+        setContactName(deal.contact?.name ?? '')
+        setCompany(deal.contact?.company ?? '')
+        setPhone(deal.contact?.phone ?? '')
+        setEmail(deal.contact?.email ?? '')
+        setTelegram(deal.contact?.telegram ?? '')
+        setComment(deal.comment ?? '')
+        setIsMessengerOpen(Boolean(deal.contact?.telegram))
+        setIsLoading(false)
+
+        window.setTimeout(() => {
+          modalRef.current?.querySelector<HTMLInputElement>('input')?.focus()
+        }, 0)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'Не удалось загрузить данные сделки.',
+        )
+        setIsLoading(false)
+      }
+    }
+
+    void loadDeal()
+
+    return () => {
+      isMounted = false
+    }
+  }, [dealId])
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
@@ -76,6 +129,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-deal-title"
+        aria-busy={isLoading}
         tabIndex={-1}
       >
         <header className="edit-deal-modal__header">
@@ -99,6 +153,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                 value={dealName}
                 maxLength={255}
                 placeholder="Введите название"
+                disabled={isLoading}
                 onChange={(event) => setDealName(event.target.value)}
               />
             </EditFieldRow>
@@ -113,6 +168,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                   maxLength={18}
                   aria-label="Сумма сделки"
                   placeholder="0"
+                  disabled={isLoading}
                   onChange={(event) => setAmount(event.target.value.replace(/[^\d.,]/g, ''))}
                 />
                 <span>₽</span>
@@ -128,6 +184,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                     value={contactName}
                     maxLength={100}
                     placeholder="Введите ФИО"
+                    disabled={isLoading}
                     onChange={(event) => setContactName(event.target.value)}
                   />
                   <button
@@ -135,6 +192,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                     type="button"
                     aria-label="Убрать контакт"
                     title="Убрать контакт"
+                    disabled={isLoading}
                     onClick={removeContact}
                   >
                     ×
@@ -149,6 +207,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                   value={company}
                   maxLength={100}
                   placeholder="Введите название"
+                  disabled={isLoading}
                   onChange={(event) => setCompany(event.target.value)}
                 />
               </EditFieldRow>
@@ -160,6 +219,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                   value={phone}
                   maxLength={64}
                   placeholder="Введите номер"
+                  disabled={isLoading}
                   onChange={(event) => setPhone(event.target.value)}
                 />
               </EditFieldRow>
@@ -171,6 +231,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                   value={email}
                   maxLength={255}
                   placeholder="Введите e-mail"
+                  disabled={isLoading}
                   onChange={(event) => setEmail(event.target.value)}
                 />
               </EditFieldRow>
@@ -189,6 +250,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                   maxLength={64}
                   placeholder="@username"
                   aria-label="Telegram"
+                  disabled={isLoading}
                   onChange={(event) => setTelegram(event.target.value)}
                 />
                 <button
@@ -196,6 +258,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                   type="button"
                   aria-label="Убрать Telegram"
                   title="Убрать Telegram"
+                  disabled={isLoading}
                   onClick={removeMessenger}
                 >
                   ×
@@ -207,6 +270,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
               <button
                 className="edit-deal-form__messenger-button"
                 type="button"
+                disabled={isLoading}
                 onClick={() => setIsMessengerOpen(true)}
               >
                 Добавить мессенджер
@@ -220,6 +284,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
                 value={comment}
                 maxLength={500}
                 placeholder="Написать..."
+                disabled={isLoading}
                 onChange={(event) => setComment(event.target.value)}
               />
             </label>
@@ -228,6 +293,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
               className="edit-deal-form__chat-button"
               type="button"
               title="Переход в чат будет добавлен позже"
+              disabled
             >
               Перейти в чат
             </button>
@@ -236,12 +302,21 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
           <button
             className="edit-deal-form__submit"
             type="button"
-            aria-disabled="true"
+            disabled
             title="Сохранение подключим следующим этапом"
           >
             Сохранить
           </button>
         </form>
+
+        {(isLoading || loadError) && (
+          <div
+            className={`edit-deal-modal__state${loadError ? ' edit-deal-modal__state--error' : ''}`}
+            role={loadError ? 'alert' : 'status'}
+          >
+            {loadError || 'Загружаем данные сделки…'}
+          </div>
+        )}
       </div>
     </div>
   )
