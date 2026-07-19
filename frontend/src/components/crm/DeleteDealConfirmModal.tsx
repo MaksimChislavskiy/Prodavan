@@ -8,12 +8,16 @@ import './DeleteDealConfirmModal.css'
 
 type DeleteDealConfirmModalProps = {
   dealName: string
+  isDeleting: boolean
+  error: string
   onCancel: () => void
   onConfirm: () => void
 }
 
 export function DeleteDealConfirmModal({
   dealName,
+  isDeleting,
+  error,
   onCancel,
   onConfirm,
 }: DeleteDealConfirmModalProps) {
@@ -34,13 +38,13 @@ export function DeleteDealConfirmModal({
   }, [])
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
+    if (!isDeleting && event.target === event.currentTarget) {
       onCancel()
     }
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
+    if (!isDeleting && event.key === 'Escape') {
       onCancel()
     }
   }
@@ -58,6 +62,7 @@ export function DeleteDealConfirmModal({
         aria-modal="true"
         aria-labelledby="delete-deal-title"
         aria-describedby="delete-deal-description"
+        aria-busy={isDeleting}
         tabIndex={-1}
       >
         <div className="delete-deal-modal__copy">
@@ -74,21 +79,28 @@ export function DeleteDealConfirmModal({
             className="delete-deal-modal__button delete-deal-modal__button--confirm"
             type="button"
             aria-label={`Подтвердить удаление сделки ${dealName}`}
-            title="Фактическое удаление подключим следующим этапом"
+            disabled={isDeleting}
             onClick={onConfirm}
           >
-            Да
+            {isDeleting ? 'Удаляем…' : 'Да'}
           </button>
 
           <button
             ref={cancelButtonRef}
             className="delete-deal-modal__button delete-deal-modal__button--cancel"
             type="button"
+            disabled={isDeleting}
             onClick={onCancel}
           >
             Нет
           </button>
         </div>
+
+        {error && (
+          <p className="delete-deal-modal__error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   )
