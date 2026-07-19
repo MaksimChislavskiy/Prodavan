@@ -1,0 +1,404 @@
+.edit-deal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: rgba(11, 43, 85, 0.38);
+  backdrop-filter: blur(3px);
+}
+
+.edit-deal-modal {
+  position: relative;
+  box-sizing: border-box;
+  width: 540px;
+  min-height: 827px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(137, 222, 217, 0.48), transparent 27%),
+    radial-gradient(circle at 88% 20%, rgba(255, 255, 255, 0.72), transparent 29%),
+    radial-gradient(circle at 65% 72%, rgba(150, 224, 224, 0.34), transparent 28%),
+    linear-gradient(145deg, #eef4f5 0%, #d7f2f3 54%, #edf3f6 100%);
+  box-shadow: 0 24px 70px rgba(11, 43, 85, 0.28);
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.edit-deal-modal::before,
+.edit-deal-modal::after {
+  position: absolute;
+  z-index: 0;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 32px;
+  content: '';
+  pointer-events: none;
+  transform: rotate(30deg);
+}
+
+.edit-deal-modal::before {
+  top: 120px;
+  right: -38px;
+  width: 205px;
+  height: 285px;
+}
+
+.edit-deal-modal::after {
+  right: 48px;
+  bottom: 58px;
+  width: 255px;
+  height: 210px;
+}
+
+.edit-deal-modal__header {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  height: 57px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 20px;
+  border-radius: 24px 24px 0 0;
+  background: #6366ff;
+}
+
+.edit-deal-modal__header h2 {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 22px;
+  text-align: center;
+}
+
+.edit-deal-modal__close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid #0b2b55;
+  border-radius: 2px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 27px;
+  line-height: 19px;
+  cursor: pointer;
+}
+
+.edit-deal-form {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 770px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px 20px 40px;
+}
+
+.edit-deal-form__content {
+  width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.edit-deal-form__row {
+  width: 100%;
+  min-height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.edit-deal-form__row > span {
+  flex: 0 0 auto;
+  color: #0b2b55;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.edit-deal-form input,
+.edit-deal-form textarea,
+.edit-deal-form button {
+  font-family: inherit;
+}
+
+.edit-deal-form__plain-input,
+.edit-deal-form__contact-input {
+  box-sizing: border-box;
+  width: 235px;
+  height: 25px;
+  padding: 4px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  outline: 0;
+  background: transparent;
+  color: #0b2b55;
+  font-size: 14px;
+  line-height: 17px;
+  text-align: right;
+}
+
+.edit-deal-form__plain-input::placeholder,
+.edit-deal-form__contact-input::placeholder,
+.edit-deal-form__telegram-card input::placeholder,
+.edit-deal-form__comment textarea::placeholder {
+  color: rgba(11, 43, 85, 0.5);
+  opacity: 1;
+}
+
+.edit-deal-form__plain-input:focus,
+.edit-deal-form__contact-input:focus {
+  border-bottom-color: #0b2b55;
+}
+
+.edit-deal-form__amount-wrap {
+  box-sizing: border-box;
+  width: 137px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.edit-deal-form__amount-input {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0b2b55;
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.edit-deal-form__amount-wrap span {
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.edit-deal-form__contact-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.edit-deal-form__contact-input-wrap {
+  box-sizing: border-box;
+  width: 213px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 12px;
+}
+
+.edit-deal-form__contact-input {
+  width: auto;
+  min-width: 0;
+  height: 17px;
+  flex: 1;
+  padding: 0;
+  text-align: left;
+}
+
+.edit-deal-form__remove {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid #0b2b55;
+  border-radius: 2px;
+  background: transparent;
+  color: #0b2b55;
+  font-size: 18px;
+  line-height: 13px;
+  cursor: pointer;
+}
+
+.edit-deal-form__divider {
+  width: 100%;
+  height: 0;
+  border-top: 0.3px solid rgba(0, 0, 0, 0.72);
+}
+
+.edit-deal-form__telegram-card {
+  box-sizing: border-box;
+  width: 176px;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 12px;
+}
+
+.edit-deal-form__telegram-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 30px;
+  background: #f0f0f0;
+  color: #0b2b55;
+}
+
+.edit-deal-form__telegram-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.edit-deal-form__telegram-card input {
+  min-width: 0;
+  width: 70px;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0b2b55;
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.edit-deal-form__messenger-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.edit-deal-form__messenger-button {
+  width: 100%;
+  height: 31px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #ecf4ff;
+  color: rgba(11, 43, 85, 0.5);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 15px;
+  cursor: pointer;
+}
+
+.edit-deal-form__comment {
+  box-sizing: border-box;
+  width: 100%;
+  height: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 12px;
+}
+
+.edit-deal-form__comment span {
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.edit-deal-form__comment textarea {
+  width: 100%;
+  min-height: 30px;
+  flex: 1;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0b2b55;
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.edit-deal-form__chat-button {
+  align-self: flex-end;
+  width: 138px;
+  height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #6366ff;
+  color: #f0f0f0;
+  font-size: 14px;
+  line-height: 17px;
+  cursor: default;
+}
+
+.edit-deal-form__submit {
+  width: 186px;
+  height: 40px;
+  margin-top: auto;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #6366ff;
+  color: #f0f0f0;
+  font-size: 16px;
+  line-height: 19px;
+  text-align: center;
+  cursor: default;
+}
+
+.edit-deal-form button:hover {
+  filter: brightness(0.98);
+}
+
+.edit-deal-modal__close:focus-visible,
+.edit-deal-form button:focus-visible,
+.edit-deal-form input:focus-visible,
+.edit-deal-form textarea:focus-visible {
+  outline: 2px solid rgba(11, 43, 85, 0.35);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .edit-deal-overlay {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .edit-deal-modal {
+    width: min(540px, 100%);
+    min-height: 827px;
+  }
+
+  .edit-deal-form__content {
+    width: 100%;
+  }
+
+  .edit-deal-form__plain-input {
+    width: min(235px, 52vw);
+  }
+}
