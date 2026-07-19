@@ -204,6 +204,39 @@ export function DealsPage() {
     })
   }
 
+  const handleDealDeleted = (dealId: string, stageId: string) => {
+    setState((currentState) => {
+      if (!currentState.data) {
+        return currentState
+      }
+
+      const stageDeals = currentState.data.deals[stageId] ?? []
+      const hasDeal = stageDeals.some((deal) => deal.id === dealId)
+
+      if (!hasDeal) {
+        return currentState
+      }
+
+      return {
+        ...currentState,
+        data: {
+          stages: currentState.data.stages.map((stage) =>
+            stage.id === stageId
+              ? {
+                  ...stage,
+                  deal_count: Math.max(0, stage.deal_count - 1),
+                }
+              : stage,
+          ),
+          deals: {
+            ...currentState.data.deals,
+            [stageId]: stageDeals.filter((deal) => deal.id !== dealId),
+          },
+        },
+      }
+    })
+  }
+
   const handleDealDragStart = (
     event: DragEvent<HTMLElement>,
     deal: ApiKanbanDeal,
@@ -421,6 +454,9 @@ export function DealsPage() {
                       deal={deal}
                       isMoving={movingDealId === deal.id}
                       key={deal.id}
+                      onDeleted={(deletedDealId) =>
+                        handleDealDeleted(deletedDealId, stage.id)
+                      }
                       onDragStart={(event) => handleDealDragStart(event, deal, stage.id)}
                       onDragEnd={handleDealDragEnd}
                     />
@@ -511,11 +547,18 @@ export function DealsPage() {
 type DealCardProps = {
   deal: ApiKanbanDeal
   isMoving: boolean
+  onDeleted: (dealId: string) => void
   onDragStart: (event: DragEvent<HTMLElement>) => void
   onDragEnd: () => void
 }
 
-function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
+function DealCard({
+  deal,
+  isMoving,
+  onDeleted,
+  onDragStart,
+  onDragEnd,
+}: DealCardProps) {
   return (
     <article
       className={`deals-card${isMoving ? ' deals-card--moving' : ''}`}
@@ -532,6 +575,7 @@ function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
           dealId={deal.id}
           dealName={deal.name}
           disabled={isMoving}
+          onDeleted={onDeleted}
         />
       </div>
 
