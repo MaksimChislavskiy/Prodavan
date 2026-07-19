@@ -7,6 +7,11 @@ export type ApiDealContactSummary = {
   phone: string | null
 }
 
+export type ApiDealContactDetail = ApiDealContactSummary & {
+  email: string | null
+  telegram: string | null
+}
+
 export type ApiKanbanDeal = {
   id: string
   name: string
@@ -14,6 +19,20 @@ export type ApiKanbanDeal = {
   amount: string | null
   currency: string
   contact: ApiDealContactSummary | null
+  created_at: string
+  updated_at: string
+}
+
+export type ApiDealDetail = {
+  id: string
+  name: string
+  amount: string | null
+  currency: string
+  stage_id: string
+  version: number
+  comment: string | null
+  ai_insights: unknown
+  contact: ApiDealContactDetail | null
   created_at: string
   updated_at: string
 }
@@ -54,6 +73,10 @@ export type MoveDealRequest = {
 
 export function getKanban() {
   return apiRequest<ApiKanbanResponse>('/api/crm/kanban')
+}
+
+export function getDeal(dealId: string) {
+  return apiRequest<ApiDealDetail>(`/api/crm/deals/${dealId}`)
 }
 
 export function createSalesStage(data: CreateSalesStageRequest) {
