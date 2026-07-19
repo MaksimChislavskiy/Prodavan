@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { deleteDeal } from '../../shared/api/dealsApi'
 import { DeleteDealConfirmModal } from './DeleteDealConfirmModal'
 import { EditDealModal } from './EditDealModal'
 import { ViewDealModal } from './ViewDealModal'
@@ -8,17 +9,21 @@ type DealCardMenuProps = {
   dealId: string
   dealName: string
   disabled?: boolean
+  onDeleted: (dealId: string) => void
 }
 
 export function DealCardMenu({
   dealId,
   dealName,
   disabled = false,
+  onDeleted,
 }: DealCardMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
 
@@ -70,7 +75,12 @@ export function DealCardMenu({
     }
 
     const handleCardClick = (event: Event) => {
-      if (disabled || isDraggingRef.current || !(event.target instanceof Element)) {
+      if (
+        disabled ||
+        isDeleting ||
+        isDraggingRef.current ||
+        !(event.target instanceof Element)
+      ) {
         return
       }
 
@@ -99,7 +109,7 @@ export function DealCardMenu({
       card.removeEventListener('dragend', handleCardDragEnd)
       card.removeEventListener('click', handleCardClick)
     }
-  }, [disabled])
+  }, [disabled, isDeleting])
 
   const openEditModal = () => {
     setIsOpen(false)
@@ -108,11 +118,39 @@ export function DealCardMenu({
 
   const openDeleteConfirm = () => {
     setIsOpen(false)
+    setDeleteError('')
     setIsDeleteConfirmOpen(true)
   }
 
   const closeDeleteConfirm = () => {
+    if (isDeleting) {
+      return
+    }
+
     setIsDeleteConfirmOpen(false)
+    setDeleteError('')
+  }
+
+  const confirmDelete = async () => {
+    if (isDeleting) {
+      return
+    }
+
+    setIsDeleting(true)
+    setDeleteError('')
+
+    try {
+      await deleteDeal(dealId)
+      setIsDeleteConfirmOpen(false)
+      setIsViewModalOpen(false)
+      setIsEditModalOpen(false)
+      onDeleted(dealId)
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : 'Не удалось удалить сделку.',
+      )
+      setIsDeleting(false)
+    }
   }
 
   return (
@@ -132,7 +170,7 @@ export function DealCardMenu({
           aria-haspopup="menu"
           aria-expanded={isOpen}
           title="Действия со сделкой"
-          disabled={disabled}
+          disabled={disabled || isDeleting}
           draggable={false}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => setIsOpen((currentValue) => !currentValue)}
@@ -186,8 +224,10 @@ export function DealCardMenu({
       {isDeleteConfirmOpen && (
         <DeleteDealConfirmModal
           dealName={dealName}
+          isDeleting={isDeleting}
+          error={deleteError}
           onCancel={closeDeleteConfirm}
-          onConfirm={closeDeleteConfirm}
+          onConfirm={() => void confirmDelete()}
         />
       )}
     </>
