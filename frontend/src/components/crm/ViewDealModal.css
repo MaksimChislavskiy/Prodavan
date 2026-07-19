@@ -1,0 +1,316 @@
+.view-deal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1450;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: rgba(11, 43, 85, 0.38);
+  backdrop-filter: blur(3px);
+}
+
+.view-deal-modal {
+  position: relative;
+  box-sizing: border-box;
+  width: 540px;
+  min-height: 810px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(137, 222, 217, 0.48), transparent 27%),
+    radial-gradient(circle at 88% 20%, rgba(255, 255, 255, 0.72), transparent 29%),
+    radial-gradient(circle at 65% 72%, rgba(150, 224, 224, 0.34), transparent 28%),
+    linear-gradient(145deg, #eef4f5 0%, #d7f2f3 54%, #edf3f6 100%);
+  box-shadow: 0 24px 70px rgba(11, 43, 85, 0.28);
+  color: #0b2b55;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.view-deal-modal::before,
+.view-deal-modal::after {
+  position: absolute;
+  z-index: 0;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 32px;
+  content: '';
+  pointer-events: none;
+  transform: rotate(30deg);
+}
+
+.view-deal-modal::before {
+  top: 120px;
+  right: -38px;
+  width: 205px;
+  height: 285px;
+}
+
+.view-deal-modal::after {
+  right: 48px;
+  bottom: 58px;
+  width: 255px;
+  height: 210px;
+}
+
+.view-deal-modal__header {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  height: 57px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 20px;
+  border-radius: 24px 24px 0 0;
+  background: #6366ff;
+}
+
+.view-deal-modal__header h2 {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 22px;
+  text-align: center;
+}
+
+.view-deal-modal__close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid #0b2b55;
+  border-radius: 2px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 27px;
+  line-height: 19px;
+  cursor: pointer;
+}
+
+.view-deal-modal__body {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 753px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 20px 40px;
+}
+
+.view-deal-modal__edit {
+  width: 24px;
+  height: 24px;
+  align-self: flex-end;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0b2b55;
+  cursor: pointer;
+}
+
+.view-deal-modal__edit svg {
+  width: 24px;
+  height: 24px;
+}
+
+.view-deal-modal__edit:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.view-deal-content {
+  width: 500px;
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 34px;
+}
+
+.view-deal-content__row {
+  width: 100%;
+  min-height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.view-deal-content__row > span,
+.view-deal-content__row > strong {
+  color: #0b2b55;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.view-deal-content__row > strong {
+  max-width: 260px;
+  overflow: hidden;
+  opacity: 0.5;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-deal-content__contact {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.view-deal-content__divider {
+  width: 100%;
+  height: 0;
+  border-top: 0.3px solid rgba(0, 0, 0, 0.72);
+}
+
+.view-deal-content__telegram {
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 134px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 17px;
+}
+
+.view-deal-content__telegram-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f0f0f0;
+}
+
+.view-deal-content__telegram-icon svg {
+  width: 19px;
+  height: 17px;
+}
+
+.view-deal-content__messenger-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.view-deal-content__messenger-button {
+  width: 100%;
+  height: 31px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #ecf4ff;
+  color: rgba(11, 43, 85, 0.5);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 15px;
+}
+
+.view-deal-content__comment {
+  box-sizing: border-box;
+  width: 100%;
+  height: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 12px;
+}
+
+.view-deal-content__comment > span,
+.view-deal-content__comment > p {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.view-deal-content__comment > p {
+  overflow: hidden;
+  opacity: 0.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-deal-content__chat-button {
+  align-self: flex-end;
+  width: 138px;
+  height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #6366ff;
+  color: #f0f0f0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 17px;
+  opacity: 0.6;
+}
+
+.view-deal-modal__state {
+  position: absolute;
+  z-index: 4;
+  top: 57px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(240, 244, 245, 0.76);
+  color: #0b2b55;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  backdrop-filter: blur(2px);
+}
+
+.view-deal-modal__state--error {
+  color: #b10b0b;
+}
+
+.view-deal-modal__close:focus-visible,
+.view-deal-modal__edit:focus-visible {
+  outline: 2px solid rgba(11, 43, 85, 0.35);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .view-deal-overlay {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .view-deal-modal {
+    width: min(540px, 100%);
+    min-height: 810px;
+  }
+
+  .view-deal-content {
+    width: 100%;
+  }
+}
