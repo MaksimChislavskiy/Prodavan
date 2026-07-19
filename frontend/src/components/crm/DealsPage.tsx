@@ -7,6 +7,7 @@ import {
   type ApiKanbanResponse,
 } from '../../shared/api/dealsApi'
 import { CreateDealModal } from './CreateDealModal'
+import { DealCardMenu } from './DealCardMenu'
 import './DealsPage.css'
 
 type DealsPageState = {
@@ -197,6 +198,39 @@ export function DealsPage() {
               createdDeal,
               ...currentDeals.filter((deal) => deal.id !== createdDeal.id),
             ],
+          },
+        },
+      }
+    })
+  }
+
+  const handleDealDeleted = (dealId: string, stageId: string) => {
+    setState((currentState) => {
+      if (!currentState.data) {
+        return currentState
+      }
+
+      const stageDeals = currentState.data.deals[stageId] ?? []
+      const hasDeal = stageDeals.some((deal) => deal.id === dealId)
+
+      if (!hasDeal) {
+        return currentState
+      }
+
+      return {
+        ...currentState,
+        data: {
+          stages: currentState.data.stages.map((stage) =>
+            stage.id === stageId
+              ? {
+                  ...stage,
+                  deal_count: Math.max(0, stage.deal_count - 1),
+                }
+              : stage,
+          ),
+          deals: {
+            ...currentState.data.deals,
+            [stageId]: stageDeals.filter((deal) => deal.id !== dealId),
           },
         },
       }
@@ -420,6 +454,9 @@ export function DealsPage() {
                       deal={deal}
                       isMoving={movingDealId === deal.id}
                       key={deal.id}
+                      onDeleted={(deletedDealId) =>
+                        handleDealDeleted(deletedDealId, stage.id)
+                      }
                       onDragStart={(event) => handleDealDragStart(event, deal, stage.id)}
                       onDragEnd={handleDealDragEnd}
                     />
@@ -510,11 +547,18 @@ export function DealsPage() {
 type DealCardProps = {
   deal: ApiKanbanDeal
   isMoving: boolean
+  onDeleted: (dealId: string) => void
   onDragStart: (event: DragEvent<HTMLElement>) => void
   onDragEnd: () => void
 }
 
-function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
+function DealCard({
+  deal,
+  isMoving,
+  onDeleted,
+  onDragStart,
+  onDragEnd,
+}: DealCardProps) {
   return (
     <article
       className={`deals-card${isMoving ? ' deals-card--moving' : ''}`}
@@ -527,15 +571,12 @@ function DealCard({ deal, isMoving, onDragStart, onDragEnd }: DealCardProps) {
         <h2 className="deals-card__title" title={deal.name}>
           {deal.name}
         </h2>
-        <button
-          className="deals-card__menu"
-          type="button"
-          aria-label={`Меню сделки ${deal.name}`}
-          title="Действия со сделкой добавим позже"
-          disabled
-        >
-          ⋮
-        </button>
+        <DealCardMenu
+          dealId={deal.id}
+          dealName={deal.name}
+          disabled={isMoving}
+          onDeleted={onDeleted}
+        />
       </div>
 
       <div className="deals-card__line" />

@@ -7,6 +7,11 @@ export type ApiDealContactSummary = {
   phone: string | null
 }
 
+export type ApiDealContactDetail = ApiDealContactSummary & {
+  email: string | null
+  telegram: string | null
+}
+
 export type ApiKanbanDeal = {
   id: string
   name: string
@@ -14,6 +19,20 @@ export type ApiKanbanDeal = {
   amount: string | null
   currency: string
   contact: ApiDealContactSummary | null
+  created_at: string
+  updated_at: string
+}
+
+export type ApiDealDetail = {
+  id: string
+  name: string
+  amount: string | null
+  currency: string
+  stage_id: string
+  version: number
+  comment: string | null
+  ai_insights: unknown
+  contact: ApiDealContactDetail | null
   created_at: string
   updated_at: string
 }
@@ -47,6 +66,14 @@ export type CreateDealRequest = {
   comment?: string | null
 }
 
+export type UpdateDealRequest = {
+  version: number
+  name?: string
+  amount?: string | null
+  contact_id?: string | null
+  comment?: string | null
+}
+
 export type MoveDealRequest = {
   stage_id: string
   version: number
@@ -54,6 +81,10 @@ export type MoveDealRequest = {
 
 export function getKanban() {
   return apiRequest<ApiKanbanResponse>('/api/crm/kanban')
+}
+
+export function getDeal(dealId: string) {
+  return apiRequest<ApiDealDetail>(`/api/crm/deals/${dealId}`)
 }
 
 export function createSalesStage(data: CreateSalesStageRequest) {
@@ -70,6 +101,19 @@ export function createDeal(data: CreateDealRequest) {
       'Idempotency-Key': createIdempotencyKey('deal-create'),
     },
     body: data,
+  })
+}
+
+export function updateDeal(dealId: string, data: UpdateDealRequest) {
+  return apiRequest<ApiDealDetail>(`/api/crm/deals/${dealId}`, {
+    method: 'PATCH',
+    body: data,
+  })
+}
+
+export function deleteDeal(dealId: string) {
+  return apiRequest<void>(`/api/crm/deals/${dealId}`, {
+    method: 'DELETE',
   })
 }
 
