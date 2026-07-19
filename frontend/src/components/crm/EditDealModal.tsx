@@ -4,6 +4,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react'
 import './EditDealModal.css'
 
@@ -248,7 +249,7 @@ export function EditDealModal({ dealName: initialDealName, onClose }: EditDealMo
 
 type EditFieldRowProps = {
   label: string
-  children: React.ReactNode
+  children: ReactNode
 }
 
 function EditFieldRow({ label, children }: EditFieldRowProps) {
