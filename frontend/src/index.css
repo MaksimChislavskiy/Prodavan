@@ -21,3 +21,8 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+.deals-stage__action,
+.deals-stage__action:disabled {
+  cursor: pointer !important;
+}
