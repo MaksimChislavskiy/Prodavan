@@ -132,13 +132,16 @@ function findApiErrorMessage(value: unknown): string | null {
   const priorityKeys = [
     'error',
     'detail',
-    'message',
+    'errors',
     'non_field_errors',
     'email',
-    'code',
+    'phone',
+    'telegram',
     'name',
     'surname',
     'password',
+    'message',
+    'code',
   ]
 
   for (const key of priorityKeys) {

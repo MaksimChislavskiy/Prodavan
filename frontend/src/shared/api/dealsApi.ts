@@ -41,6 +41,7 @@ export type ApiSalesStage = {
   id: string
   name: string
   is_system: boolean
+  is_final: boolean
   order: number
   version: number
   deal_count: number
@@ -56,6 +57,11 @@ export type ApiKanbanResponse = {
 export type CreateSalesStageRequest = {
   name: string
   order: number
+}
+
+export type UpdateSalesStageRequest = {
+  version: number
+  name: string
 }
 
 export type CreateDealRequest = {
@@ -91,6 +97,22 @@ export function createSalesStage(data: CreateSalesStageRequest) {
   return apiRequest<ApiCreatedSalesStage>('/api/crm/stages', {
     method: 'POST',
     body: data,
+  })
+}
+
+export function updateSalesStage(stageId: string, data: UpdateSalesStageRequest) {
+  return apiRequest<ApiCreatedSalesStage>(`/api/crm/stages/${stageId}`, {
+    method: 'PATCH',
+    body: data,
+  })
+}
+
+export function deleteSalesStage(stageId: string, version: number) {
+  return apiRequest<void>(`/api/crm/stages/${stageId}`, {
+    method: 'DELETE',
+    headers: {
+      'If-Match': `"${version}"`,
+    },
   })
 }
 
