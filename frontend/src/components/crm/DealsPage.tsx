@@ -419,8 +419,10 @@ export function DealsPage() {
     )
   }
 
+  const { stages, deals } = state.data
+
   const systemStageName =
-    state.data.stages.find((stage) => stage.is_system)?.name ?? 'Новый лид'
+    stages.find((stage) => stage.is_system)?.name ?? 'Новый лид'
 
   return (
     <>
@@ -432,10 +434,10 @@ export function DealsPage() {
         )}
 
         <div className="deals-board" aria-label="Воронка сделок">
-          {state.data.stages.map((stage) => {
-            const stageDeals = state.data?.deals[stage.id] ?? []
+          {stages.map((stage) => {
+            const stageDeals = deals[stage.id] ?? []
             const isDropTarget = dropTargetStageId === stage.id
-            const otherStageNames = state.data.stages
+            const otherStageNames = stages
               .filter((otherStage) => otherStage.id !== stage.id)
               .map((otherStage) => otherStage.name)
 
