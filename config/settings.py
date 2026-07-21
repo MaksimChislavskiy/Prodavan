@@ -228,10 +228,22 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_THROTTLE_RATES': {
-        'registration': '5/hour',
-        'registration_confirm': '20/hour',
-        'password_reset_request': '5/hour',
-        'password_reset_confirm': '20/hour',
+        'registration': env(
+            'THROTTLE_REGISTRATION_RATE',
+            default='5/hour',
+        ),
+        'registration_confirm': env(
+            'THROTTLE_REGISTRATION_CONFIRM_RATE',
+            default='20/hour',
+        ),
+        'password_reset_request': env(
+            'THROTTLE_PASSWORD_RESET_REQUEST_RATE',
+            default='5/hour',
+        ),
+        'password_reset_confirm': env(
+            'THROTTLE_PASSWORD_RESET_CONFIRM_RATE',
+            default='20/hour',
+        ),
         'onboarding': '120/min',
         'telegram_connect': '10/min',
         'telegram_webhook': '100/sec',
