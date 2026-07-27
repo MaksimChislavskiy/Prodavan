@@ -4,10 +4,23 @@ type ApiRequestOptions = {
   method?: string
   body?: unknown
   headers?: HeadersInit
+  signal?: AbortSignal
 }
 
 type RefreshSessionResponse = {
   access_token: string
+}
+
+export class ApiError extends Error {
+  status: number
+  data: unknown
+
+  constructor(message: string, status: number, data: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.data = data
+  }
 }
 
 export async function apiRequest<TResponse>(
@@ -34,7 +47,7 @@ async function makeApiRequest<TResponse>(
   }
 
   if (!response.ok) {
-    throw new Error(getApiErrorMessage(data, response.status))
+    throw new ApiError(getApiErrorMessage(data, response.status), response.status, data)
   }
 
   return data as TResponse
@@ -60,6 +73,7 @@ async function fetchWithAuth(path: string, options: ApiRequestOptions) {
     headers,
     body: body !== undefined ? getRequestBody(body, isFormDataBody) : undefined,
     credentials: 'include',
+    signal: options.signal,
   })
 }
 

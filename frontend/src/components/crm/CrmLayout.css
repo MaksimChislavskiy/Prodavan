@@ -95,10 +95,7 @@
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at 36% 0%, rgba(80, 196, 211, 0.28) 0, transparent 24%),
-    radial-gradient(circle at 95% 18%, rgba(80, 196, 211, 0.45) 0, transparent 19%),
-    linear-gradient(135deg, #eaf8ff 0%, #f7fbff 47%, #d9f2fb 100%);
+  background: #eefafd;
 }
 
 .crm-main::before {
@@ -106,12 +103,8 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 20% 78%, rgba(11, 43, 85, 0.07) 0 90px, transparent 92px),
-    radial-gradient(circle at 34% 40%, rgba(11, 43, 85, 0.05) 0 78px, transparent 80px),
-    radial-gradient(circle at 54% 78%, rgba(11, 43, 85, 0.08) 0 98px, transparent 100px),
-    radial-gradient(circle at 72% 54%, rgba(11, 43, 85, 0.05) 0 82px, transparent 84px);
-  opacity: 0.7;
+  background: url('../../assets/crm/crm-background.webp') center / cover no-repeat;
+  transform: scaleX(-1);
 }
 
 .crm-topbar {

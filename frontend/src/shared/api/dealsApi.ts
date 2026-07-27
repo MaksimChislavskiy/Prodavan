@@ -54,6 +54,12 @@ export type ApiKanbanResponse = {
   deals: Record<string, ApiKanbanDeal[]>
 }
 
+export type ApiDealsPageResponse = {
+  deals: ApiKanbanDeal[]
+  next_cursor: string | null
+  has_more: boolean
+}
+
 export type CreateSalesStageRequest = {
   name: string
   order: number
@@ -91,6 +97,25 @@ export function getKanban() {
 
 export function getDeal(dealId: string) {
   return apiRequest<ApiDealDetail>(`/api/crm/deals/${dealId}`)
+}
+
+export function getDealsPage(
+  stageId: string,
+  limit = 100,
+  cursor?: string | null,
+) {
+  const searchParams = new URLSearchParams({
+    stage_id: stageId,
+    limit: String(limit),
+  })
+
+  if (cursor) {
+    searchParams.set('cursor', cursor)
+  }
+
+  return apiRequest<ApiDealsPageResponse>(
+    `/api/crm/deals?${searchParams.toString()}`,
+  )
 }
 
 export function createSalesStage(data: CreateSalesStageRequest) {

@@ -7,6 +7,71 @@
   padding-bottom: 24px;
 }
 
+.deals-contact-filter {
+  box-sizing: border-box;
+  width: min(780px, calc(100vw - 80px));
+  min-height: 66px;
+  margin-bottom: 18px;
+  padding: 10px 12px 10px 19px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid rgba(85, 85, 241, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 12px 32px rgba(11, 43, 85, 0.09);
+  color: #0b2b55;
+}
+
+.deals-contact-filter > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  gap: 3px 9px;
+}
+
+.deals-contact-filter span {
+  grid-column: 1 / -1;
+  color: #71869b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.deals-contact-filter strong {
+  max-width: 360px;
+  overflow: hidden;
+  color: #0b2b55;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deals-contact-filter small {
+  color: #75899d;
+  font-size: 12px;
+}
+
+.deals-contact-filter button {
+  min-height: 40px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 12px;
+  background: #eeefff;
+  color: #5555e9;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.deals-contact-filter button:hover {
+  background: #e4e5ff;
+}
+
 .deals-page__error {
   box-sizing: border-box;
   width: min(520px, 100%);

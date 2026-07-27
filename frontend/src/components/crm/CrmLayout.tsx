@@ -3,6 +3,7 @@ import logoFull from '../../assets/brand/logo-full.svg'
 import { DashboardPage } from './DashboardPage'
 import { AiSettingsPage } from './AiSettingsPage'
 import { DealsPage } from './DealsPage'
+import { ContactsPage } from './ContactsPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
@@ -31,7 +32,10 @@ type CrmSectionId =
   | 'settings'
   | 'chat'
 
-type PlaceholderSectionId = Exclude<CrmSectionId, 'dashboard' | 'ai' | 'deals'>
+type PlaceholderSectionId = Exclude<
+  CrmSectionId,
+  'dashboard' | 'ai' | 'deals' | 'contacts'
+>
 
 type NavigationItem = {
   id: CrmSectionId
@@ -62,17 +66,6 @@ const navigationItems: NavigationItem[] = [
 ]
 
 const placeholderSections: Record<PlaceholderSectionId, CrmPlaceholderSection> = {
-  contacts: {
-    eyebrow: 'CRM',
-    title: 'Контакты',
-    text:
-      'Здесь позже появится список клиентов и карточки контактов: имя, компания, телефон, e-mail и Telegram.',
-    widgets: [
-      { value: '0', label: 'Контактов' },
-      { value: '0', label: 'Компаний' },
-      { value: 'mock', label: 'Данные позже' },
-    ],
-  },
   tasks: {
     eyebrow: 'CRM',
     title: 'Задачи',
@@ -172,7 +165,12 @@ function SidebarIcon({ name }: { name: SidebarIconName }) {
 }
 
 function isPlaceholderSection(section: CrmSectionId): section is PlaceholderSectionId {
-  return section !== 'dashboard' && section !== 'ai' && section !== 'deals'
+  return (
+    section !== 'dashboard' &&
+    section !== 'ai' &&
+    section !== 'deals' &&
+    section !== 'contacts'
+  )
 }
 
 export function CrmLayout() {
@@ -457,6 +455,24 @@ export function CrmLayout() {
 
     if (activeSection === 'deals') {
       return <DealsPage />
+    }
+
+    if (activeSection === 'contacts') {
+      return (
+        <ContactsPage
+          onOpenRelatedDeals={(contact) => {
+            const searchParams = new URLSearchParams({
+              contact_id: contact.id,
+              contact_name: contact.name,
+            })
+            const href = `/app/deals?${searchParams.toString()}`
+
+            window.history.pushState(null, '', href)
+            setActiveSection('deals')
+            window.scrollTo(0, 0)
+          }}
+        />
+      )
     }
 
     if (!isPlaceholderSection(activeSection)) {
