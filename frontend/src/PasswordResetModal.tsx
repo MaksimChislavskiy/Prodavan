@@ -5,6 +5,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
+import { apiRequest } from './shared/api/apiClient'
 import './PasswordResetModal.css'
 
 type PasswordResetModalProps = {
@@ -15,8 +16,36 @@ type PasswordResetModalProps = {
 
 type PasswordResetStep = 'email' | 'code' | 'newPassword' | 'success'
 
-const MOCK_RESET_EMAIL = 'dvhjkdsvbksdskj@mail.ru'
-const MOCK_RESET_CODE = '3578'
+type PasswordResetResponse = {
+  message: string
+}
+
+const RESEND_DELAY_SECONDS = 60
+const CODE_LIFETIME_SECONDS = 10 * 60
+const SUCCESS_REDIRECT_DELAY_MS = 1500
+
+function createEmptyCode() {
+  return ['', '', '', '']
+}
+
+function formatCountdown(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function getRequestErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof TypeError) {
+    return 'Проверьте подключение к интернету.'
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+
+  return fallback
+}
 
 function PasswordResetModal({
   initialEmail = '',
@@ -29,13 +58,22 @@ function PasswordResetModal({
   const [resetStep, setResetStep] = useState<PasswordResetStep>('email')
   const [email, setEmail] = useState(initialEmail)
   const [emailError, setEmailError] = useState('')
-  const [confirmationCode, setConfirmationCode] = useState(['', '', '', ''])
-  const [isConfirmationCodeInvalid, setIsConfirmationCodeInvalid] = useState(false)
+  const [confirmationCode, setConfirmationCode] = useState(createEmptyCode)
+  const [codeError, setCodeError] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [repeatPassword, setRepeatPassword] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [isNewPasswordVisible, setIsNewPasswordVisible] = useState(false)
   const [isRepeatPasswordVisible, setIsRepeatPasswordVisible] = useState(false)
+  const [isSendingCode, setIsSendingCode] = useState(false)
+  const [isConfirmingCode, setIsConfirmingCode] = useState(false)
+  const [isSavingPassword, setIsSavingPassword] = useState(false)
+  const [resendSeconds, setResendSeconds] = useState(0)
+  const [codeExpiresSeconds, setCodeExpiresSeconds] = useState(0)
+
+  const isBusy = isSendingCode || isConfirmingCode || isSavingPassword
+  const isCodeEntryBlocked =
+    codeExpiresSeconds === 0 || codeError.includes('Превышено количество попыток')
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
@@ -63,19 +101,66 @@ function PasswordResetModal({
     }
   }, [resetStep])
 
+  useEffect(() => {
+    if (resetStep !== 'code') {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setResendSeconds((currentSeconds) => Math.max(0, currentSeconds - 1))
+      setCodeExpiresSeconds((currentSeconds) => Math.max(0, currentSeconds - 1))
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [resetStep])
+
+  useEffect(() => {
+    if (resetStep !== 'code' || codeExpiresSeconds !== 0) {
+      return
+    }
+
+    setResendSeconds(0)
+    setCodeError('Срок действия кода истёк. Запросите новый код.')
+  }, [codeExpiresSeconds, resetStep])
+
+  useEffect(() => {
+    if (resetStep !== 'success') {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      onOpenLogin(email)
+    }, SUCCESS_REDIRECT_DELAY_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [email, onOpenLogin, resetStep])
+
+  const startCodeTimers = () => {
+    setResendSeconds(RESEND_DELAY_SECONDS)
+    setCodeExpiresSeconds(CODE_LIFETIME_SECONDS)
+  }
+
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
+    if (!isBusy && event.target === event.currentTarget) {
       onClose()
     }
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
+    if (!isBusy && event.key === 'Escape') {
       onClose()
     }
   }
 
   const handleBack = () => {
+    if (isBusy) {
+      return
+    }
+
     if (resetStep === 'email') {
       if (emailError) {
         setEmailError('')
@@ -87,8 +172,10 @@ function PasswordResetModal({
     }
 
     if (resetStep === 'code') {
-      setConfirmationCode(['', '', '', ''])
-      setIsConfirmationCodeInvalid(false)
+      setConfirmationCode(createEmptyCode())
+      setCodeError('')
+      setResendSeconds(0)
+      setCodeExpiresSeconds(0)
       setResetStep('email')
       return
     }
@@ -101,7 +188,7 @@ function PasswordResetModal({
     }
   }
 
-  const handleEmailSubmit = () => {
+  const handleEmailSubmit = async () => {
     const normalizedEmail = email.trim()
 
     if (!normalizedEmail) {
@@ -110,46 +197,93 @@ function PasswordResetModal({
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setEmailError('Неверный e-mail')
+      setEmailError('Неверный e-mail.')
       return
     }
 
-    if (normalizedEmail !== MOCK_RESET_EMAIL) {
-      setEmailError('Пользователь с таким e-mail не найден.')
+    try {
+      setIsSendingCode(true)
+      setEmailError('')
+
+      await apiRequest<PasswordResetResponse>('/api/auth/forgot-password', {
+        method: 'POST',
+        body: {
+          email: normalizedEmail,
+        },
+      })
+
+      setEmail(normalizedEmail)
+      setConfirmationCode(createEmptyCode())
+      setCodeError('')
+      startCodeTimers()
+      setResetStep('code')
+    } catch (error) {
+      setEmailError(
+        getRequestErrorMessage(
+          error,
+          'Не удалось отправить код. Проверьте e-mail и попробуйте позже.',
+        ),
+      )
+    } finally {
+      setIsSendingCode(false)
+    }
+  }
+
+  async function handleCodeSubmit(code: string) {
+    if (isConfirmingCode) {
       return
     }
 
-    setEmail(normalizedEmail)
-    setEmailError('')
-    setConfirmationCode(['', '', '', ''])
-    setIsConfirmationCodeInvalid(false)
-    setResetStep('code')
+    if (codeExpiresSeconds === 0) {
+      setCodeError('Срок действия кода истёк. Запросите новый код.')
+      return
+    }
+
+    try {
+      setIsConfirmingCode(true)
+      setCodeError('')
+
+      await apiRequest<PasswordResetResponse>('/api/auth/reset-password/confirm', {
+        method: 'POST',
+        body: {
+          email,
+          code,
+        },
+      })
+
+      setResetStep('newPassword')
+    } catch (error) {
+      setCodeError(
+        getRequestErrorMessage(
+          error,
+          'Проверьте правильность ввода или отправьте новый код.',
+        ),
+      )
+    } finally {
+      setIsConfirmingCode(false)
+    }
   }
 
   const handleCodeChange = (index: number, value: string) => {
-    const nextValue = value.replace(/\D/g, '').slice(-1)
+    if (isConfirmingCode || isCodeEntryBlocked) {
+      return
+    }
 
+    const nextValue = value.replace(/\D/g, '').slice(-1)
     const nextCode = [...confirmationCode]
     nextCode[index] = nextValue
 
     setConfirmationCode(nextCode)
+    setCodeError('')
+
+    if (nextValue && index < codeInputRefs.current.length - 1) {
+      codeInputRefs.current[index + 1]?.focus()
+    }
 
     const joinedCode = nextCode.join('')
 
     if (joinedCode.length === 4) {
-      if (joinedCode === MOCK_RESET_CODE) {
-        setIsConfirmationCodeInvalid(false)
-        setResetStep('newPassword')
-        return
-      }
-
-      setIsConfirmationCodeInvalid(true)
-    } else {
-      setIsConfirmationCodeInvalid(false)
-    }
-
-    if (nextValue && index < codeInputRefs.current.length - 1) {
-      codeInputRefs.current[index + 1]?.focus()
+      void handleCodeSubmit(joinedCode)
     }
   }
 
@@ -162,13 +296,58 @@ function PasswordResetModal({
     }
   }
 
-  const handleResendCode = () => {
-    setConfirmationCode(['', '', '', ''])
-    setIsConfirmationCodeInvalid(false)
-    codeInputRefs.current[0]?.focus()
+  const handleResendCode = async () => {
+    if (resendSeconds > 0 || isSendingCode) {
+      return
+    }
+
+    try {
+      setIsSendingCode(true)
+      setCodeError('')
+
+      await apiRequest<PasswordResetResponse>('/api/auth/forgot-password', {
+        method: 'POST',
+        body: {
+          email,
+        },
+      })
+
+      setConfirmationCode(createEmptyCode())
+      startCodeTimers()
+
+      window.setTimeout(() => {
+        codeInputRefs.current[0]?.focus()
+      }, 0)
+    } catch (error) {
+      setCodeError(
+        getRequestErrorMessage(
+          error,
+          'Не удалось отправить код. Проверьте e-mail и попробуйте позже.',
+        ),
+      )
+    } finally {
+      setIsSendingCode(false)
+    }
   }
 
-  const handlePasswordSubmit = () => {
+  const handleChangeEmail = () => {
+    if (isBusy) {
+      return
+    }
+
+    setConfirmationCode(createEmptyCode())
+    setCodeError('')
+    setResendSeconds(0)
+    setCodeExpiresSeconds(0)
+    setResetStep('email')
+  }
+
+  const handlePasswordSubmit = async () => {
+    if (!newPassword || !repeatPassword) {
+      setPasswordError('Заполните поле.')
+      return
+    }
+
     const hasEnoughLength = newPassword.length >= 8
     const hasDigitOrSymbol = /[0-9!@#$%^&*()_+\-.,]/.test(newPassword)
 
@@ -182,10 +361,29 @@ function PasswordResetModal({
       return
     }
 
-    setPasswordError('')
-    setResetStep('success')
+    try {
+      setIsSavingPassword(true)
+      setPasswordError('')
+
+      await apiRequest<PasswordResetResponse>('/api/auth/reset-password', {
+        method: 'POST',
+        body: {
+          email,
+          new_password: newPassword,
+        },
+      })
+
+      setResetStep('success')
+    } catch (error) {
+      setPasswordError(
+        getRequestErrorMessage(error, 'Не удалось изменить пароль. Попробуйте позже.'),
+      )
+    } finally {
+      setIsSavingPassword(false)
+    }
   }
 
+  const hasCodeError = Boolean(codeError)
   const resetModalClassName = [
     'passwordResetModal',
     resetStep === 'email' ? 'passwordResetModalEmail' : '',
@@ -193,7 +391,7 @@ function PasswordResetModal({
     resetStep === 'code' ? 'passwordResetModalCode' : '',
     resetStep === 'newPassword' ? 'passwordResetModalNewPassword' : '',
     resetStep === 'success' ? 'passwordResetModalSuccess' : '',
-    isConfirmationCodeInvalid ? 'passwordResetModalCodeInvalid' : '',
+    hasCodeError ? 'passwordResetModalCodeInvalid' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -220,6 +418,7 @@ function PasswordResetModal({
                   className="passwordResetClose"
                   type="button"
                   aria-label="Закрыть"
+                  disabled={isSendingCode}
                   onClick={onClose}
                 >
                   <CloseIcon />
@@ -233,6 +432,7 @@ function PasswordResetModal({
                   className="passwordResetBackButton"
                   type="button"
                   aria-label="Назад"
+                  disabled={isSendingCode}
                   onClick={handleBack}
                 >
                   <ArrowLeftIcon />
@@ -258,7 +458,7 @@ function PasswordResetModal({
               className="passwordResetEmailForm"
               onSubmit={(event) => {
                 event.preventDefault()
-                handleEmailSubmit()
+                void handleEmailSubmit()
               }}
             >
               <label className="passwordResetField">
@@ -268,6 +468,7 @@ function PasswordResetModal({
                   type="email"
                   placeholder="Введите e-mail"
                   value={email}
+                  disabled={isSendingCode}
                   onChange={(event) => {
                     setEmail(event.target.value)
                     setEmailError('')
@@ -277,8 +478,12 @@ function PasswordResetModal({
 
               {emailError && <p className="passwordResetEmailErrorText">{emailError}</p>}
 
-              <button className="passwordResetSubmitButton" type="submit">
-                Отправить код
+              <button
+                className="passwordResetSubmitButton"
+                type="submit"
+                disabled={isSendingCode}
+              >
+                {isSendingCode ? 'Отправляем код...' : 'Отправить код'}
               </button>
             </form>
           </>
@@ -286,12 +491,13 @@ function PasswordResetModal({
 
         {resetStep === 'code' && (
           <>
-            {!isConfirmationCodeInvalid && (
+            {!hasCodeError && (
               <div className="passwordResetTop">
                 <button
                   className="passwordResetClose"
                   type="button"
                   aria-label="Закрыть"
+                  disabled={isBusy}
                   onClick={onClose}
                 >
                   <CloseIcon />
@@ -304,6 +510,7 @@ function PasswordResetModal({
                 className="passwordResetBackButton"
                 type="button"
                 aria-label="Назад"
+                disabled={isBusy}
                 onClick={handleBack}
               >
                 <ArrowLeftIcon />
@@ -322,11 +529,16 @@ function PasswordResetModal({
               <div className="passwordResetCodeIntro">
                 <h3>Подтвердите ваш E-mail</h3>
                 <p>Введите код, отправленный на почту {email}</p>
+                <p>
+                  {codeExpiresSeconds > 0
+                    ? `Код действителен ещё ${formatCountdown(codeExpiresSeconds)}.`
+                    : 'Срок действия кода истёк.'}
+                </p>
               </div>
 
               <div
                 className={
-                  isConfirmationCodeInvalid
+                  hasCodeError
                     ? 'passwordResetCodeArea passwordResetCodeAreaInvalid'
                     : 'passwordResetCodeArea'
                 }
@@ -338,43 +550,53 @@ function PasswordResetModal({
                       ref={(element) => {
                         codeInputRefs.current[index] = element
                       }}
-                      className={isConfirmationCodeInvalid ? 'isInvalid' : undefined}
+                      className={hasCodeError ? 'isInvalid' : undefined}
                       type="text"
                       inputMode="numeric"
                       autoComplete="one-time-code"
                       value={digit}
                       maxLength={1}
                       aria-label={`Цифра ${index + 1}`}
+                      disabled={isBusy || isCodeEntryBlocked}
                       onChange={(event) => handleCodeChange(index, event.target.value)}
                       onKeyDown={(event) => handleCodeKeyDown(event, index)}
                     />
                   ))}
                 </div>
 
-                {isConfirmationCodeInvalid && (
+                {hasCodeError && (
                   <button
                     className="passwordResetCodeErrorMessage"
                     type="button"
-                    onClick={handleResendCode}
+                    disabled={resendSeconds > 0 || isSendingCode}
+                    onClick={() => void handleResendCode()}
                   >
-                    Проверьте правильность ввода или отправьте новый код
+                    {codeError}
                   </button>
                 )}
               </div>
 
               <div className="passwordResetCodeLinks">
-                <button className="passwordResetResendButton" type="button" disabled>
-                  Отправить снова через 00:59
+                <button
+                  className={`passwordResetResendButton ${
+                    resendSeconds === 0 ? 'passwordResetChangeEmailButton' : ''
+                  }`}
+                  type="button"
+                  disabled={resendSeconds > 0 || isSendingCode}
+                  onClick={() => void handleResendCode()}
+                >
+                  {isSendingCode
+                    ? 'Отправляем код...'
+                    : resendSeconds > 0
+                      ? `Отправить снова через ${formatCountdown(resendSeconds)}`
+                      : 'Отправить код повторно'}
                 </button>
 
                 <button
                   className="passwordResetChangeEmailButton"
                   type="button"
-                  onClick={() => {
-                    setConfirmationCode(['', '', '', ''])
-                    setIsConfirmationCodeInvalid(false)
-                    setResetStep('email')
-                  }}
+                  disabled={isBusy}
+                  onClick={handleChangeEmail}
                 >
                   Ввести другой адрес
                 </button>
@@ -390,6 +612,7 @@ function PasswordResetModal({
                 className="passwordResetClose"
                 type="button"
                 aria-label="Закрыть"
+                disabled={isSavingPassword}
                 onClick={onClose}
               >
                 <CloseIcon />
@@ -401,6 +624,7 @@ function PasswordResetModal({
                 className="passwordResetBackButton"
                 type="button"
                 aria-label="Назад"
+                disabled={isSavingPassword}
                 onClick={handleBack}
               >
                 <ArrowLeftIcon />
@@ -419,7 +643,7 @@ function PasswordResetModal({
               className="passwordResetPasswordForm"
               onSubmit={(event) => {
                 event.preventDefault()
-                handlePasswordSubmit()
+                void handlePasswordSubmit()
               }}
             >
               <div className="passwordResetPasswordBlock">
@@ -431,6 +655,7 @@ function PasswordResetModal({
                       type={isNewPasswordVisible ? 'text' : 'password'}
                       placeholder="Введите новый пароль"
                       value={newPassword}
+                      disabled={isSavingPassword}
                       onChange={(event) => {
                         setNewPassword(event.target.value)
                         setPasswordError('')
@@ -443,6 +668,7 @@ function PasswordResetModal({
                       aria-label={
                         isNewPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'
                       }
+                      disabled={isSavingPassword}
                       onClick={() => setIsNewPasswordVisible((value) => !value)}
                     >
                       {isNewPasswordVisible ? <EyeIcon /> : <EyeSlashIcon />}
@@ -464,6 +690,7 @@ function PasswordResetModal({
                     type={isRepeatPasswordVisible ? 'text' : 'password'}
                     placeholder="Повторите пароль"
                     value={repeatPassword}
+                    disabled={isSavingPassword}
                     onChange={(event) => {
                       setRepeatPassword(event.target.value)
                       setPasswordError('')
@@ -476,6 +703,7 @@ function PasswordResetModal({
                     aria-label={
                       isRepeatPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'
                     }
+                    disabled={isSavingPassword}
                     onClick={() => setIsRepeatPasswordVisible((value) => !value)}
                   >
                     {isRepeatPasswordVisible ? <EyeIcon /> : <EyeSlashIcon />}
@@ -487,8 +715,12 @@ function PasswordResetModal({
                 <p className="passwordResetPasswordErrorText">{passwordError}</p>
               )}
 
-              <button className="passwordResetSubmitButton" type="submit">
-                Сохранить пароль
+              <button
+                className="passwordResetSubmitButton"
+                type="submit"
+                disabled={isSavingPassword}
+              >
+                {isSavingPassword ? 'Сохраняем пароль...' : 'Сохранить пароль'}
               </button>
             </form>
           </>

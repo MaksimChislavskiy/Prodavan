@@ -1,0 +1,214 @@
+name: prodavan-local
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-prodavan}
+      POSTGRES_USER: ${POSTGRES_USER:-prodavan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prodavan-local-password}
+    volumes:
+      - prodavan_local_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-prodavan} -d ${POSTGRES_DB:-prodavan}
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: prodavan-backend-local:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DJANGO_DEBUG: "True"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DJANGO_SECURE_HSTS_SECONDS: "0"
+      DJANGO_SESSION_COOKIE_SECURE: "False"
+      DJANGO_CSRF_COOKIE_SECURE: "False"
+      AUTH_COOKIE_SECURE: "False"
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: ${POSTGRES_DB:-prodavan}
+      DATABASE_USER: ${POSTGRES_USER:-prodavan}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-prodavan-local-password}
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
+      CHANNEL_REDIS_URL: redis://redis:6379/0
+      CACHE_REDIS_URL: redis://redis:6379/0
+      CACHE_KEY_PREFIX: prodavan-local
+    volumes:
+      - prodavan_local_media:/app/media
+      - prodavan_local_static:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/health/live', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  auth_email_worker:
+    image: prodavan-backend-local:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    command:
+      - python
+      - manage.py
+      - process_auth_emails
+      - --watch
+      - --limit
+      - "100"
+      - --poll-interval
+      - "1"
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DJANGO_DEBUG: "True"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DJANGO_SECURE_HSTS_SECONDS: "0"
+      DJANGO_SESSION_COOKIE_SECURE: "False"
+      DJANGO_CSRF_COOKIE_SECURE: "False"
+      AUTH_COOKIE_SECURE: "False"
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: ${POSTGRES_DB:-prodavan}
+      DATABASE_USER: ${POSTGRES_USER:-prodavan}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-prodavan-local-password}
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
+      CHANNEL_REDIS_URL: redis://redis:6379/0
+      CACHE_REDIS_URL: redis://redis:6379/0
+      CACHE_KEY_PREFIX: prodavan-local
+    volumes:
+      - prodavan_local_media:/app/media
+      - prodavan_local_static:/app/staticfiles
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    image: prodavan-frontend-local:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    configs:
+      - source: nginx_local
+        target: /etc/nginx/conf.d/default.conf
+    volumes:
+      - prodavan_local_media:/media:ro
+      - prodavan_local_static:/static:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+
+configs:
+  nginx_local:
+    content: |
+      server {
+          listen 80;
+          server_name localhost 127.0.0.1;
+
+          root /usr/share/nginx/html;
+          index index.html;
+
+          server_tokens off;
+          client_max_body_size 25M;
+
+          location /api/ {
+              proxy_pass http://backend:8000/api/;
+              proxy_set_header Host $$host;
+              proxy_set_header X-Real-IP $$remote_addr;
+              proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $$scheme;
+          }
+
+          location /admin/ {
+              proxy_pass http://backend:8000/admin/;
+              proxy_set_header Host $$host;
+              proxy_set_header X-Real-IP $$remote_addr;
+              proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $$scheme;
+          }
+
+          location /ws/ {
+              proxy_pass http://backend:8000/ws/;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $$http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host $$host;
+              proxy_set_header X-Real-IP $$remote_addr;
+              proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $$scheme;
+          }
+
+          location /static/ {
+              alias /static/;
+              expires 7d;
+              add_header Cache-Control "public";
+          }
+
+          location /media/ {
+              alias /media/;
+              expires 7d;
+              add_header Cache-Control "public";
+          }
+
+          location / {
+              try_files $$uri $$uri/ /index.html;
+          }
+
+          location ~* \.(js|css|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2)$$ {
+              try_files $$uri =404;
+              expires 7d;
+          }
+      }
+
+volumes:
+  prodavan_local_pg_data:
+  prodavan_local_media:
+  prodavan_local_static:
