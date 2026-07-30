@@ -4,6 +4,7 @@ import { DashboardPage } from './DashboardPage'
 import { AiSettingsPage } from './AiSettingsPage'
 import { DealsPage } from './DealsPage'
 import { ContactsPage } from './ContactsPage'
+import { TasksPage } from './TasksPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
@@ -34,7 +35,7 @@ type CrmSectionId =
 
 type PlaceholderSectionId = Exclude<
   CrmSectionId,
-  'dashboard' | 'ai' | 'deals' | 'contacts'
+  'dashboard' | 'ai' | 'deals' | 'contacts' | 'tasks'
 >
 
 type NavigationItem = {
@@ -66,17 +67,6 @@ const navigationItems: NavigationItem[] = [
 ]
 
 const placeholderSections: Record<PlaceholderSectionId, CrmPlaceholderSection> = {
-  tasks: {
-    eyebrow: 'CRM',
-    title: 'Задачи',
-    text:
-      'Здесь позже появится раздел задач: статусы, сроки, карточки задач и управление действиями менеджера.',
-    widgets: [
-      { value: '0', label: 'Новых задач' },
-      { value: '0', label: 'В работе' },
-      { value: '0', label: 'Завершено' },
-    ],
-  },
   settings: {
     eyebrow: 'CRM',
     title: 'Настройки',
@@ -169,7 +159,8 @@ function isPlaceholderSection(section: CrmSectionId): section is PlaceholderSect
     section !== 'dashboard' &&
     section !== 'ai' &&
     section !== 'deals' &&
-    section !== 'contacts'
+    section !== 'contacts' &&
+    section !== 'tasks'
   )
 }
 
@@ -473,6 +464,10 @@ export function CrmLayout() {
           }}
         />
       )
+    }
+
+    if (activeSection === 'tasks') {
+      return <TasksPage />
     }
 
     if (!isPlaceholderSection(activeSection)) {

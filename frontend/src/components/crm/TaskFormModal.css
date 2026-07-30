@@ -1,0 +1,453 @@
+.task-form-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  padding: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  background: rgba(48, 52, 76, 0.62);
+  backdrop-filter: blur(3px);
+}
+
+.task-form-modal {
+  position: relative;
+  width: min(1067px, 100%);
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  border-radius: 24px;
+  background: #ffffff;
+  color: #0b2b55;
+  box-shadow: 0 30px 90px rgba(11, 43, 85, 0.3);
+}
+
+.task-form-modal__header {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  min-height: 57px;
+  padding: 6px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-radius: 24px 24px 0 0;
+  background: #6366ff;
+}
+
+.task-form-modal__header h2 {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.task-form-modal__header > button {
+  width: 32px;
+  height: 32px;
+  padding: 0 0 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #0b2b55;
+  border-radius: 7px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 25px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.task-form-modal__header > button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.task-form-modal__header > button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.task-form {
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.task-form__field {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-form__field > span {
+  color: #0b2b55;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.task-form__field > span b {
+  margin-left: 3px;
+  color: #e20f0f;
+}
+
+.task-form__field input,
+.task-form__field select,
+.task-form__field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 0.3px solid #0b2b55;
+  border-radius: 12px;
+  outline: 0;
+  background: #ffffff;
+  color: #0b2b55;
+  font: inherit;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.task-form__field input,
+.task-form__field select {
+  height: 40px;
+  padding: 8px 12px;
+}
+
+.task-form__field textarea {
+  min-height: 76px;
+  padding: 10px 12px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.task-form__field input:focus,
+.task-form__field select:focus,
+.task-form__field textarea:focus {
+  border-color: #6366ff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 255, 0.16);
+}
+
+.task-form__field input::placeholder,
+.task-form__field textarea::placeholder {
+  color: rgba(11, 43, 85, 0.5);
+}
+
+.task-form__field input[aria-invalid='true'] {
+  border-color: #e20f0f;
+}
+
+.task-form__field input:disabled,
+.task-form__field select:disabled,
+.task-form__field textarea:disabled {
+  background: #f4f6f8;
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.task-form__field em {
+  color: #c70f0f;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.task-form__field small {
+  position: absolute;
+  right: 10px;
+  bottom: 7px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #6c7e94;
+  font-size: 11px;
+}
+
+.task-form__due-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(230px, 1fr);
+  gap: 20px;
+  align-items: end;
+}
+
+.task-form__relations {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1.2fr) minmax(
+      150px,
+      0.55fr
+    );
+  gap: 20px;
+  align-items: end;
+}
+
+.task-form__amount {
+  min-width: 0;
+  min-height: 66px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  border: 0.3px solid rgba(11, 43, 85, 0.38);
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.task-form__amount span {
+  color: #63768d;
+  font-size: 12px;
+}
+
+.task-form__amount strong {
+  overflow: hidden;
+  color: #0b2b55;
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-form__request-error {
+  margin: -6px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff0f0;
+  color: #c70f0f;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.task-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.task-form__actions > div {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+}
+
+.task-form__button {
+  min-width: 150px;
+  height: 40px;
+  padding: 8px 22px;
+  border: 1px solid transparent;
+  border-radius: 24px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.task-form__button--primary {
+  background: #6366ff;
+  color: #f0f0f0;
+}
+
+.task-form__button--secondary {
+  border-color: #0b2b55;
+  background: #ffffff;
+  color: #0b2b55;
+}
+
+.task-form__button--danger {
+  background: #6366ff;
+  color: #f0f0f0;
+}
+
+.task-form__button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.task-form__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-form-modal__loading {
+  min-height: 370px;
+  padding: 50px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.task-form-modal__loading p {
+  max-width: 560px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.task-form-modal__loading button {
+  min-height: 40px;
+  padding: 8px 22px;
+  border: 0;
+  border-radius: 20px;
+  background: #6366ff;
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.task-form-modal__spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #e5e7ff;
+  border-top-color: #6366ff;
+  border-radius: 50%;
+  animation: task-form-spin 800ms linear infinite;
+}
+
+.task-decision-overlay {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  background: rgba(26, 31, 54, 0.58);
+}
+
+.task-decision {
+  width: min(100%, 460px);
+  padding: 28px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(11, 43, 85, 0.3);
+  text-align: center;
+}
+
+.task-decision h3 {
+  margin: 0 0 10px;
+  color: #0b2b55;
+  font-size: 23px;
+}
+
+.task-decision p {
+  margin: 0;
+  color: #51667f;
+  line-height: 1.55;
+}
+
+.task-decision > div {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.task-decision button {
+  min-width: 128px;
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 1px solid #0b2b55;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #0b2b55;
+  font: inherit;
+  cursor: pointer;
+}
+
+.task-decision button.is-primary {
+  border-color: #6366ff;
+  background: #6366ff;
+  color: #ffffff;
+}
+
+.task-decision button.is-danger {
+  border-color: #e20f0f;
+  background: #e20f0f;
+  color: #ffffff;
+}
+
+.task-decision button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+@keyframes task-form-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .task-form-overlay {
+    padding: 18px;
+    align-items: flex-start;
+  }
+
+  .task-form-modal {
+    max-height: calc(100vh - 36px);
+  }
+
+  .task-form {
+    padding: 26px 18px;
+  }
+
+  .task-form__due-row,
+  .task-form__relations {
+    grid-template-columns: 1fr;
+  }
+
+  .task-form__actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .task-form__actions > div {
+    width: 100%;
+    margin: 0;
+    flex-direction: column-reverse;
+  }
+
+  .task-form__button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .task-form-overlay {
+    padding: 0;
+  }
+
+  .task-form-modal {
+    width: 100%;
+    min-height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .task-form-modal__header {
+    border-radius: 0;
+  }
+
+  .task-form {
+    padding: 22px 14px 34px;
+  }
+
+  .task-decision-overlay {
+    position: fixed;
+    border-radius: 0;
+  }
+
+  .task-decision > div {
+    flex-direction: column-reverse;
+  }
+
+  .task-decision button {
+    width: 100%;
+  }
+}
