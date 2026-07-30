@@ -1,8 +1,9 @@
 .task-view-overlay {
+  box-sizing: border-box;
   position: fixed;
   z-index: 1000;
   inset: 0;
-  padding: 30px;
+  padding: 30px 30px 30px calc(293px + 30px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,6 +219,12 @@
 @keyframes task-view-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .task-view-overlay {
+    padding-left: 30px;
   }
 }
 
