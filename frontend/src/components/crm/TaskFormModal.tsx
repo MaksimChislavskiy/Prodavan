@@ -281,17 +281,16 @@ export function TaskFormModal({
       setRequestError('')
     }
 
-  const updateDueDateType = (event: ChangeEvent<HTMLSelectElement>) => {
-    const dueDateType = event.target.value as TaskDueDateType
-
+  const updateDueDate = (event: ChangeEvent<HTMLInputElement>) => {
+    const dueDate = event.target.value
     setDraft((currentDraft) => ({
       ...currentDraft,
-      dueDateType,
-      dueDate: convertDueDateInput(
-        currentDraft.dueDate,
-        currentDraft.dueDateType,
-        dueDateType,
-      ),
+      dueDate,
+      dueDateType: dueDate
+        ? currentDraft.dueDateType === 'none'
+          ? 'datetime'
+          : currentDraft.dueDateType
+        : 'none',
     }))
     setRequestError('')
   }
@@ -451,7 +450,7 @@ export function TaskFormModal({
       onMouseDown={handleOverlayMouseDown}
     >
       <div
-        className="task-form-modal"
+        className={`task-form-modal task-form-modal--${mode}`}
         ref={modalRef}
         role="dialog"
         aria-modal="true"
@@ -463,12 +462,13 @@ export function TaskFormModal({
             {mode === 'create' ? 'Создание задачи' : 'Редактирование задачи'}
           </h2>
           <button
+            className="task-form-modal__close"
             type="button"
             aria-label="Закрыть"
             disabled={isSaving || isDeleting}
             onClick={requestClose}
           >
-            ×
+            <span aria-hidden="true" />
           </button>
         </header>
 
@@ -490,14 +490,12 @@ export function TaskFormModal({
           </div>
         ) : (
           <form
-            className="task-form"
+            className={`task-form task-form--${mode}`}
             noValidate
             onSubmit={(event) => void handleSubmit(event)}
           >
-            <label className="task-form__field task-form__field--wide">
-              <span>
-                Название<b aria-hidden="true">*</b>
-              </span>
+            <label className="task-form__field task-form__field--title">
+              <span className="task-form__visually-hidden">Название</span>
               <input
                 ref={titleInputRef}
                 type="text"
@@ -514,46 +512,24 @@ export function TaskFormModal({
               )}
             </label>
 
-            <div className="task-form__due-row">
-              <label className="task-form__field">
-                <span>Тип срока</span>
-                <select
-                  value={draft.dueDateType}
-                  disabled={isSaving || isDeleting}
-                  onChange={updateDueDateType}
-                >
-                  <option value="none">Без срока</option>
-                  <option value="date">Дата</option>
-                  <option value="datetime">Дата и время</option>
-                </select>
-              </label>
-
-              {draft.dueDateType !== 'none' && (
-                <label className="task-form__field">
-                  <span>
-                    Дата выполнения<b aria-hidden="true">*</b>
-                  </span>
-                  <input
-                    type={
-                      draft.dueDateType === 'date'
-                        ? 'date'
-                        : 'datetime-local'
-                    }
-                    value={draft.dueDate}
-                    required
-                    disabled={isSaving || isDeleting}
-                    aria-invalid={Boolean(validation.dueDateError)}
-                    onChange={updateField('dueDate')}
-                  />
-                  {validation.dueDateError && (
-                    <em role="alert">{validation.dueDateError}</em>
-                  )}
-                </label>
+            <label className="task-form__due">
+              <span>Дата выполнения:</span>
+              <input
+                type={
+                  draft.dueDateType === 'date' ? 'date' : 'datetime-local'
+                }
+                value={draft.dueDate}
+                disabled={isSaving || isDeleting}
+                aria-invalid={Boolean(validation.dueDateError)}
+                onChange={updateDueDate}
+              />
+              {validation.dueDateError && (
+                <em role="alert">{validation.dueDateError}</em>
               )}
-            </div>
+            </label>
 
-            <label className="task-form__field task-form__field--wide">
-              <span>Описание</span>
+            <label className="task-form__field task-form__field--description">
+              <span className="task-form__visually-hidden">Описание</span>
               <textarea
                 value={draft.description}
                 maxLength={1000}
@@ -562,18 +538,17 @@ export function TaskFormModal({
                 disabled={isSaving || isDeleting}
                 onChange={updateField('description')}
               />
-              <small>{draft.description.length}/1000</small>
             </label>
 
             <div className="task-form__relations">
-              <label className="task-form__field">
-                <span>Клиент</span>
+              <label className="task-form__field task-form__field--contact">
+                <span className="task-form__visually-hidden">Клиент</span>
                 <select
                   value={draft.contactId}
                   disabled={isSaving || isDeleting}
                   onChange={updateContact}
                 >
-                  <option value="">Контакт не указан</option>
+                  <option value="">Выберите клиента</option>
                   {contacts.map((contact) => (
                     <option value={contact.id} key={contact.id}>
                       {contact.company
@@ -584,8 +559,8 @@ export function TaskFormModal({
                 </select>
               </label>
 
-              <label className="task-form__field">
-                <span>Сделка</span>
+              <label className="task-form__field task-form__field--deal">
+                <span className="task-form__visually-hidden">Сделка</span>
                 <select
                   value={draft.dealId}
                   disabled={
@@ -595,11 +570,7 @@ export function TaskFormModal({
                   }
                   onChange={updateField('dealId')}
                 >
-                  <option value="">
-                    {draft.contactId
-                      ? 'Сделка не указана'
-                      : 'Сначала выберите клиента'}
-                  </option>
+                  <option value="">Выберите сделку</option>
                   {filteredDeals.map((deal) => (
                     <option value={deal.id} key={deal.id}>
                       {deal.name}
@@ -608,14 +579,15 @@ export function TaskFormModal({
                 </select>
               </label>
 
-              <div className="task-form__amount" aria-live="polite">
-                <span>Сумма сделки</span>
-                <strong>{formatDealAmount(selectedDeal) || '—'}</strong>
-              </div>
+              {mode === 'edit' && (
+                <output className="task-form__amount" aria-live="polite">
+                  {formatDealAmount(selectedDeal) || '—'}
+                </output>
+              )}
             </div>
 
-            <label className="task-form__field task-form__field--wide">
-              <span>Комментарий</span>
+            <label className="task-form__field task-form__field--comment">
+              <span className="task-form__visually-hidden">Комментарий</span>
               <textarea
                 value={draft.comment}
                 maxLength={500}
@@ -624,7 +596,6 @@ export function TaskFormModal({
                 disabled={isSaving || isDeleting}
                 onChange={updateField('comment')}
               />
-              <small>{draft.comment.length}/500</small>
             </label>
 
             {requestError && (
@@ -634,38 +605,17 @@ export function TaskFormModal({
             )}
 
             <footer className="task-form__actions">
-              {mode === 'edit' && (
-                <button
-                  className="task-form__button task-form__button--danger"
-                  type="button"
-                  disabled={isSaving || isDeleting}
-                  onClick={() => setIsDeleteConfirmOpen(true)}
-                >
-                  Удалить
-                </button>
-              )}
-
-              <div>
-                <button
-                  className="task-form__button task-form__button--secondary"
-                  type="button"
-                  disabled={isSaving || isDeleting}
-                  onClick={requestClose}
-                >
-                  Отмена
-                </button>
-                <button
-                  className="task-form__button task-form__button--primary"
-                  type="submit"
-                  disabled={!canSubmit}
-                >
-                  {isSaving
-                    ? 'Сохранение…'
-                    : mode === 'create'
-                      ? 'Создать'
-                      : 'Сохранить'}
-                </button>
-              </div>
+              <button
+                className="task-form__button task-form__button--primary"
+                type="submit"
+                disabled={!canSubmit}
+              >
+                {isSaving
+                  ? 'Сохранение…'
+                  : mode === 'create'
+                    ? 'Создать'
+                    : 'Сохранить'}
+              </button>
             </footer>
           </form>
         )}
@@ -882,30 +832,6 @@ function formatDueDateInput(task: ApiTaskDetail) {
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
-}
-
-function convertDueDateInput(
-  currentValue: string,
-  currentType: TaskDueDateType,
-  nextType: TaskDueDateType,
-) {
-  if (nextType === 'none') {
-    return ''
-  }
-
-  if (!currentValue) {
-    return ''
-  }
-
-  if (currentType === 'datetime' && nextType === 'date') {
-    return currentValue.slice(0, 10)
-  }
-
-  if (currentType === 'date' && nextType === 'datetime') {
-    return `${currentValue}T09:00`
-  }
-
-  return currentValue
 }
 
 function validateTaskDraft(draft: TaskDraft) {
