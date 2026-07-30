@@ -9,7 +9,6 @@ import {
   getTask,
   type ApiTask,
   type ApiTaskDetail,
-  type TaskStatus,
 } from '../../shared/api/tasksApi'
 import './TaskViewModal.css'
 
@@ -22,18 +21,11 @@ type TaskViewModalProps = {
   onNotFound: () => void
 }
 
-const statusLabels: Record<TaskStatus, string> = {
-  new: 'Новая',
-  in_progress: 'В работе',
-  done: 'Выполнена',
-}
-
 export function TaskViewModal({
   taskId,
   taskTitle,
   onClose,
   onEdit,
-  onDelete,
   onNotFound,
 }: TaskViewModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
@@ -147,21 +139,23 @@ export function TaskViewModal({
           <h2 id="task-view-title">Просмотр задачи</h2>
           <div>
             <button
+              className="task-view-modal__edit-icon"
               type="button"
               aria-label="Редактировать задачу"
               title="Редактировать"
               disabled={!task}
               onClick={() => task && onEdit(task)}
             >
-              ✎
+              <span aria-hidden="true" />
             </button>
             <button
+              className="task-view-modal__close-icon"
               ref={closeButtonRef}
               type="button"
               aria-label="Закрыть"
               onClick={onClose}
             >
-              ×
+              <span aria-hidden="true" />
             </button>
           </div>
         </header>
@@ -185,97 +179,30 @@ export function TaskViewModal({
           </div>
         ) : (
           <div className="task-view-modal__body">
-            <div className="task-view-modal__title-row">
-              <h3>{task.title}</h3>
-              <div>
-                <span className={`task-view-modal__status is-${task.status}`}>
-                  {statusLabels[task.status]}
-                </span>
-                {task.is_overdue && task.status !== 'done' && (
-                  <span className="task-view-modal__overdue">Просрочено</span>
-                )}
-                {task.created_by_ai && (
-                  <span className="task-view-modal__ai">Создана AI</span>
-                )}
-              </div>
-            </div>
+            <h3>{task.title}</h3>
 
-            <TaskViewDetail
-              label="Дата выполнения"
-              value={formatTaskDueDate(task)}
-            />
+            <p className="task-view-modal__due">
+              Дата выполнения: {formatTaskDueDate(task)}
+            </p>
 
-            <TaskViewDetail
-              label="Описание"
-              value={task.description || 'Описание не указано'}
-              multiline
-            />
+            <p className="task-view-modal__description">
+              {task.description || 'Описание не указано'}
+            </p>
 
             <div className="task-view-modal__relations">
-              <TaskViewDetail
-                label="Контакт"
-                value={
-                  task.contact
-                    ? task.contact.company || task.contact.name
-                    : 'Не указан'
-                }
-              />
-              <TaskViewDetail
-                label="Сделка"
-                value={task.deal?.title || 'Не указана'}
-              />
-              <TaskViewDetail
-                label="Сумма"
-                value={formatTaskAmount(task) || '—'}
-              />
+              <span>{task.contact?.name || 'Клиент не указан'}</span>
+              <span>
+                {task.deal ? `Сделка «${task.deal.title}»` : 'Сделка не указана'}
+              </span>
+              <span>{formatTaskAmount(task) || '—'}</span>
             </div>
 
-            <TaskViewDetail
-              label="Комментарий"
-              value={task.comment || 'Комментарий не указан'}
-              multiline
-            />
-
-            <footer className="task-view-modal__actions">
-              <button
-                className="task-view-modal__delete"
-                type="button"
-                onClick={() => onDelete(task)}
-              >
-                Удалить
-              </button>
-              <button
-                className="task-view-modal__edit"
-                type="button"
-                onClick={() => onEdit(task)}
-              >
-                Редактировать
-              </button>
-            </footer>
+            <div className="task-view-modal__comment">
+              {task.comment || 'Комментарий'}
+            </div>
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function TaskViewDetail({
-  label,
-  value,
-  multiline = false,
-}: {
-  label: string
-  value: string
-  multiline?: boolean
-}) {
-  return (
-    <div
-      className={`task-view-detail${
-        multiline ? ' task-view-detail--multiline' : ''
-      }`}
-    >
-      <span>{label}</span>
-      <p>{value}</p>
     </div>
   )
 }
