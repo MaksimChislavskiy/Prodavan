@@ -437,7 +437,7 @@ export function CrmLayout() {
 
   const renderContent = () => {
     if (activeSection === 'dashboard') {
-      return <DashboardPage />
+      return <DashboardPage onShowAll={() => openSection('/app/tasks')} />
     }
 
     if (activeSection === 'ai') {
