@@ -1,5 +1,12 @@
-import { useEffect, useState } from 'react'
-import { getTasksDashboard, type ApiDashboardTask } from '../../shared/api/tasksApi'
+import { useEffect, useState, type MouseEvent } from 'react'
+import {
+  deleteTask,
+  getTasksDashboard,
+  type ApiDashboardTask,
+  type ApiTask,
+} from '../../shared/api/tasksApi'
+import { TaskFormModal } from './TaskFormModal'
+import { TaskViewModal } from './TaskViewModal'
 import './DashboardPage.css'
 
 type DashboardState = {
@@ -9,235 +16,294 @@ type DashboardState = {
   error: string
 }
 
-export function DashboardPage() {
-  const [dashboardState, setDashboardState] = useState<DashboardState>({
+type DashboardDialog =
+  | { mode: 'view'; task: ApiDashboardTask }
+  | { mode: 'edit'; task: ApiDashboardTask }
+
+export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
+  const [state, setState] = useState<DashboardState>({
     tasks: [],
     totalCount: 0,
     isLoading: true,
     error: '',
   })
+  const [reloadVersion, setReloadVersion] = useState(0)
+  const [dialog, setDialog] = useState<DashboardDialog | null>(null)
+  const [openMenuId, setOpenMenuId] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<ApiDashboardTask | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   useEffect(() => {
-    let isMounted = true
+    const controller = new AbortController()
 
     async function loadDashboard() {
-      try {
-        const data = await getTasksDashboard()
+      setState((current) => ({ ...current, isLoading: true, error: '' }))
 
-        if (isMounted) {
-          setDashboardState({
-            tasks: data.tasks,
-            totalCount: data.total_count,
-            isLoading: false,
-            error: '',
-          })
-        }
+      try {
+        const data = await getTasksDashboard(controller.signal)
+        setState({
+          tasks: data.tasks,
+          totalCount: data.total_count,
+          isLoading: false,
+          error: '',
+        })
       } catch (error) {
-        if (isMounted) {
-          setDashboardState({
-            tasks: [],
-            totalCount: 0,
-            isLoading: false,
-            error: error instanceof Error ? error.message : 'Не удалось загрузить рабочий стол',
-          })
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return
         }
+
+        setState({
+          tasks: [],
+          totalCount: 0,
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Не удалось загрузить задачи.',
+        })
       }
     }
 
     void loadDashboard()
+    return () => controller.abort()
+  }, [reloadVersion])
 
-    return () => {
-      isMounted = false
+  useEffect(() => {
+    const closeMenu = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('.dashboard-task-menu')) {
+        return
+      }
+      setOpenMenuId('')
     }
+
+    document.addEventListener('pointerdown', closeMenu)
+    return () => document.removeEventListener('pointerdown', closeMenu)
   }, [])
 
-  const hasTasks = dashboardState.tasks.length > 0
+  const reload = () => {
+    setDialog(null)
+    setOpenMenuId('')
+    setReloadVersion((version) => version + 1)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || isDeleting) {
+      return
+    }
+
+    setIsDeleting(true)
+    setDeleteError('')
+
+    try {
+      await deleteTask(deleteTarget.id)
+      setDeleteTarget(null)
+      reload()
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Не удалось удалить задачу.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   return (
-    <main className="dashboard-page">
-      <section className="dashboard-header">
-        <p className="dashboard-header__eyebrow">CRM</p>
-        <h1 className="dashboard-header__title">Рабочий стол</h1>
-        <p className="dashboard-header__text">
-          Главная страница CRM. Здесь отображаются задачи на сегодня, просроченные задачи и
-          задачи без срока.
-        </p>
-      </section>
+    <>
+      <main className="dashboard-page">
+        <section className="dashboard-today" aria-labelledby="dashboard-today-title">
+          <header className="dashboard-today__header">
+            <div className="dashboard-today__heading">
+              <h1 id="dashboard-today-title">Важное на сегодня</h1>
+              <span className="dashboard-hint">
+                <button type="button" aria-label="Подсказка о задачах на сегодня">?</button>
+                <span role="tooltip">План на сегодня: приоритеты и дедлайны</span>
+              </span>
+            </div>
 
-      <section className="dashboard-onboarding" aria-label="Первичная настройка CRM">
-        <article className="dashboard-onboarding__card">
-          <p className="dashboard-onboarding__eyebrow">Первый шаг</p>
-          <h2 className="dashboard-onboarding__title">Загрузите Базу знаний для обучения AI</h2>
-          <p className="dashboard-onboarding__text">
-            Для быстрого и эффективного управления внутренними процессами и работы с клиентами.
-          </p>
+            {state.totalCount > 10 && (
+              <button className="dashboard-today__show-all" type="button" onClick={onShowAll}>
+                Показать все
+              </button>
+            )}
+          </header>
 
-          <button className="dashboard-onboarding__primary-button" type="button">
-            Загрузить
-          </button>
-        </article>
+          {state.isLoading && <DashboardSkeleton />}
 
-        <article className="dashboard-onboarding__card dashboard-onboarding__card--video">
-          <p className="dashboard-onboarding__eyebrow">Инструкция</p>
-          <h2 className="dashboard-onboarding__title">
-            Краткое видео и инструкция для простой и быстрой настройки AI в CRM
-          </h2>
+          {!state.isLoading && state.error && (
+            <div className="dashboard-state" role="alert">
+              <strong>Не удалось загрузить задачи</strong>
+              <p>{state.error}</p>
+              <button type="button" onClick={reload}>Повторить</button>
+            </div>
+          )}
 
-          <div className="dashboard-onboarding__actions">
-            <button className="dashboard-onboarding__primary-button" type="button">
-              ▶ Смотреть
-            </button>
+          {!state.isLoading && !state.error && state.tasks.length === 0 && (
+            <div className="dashboard-state dashboard-state--empty">
+              <span aria-hidden="true">✓</span>
+              <strong>На сегодня задач нет. Отличная работа!</strong>
+            </div>
+          )}
 
-            <button className="dashboard-onboarding__secondary-button" type="button">
-              Читать инструкцию
-            </button>
+          {!state.isLoading && !state.error && state.tasks.length > 0 && (
+            <div className="dashboard-task-grid">
+              {state.tasks.map((task) => (
+                <DashboardTaskCard
+                  key={task.id}
+                  task={task}
+                  isMenuOpen={openMenuId === task.id}
+                  onOpen={() => setDialog({ mode: 'view', task })}
+                  onEdit={() => {
+                    setOpenMenuId('')
+                    setDialog({ mode: 'edit', task })
+                  }}
+                  onDelete={() => {
+                    setOpenMenuId('')
+                    setDeleteError('')
+                    setDeleteTarget(task)
+                  }}
+                  onToggleMenu={() =>
+                    setOpenMenuId((currentId) => currentId === task.id ? '' : task.id)
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+
+      {dialog?.mode === 'view' && (
+        <TaskViewModal
+          taskId={dialog.task.id}
+          taskTitle={dialog.task.title}
+          onClose={() => setDialog(null)}
+          onEdit={(task) => setDialog({ mode: 'edit', task })}
+          onDelete={(task) => {
+            setDialog(null)
+            setDeleteTarget(task)
+          }}
+          onNotFound={reload}
+        />
+      )}
+
+      {dialog?.mode === 'edit' && (
+        <TaskFormModal
+          mode="edit"
+          taskId={dialog.task.id}
+          taskTitle={dialog.task.title}
+          onClose={() => setDialog(null)}
+          onCreated={reload}
+          onUpdated={reload}
+          onDeleted={reload}
+          onNotFound={reload}
+        />
+      )}
+
+      {deleteTarget && (
+        <div className="dashboard-delete-overlay" role="presentation">
+          <div className="dashboard-delete-modal" role="alertdialog" aria-modal="true">
+            <h2>Удалить задачу?</h2>
+            <p>Задача «{deleteTarget.title}» будет удалена. Действие невозможно отменить.</p>
+            {deleteError && <p className="dashboard-delete-modal__error">{deleteError}</p>}
+            <div>
+              <button type="button" disabled={isDeleting} onClick={() => setDeleteTarget(null)}>
+                Отмена
+              </button>
+              <button type="button" disabled={isDeleting} onClick={() => void confirmDelete()}>
+                {isDeleting ? 'Удаление…' : 'Удалить'}
+              </button>
+            </div>
           </div>
-        </article>
-      </section>
-
-      <section className="today-panel" aria-labelledby="today-panel-title">
-        <div className="today-panel__header">
-          <div>
-            <h2 className="today-panel__title" id="today-panel-title">
-              Важное на сегодня
-            </h2>
-            <p className="today-panel__subtitle">
-              Задачи, приоритеты и дедлайны на текущий день
-              {dashboardState.totalCount > 0 && ` · всего: ${dashboardState.totalCount}`}
-            </p>
-          </div>
-
-          <button className="today-panel__info" type="button" aria-label="Подсказка">
-            i
-            <span className="today-panel__tooltip">
-              План на сегодня: приоритеты и дедлайны
-            </span>
-          </button>
         </div>
-
-        {dashboardState.isLoading && (
-          <div className="today-panel__empty">
-            <div className="today-panel__empty-icon" aria-hidden="true">
-              …
-            </div>
-
-            <h3 className="today-panel__empty-title">Загружаем задачи...</h3>
-            <p className="today-panel__empty-text">
-              Получаем данные рабочего стола из backend.
-            </p>
-          </div>
-        )}
-
-        {!dashboardState.isLoading && dashboardState.error && (
-          <div className="today-panel__empty">
-            <div className="today-panel__empty-icon" aria-hidden="true">
-              !
-            </div>
-
-            <h3 className="today-panel__empty-title">Не удалось загрузить задачи</h3>
-            <p className="today-panel__empty-text">{dashboardState.error}</p>
-          </div>
-        )}
-
-        {!dashboardState.isLoading && !dashboardState.error && hasTasks && (
-          <div className="task-list" aria-label="Список задач на сегодня">
-            {dashboardState.tasks.map((task) => (
-              <article className="task-card" key={task.id}>
-                <div className="task-card__top">
-                  <h3 className="task-card__title">{task.title}</h3>
-
-                  <button className="task-card__menu" type="button" aria-label="Действия с задачей">
-                    ⋮
-                  </button>
-                </div>
-
-                <div className="task-card__meta">
-                  <div className="task-card__meta-item">
-                    <span className="task-card__meta-label">Клиент</span>
-                    <span className="task-card__meta-value">{getTaskClientName(task)}</span>
-                  </div>
-
-                  {getTaskAmount(task) && (
-                    <div className="task-card__meta-item">
-                      <span className="task-card__meta-label">Сумма</span>
-                      <span className="task-card__meta-value">{getTaskAmount(task)}</span>
-                    </div>
-                  )}
-
-                  <div className="task-card__meta-item">
-                    <span className="task-card__meta-label">Срок</span>
-                    <span className="task-card__meta-value">{getTaskDueText(task)}</span>
-                  </div>
-                </div>
-
-                <div className="task-card__bottom">
-                  {task.deal && (
-                    <span className="task-card__deal">
-                      Сделка: <strong>{task.deal.title}</strong>
-                    </span>
-                  )}
-
-                  {task.is_overdue && <span className="task-card__badge">просрочено</span>}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-
-        {!dashboardState.isLoading && !dashboardState.error && !hasTasks && (
-          <div className="today-panel__empty">
-            <div className="today-panel__empty-icon" aria-hidden="true">
-              ✓
-            </div>
-
-            <h3 className="today-panel__empty-title">На сегодня задач нет. Отличная работа!</h3>
-            <p className="today-panel__empty-text">
-              Когда появятся задачи с дедлайном на сегодня, просроченные задачи или задачи без срока,
-              они будут отображаться в этом блоке.
-            </p>
-          </div>
-        )}
-      </section>
-    </main>
+      )}
+    </>
   )
 }
 
-function getTaskClientName(task: ApiDashboardTask) {
-  if (!task.contact) {
-    return 'Не указан'
+function DashboardTaskCard({
+  task,
+  isMenuOpen,
+  onOpen,
+  onEdit,
+  onDelete,
+  onToggleMenu,
+}: {
+  task: ApiDashboardTask
+  isMenuOpen: boolean
+  onOpen: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onToggleMenu: () => void
+}) {
+  const handleClick = (event: MouseEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest('button')) {
+      return
+    }
+    onOpen()
   }
 
-  return task.contact.company || task.contact.name
+  return (
+    <article className="dashboard-task-card" onClick={handleClick}>
+      <div className="dashboard-task-card__top">
+        <h2>{task.title}</h2>
+        <div className="dashboard-task-menu">
+          <button
+            type="button"
+            aria-label={`Действия с задачей ${task.title}`}
+            aria-expanded={isMenuOpen}
+            onClick={onToggleMenu}
+          >
+            ⋮
+          </button>
+          {isMenuOpen && (
+            <div className="dashboard-task-menu__popup" role="menu">
+              <button type="button" role="menuitem" onClick={onEdit}>Редактировать</button>
+              <button type="button" role="menuitem" onClick={onDelete}>Удалить задачу</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <dl>
+        <div><dt>Клиент:</dt><dd>{getTaskClientName(task)}</dd></div>
+        <div><dt>Сумма:</dt><dd>{getTaskAmount(task) || '—'}</dd></div>
+        <div><dt>Дедлайн:</dt><dd className={task.is_overdue ? 'is-overdue' : ''}>{getTaskDueText(task)}</dd></div>
+      </dl>
+    </article>
+  )
 }
 
-function getTaskAmount(task: ApiDashboardTask) {
+function DashboardSkeleton() {
+  return (
+    <div className="dashboard-task-grid" aria-label="Загрузка задач" aria-busy="true">
+      {[0, 1, 2, 3].map((item) => <span className="dashboard-skeleton" key={item} />)}
+    </div>
+  )
+}
+
+function getTaskClientName(task: ApiTask) {
+  return task.contact?.name || 'Не указан'
+}
+
+function getTaskAmount(task: ApiTask) {
   if (!task.deal?.amount) {
     return ''
   }
-
-  return `${task.deal.amount} ${task.deal.currency}`
+  return `${new Intl.NumberFormat('ru-RU').format(Number(task.deal.amount))} ${task.deal.currency}`
 }
 
-function getTaskDueText(task: ApiDashboardTask) {
+function getTaskDueText(task: ApiTask) {
   if (!task.due_date || task.due_date_type === 'none') {
     return 'Без срока'
   }
 
   const date = new Date(task.due_date)
-
   if (Number.isNaN(date.getTime())) {
     return 'Срок указан'
   }
 
-  if (task.due_date_type === 'date') {
-    return date.toLocaleDateString('ru-RU')
-  }
-
-  return date.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return task.due_date_type === 'date'
+    ? date.toLocaleDateString('ru-RU')
+    : date.toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
 }
