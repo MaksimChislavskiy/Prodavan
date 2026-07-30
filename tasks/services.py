@@ -280,7 +280,7 @@ def update_task(
     audit_context=None,
 ):
     with transaction.atomic():
-        task = Task.objects.select_for_update().select_related(
+        task = Task.objects.select_for_update(of=('self',)).select_related(
             'workspace', 'contact', 'deal',
         ).filter(
             id=task_id,
@@ -368,7 +368,7 @@ def update_task_status(
     *, workspace, user, task_id, submitted_version, new_status, audit_context=None,
 ):
     with transaction.atomic():
-        task = Task.objects.select_for_update().select_related(
+        task = Task.objects.select_for_update(of=('self',)).select_related(
             'workspace', 'contact', 'deal',
         ).filter(
             id=task_id,
