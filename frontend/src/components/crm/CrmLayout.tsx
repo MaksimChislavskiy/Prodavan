@@ -5,6 +5,7 @@ import { AiSettingsPage } from './AiSettingsPage'
 import { DealsPage } from './DealsPage'
 import { ContactsPage } from './ContactsPage'
 import { TasksPage } from './TasksPage'
+import { ChatPage } from './ChatPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
@@ -35,7 +36,7 @@ type CrmSectionId =
 
 type PlaceholderSectionId = Exclude<
   CrmSectionId,
-  'dashboard' | 'ai' | 'deals' | 'contacts' | 'tasks'
+  'dashboard' | 'ai' | 'deals' | 'contacts' | 'tasks' | 'chat'
 >
 
 type NavigationItem = {
@@ -76,17 +77,6 @@ const placeholderSections: Record<PlaceholderSectionId, CrmPlaceholderSection> =
       { value: 'mock', label: 'Профиль' },
       { value: 'mock', label: 'Команда' },
       { value: 'mock', label: 'Интеграции' },
-    ],
-  },
-  chat: {
-    eyebrow: 'CRM',
-    title: 'Чат',
-    text:
-      'Здесь позже появится единое окно переписок с клиентами и возможность подключать AI к диалогам.',
-    widgets: [
-      { value: '0', label: 'Диалогов' },
-      { value: '0', label: 'Новых сообщений' },
-      { value: 'mock', label: 'Чат позже' },
     ],
   },
 }
@@ -160,7 +150,8 @@ function isPlaceholderSection(section: CrmSectionId): section is PlaceholderSect
     section !== 'ai' &&
     section !== 'deals' &&
     section !== 'contacts' &&
-    section !== 'tasks'
+    section !== 'tasks' &&
+    section !== 'chat'
   )
 }
 
@@ -468,6 +459,10 @@ export function CrmLayout() {
 
     if (activeSection === 'tasks') {
       return <TasksPage />
+    }
+
+    if (activeSection === 'chat') {
+      return <ChatPage />
     }
 
     if (!isPlaceholderSection(activeSection)) {
