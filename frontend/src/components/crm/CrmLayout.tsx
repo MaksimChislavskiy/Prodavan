@@ -6,6 +6,7 @@ import { DealsPage } from './DealsPage'
 import { ContactsPage } from './ContactsPage'
 import { TasksPage } from './TasksPage'
 import { ChatPage } from './ChatPage'
+import { SettingsPage } from './SettingsPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
@@ -34,27 +35,12 @@ type CrmSectionId =
   | 'settings'
   | 'chat'
 
-type PlaceholderSectionId = Exclude<
-  CrmSectionId,
-  'dashboard' | 'ai' | 'deals' | 'contacts' | 'tasks' | 'chat'
->
-
 type NavigationItem = {
   id: CrmSectionId
   label: string
   icon: SidebarIconName
   href: string
   variant?: 'ai'
-}
-
-type CrmPlaceholderSection = {
-  title: string
-  eyebrow: string
-  text: string
-  widgets: {
-    value: string
-    label: string
-  }[]
 }
 
 const navigationItems: NavigationItem[] = [
@@ -66,20 +52,6 @@ const navigationItems: NavigationItem[] = [
   { id: 'settings', label: 'Настройки', icon: 'settings', href: '/app/settings' },
   { id: 'chat', label: 'Чат', icon: 'chat', href: '/app/chats' },
 ]
-
-const placeholderSections: Record<PlaceholderSectionId, CrmPlaceholderSection> = {
-  settings: {
-    eyebrow: 'CRM',
-    title: 'Настройки',
-    text:
-      'Здесь позже появятся общие настройки аккаунта, команды, уведомлений, интеграций и доступа.',
-    widgets: [
-      { value: 'mock', label: 'Профиль' },
-      { value: 'mock', label: 'Команда' },
-      { value: 'mock', label: 'Интеграции' },
-    ],
-  },
-}
 
 const sidebarIconPaths: Record<SidebarIconName, string[]> = {
   ai: [
@@ -141,17 +113,6 @@ function SidebarIcon({ name }: { name: SidebarIconName }) {
         <path d={path} key={path} />
       ))}
     </svg>
-  )
-}
-
-function isPlaceholderSection(section: CrmSectionId): section is PlaceholderSectionId {
-  return (
-    section !== 'dashboard' &&
-    section !== 'ai' &&
-    section !== 'deals' &&
-    section !== 'contacts' &&
-    section !== 'tasks' &&
-    section !== 'chat'
   )
 }
 
@@ -465,30 +426,11 @@ export function CrmLayout() {
       return <ChatPage />
     }
 
-    if (!isPlaceholderSection(activeSection)) {
-      return null
+    if (activeSection === 'settings') {
+      return <SettingsPage />
     }
 
-    const currentSection = placeholderSections[activeSection]
-
-    return (
-      <>
-        <section className="crm-hero-card">
-          <p className="crm-hero-card__eyebrow">{currentSection.eyebrow}</p>
-          <h1 className="crm-hero-card__title">{currentSection.title}</h1>
-          <p className="crm-hero-card__text">{currentSection.text}</p>
-        </section>
-
-        <section className="crm-widgets" aria-label={`Заглушки раздела ${currentSection.title}`}>
-          {currentSection.widgets.map((widget) => (
-            <article className="crm-widget" key={widget.label}>
-              <span className="crm-widget__value">{widget.value}</span>
-              <span className="crm-widget__label">{widget.label}</span>
-            </article>
-          ))}
-        </section>
-      </>
-    )
+    return null
   }
 
   return (
