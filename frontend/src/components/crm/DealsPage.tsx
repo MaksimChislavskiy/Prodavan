@@ -1,6 +1,7 @@
 import { useEffect, useState, type DragEvent, type FormEvent } from 'react'
 import {
   createSalesStage,
+  getDealsPage,
   getKanban,
   moveDeal,
   type ApiKanbanDeal,
@@ -23,6 +24,11 @@ type DraggedDeal = {
   sourceStageId: string
 }
 
+type ContactFilter = {
+  id: string
+  name: string
+}
+
 const initialState: DealsPageState = {
   data: null,
   isLoading: true,
@@ -31,6 +37,9 @@ const initialState: DealsPageState = {
 
 export function DealsPage() {
   const [state, setState] = useState<DealsPageState>(initialState)
+  const [contactFilter, setContactFilter] = useState<ContactFilter | null>(
+    getContactFilterFromLocation,
+  )
   const [requestVersion, setRequestVersion] = useState(0)
   const [isStageEditorOpen, setIsStageEditorOpen] = useState(false)
   const [newStageName, setNewStageName] = useState('')
@@ -53,7 +62,11 @@ export function DealsPage() {
       }))
 
       try {
-        const data = await getKanban()
+        let data = await getKanban()
+
+        if (contactFilter) {
+          data = await filterKanbanByContact(data, contactFilter.id)
+        }
 
         if (!isMounted) {
           return
@@ -82,7 +95,7 @@ export function DealsPage() {
     return () => {
       isMounted = false
     }
-  }, [requestVersion])
+  }, [contactFilter, requestVersion])
 
   const openStageEditor = () => {
     setNewStageName('')
@@ -190,7 +203,7 @@ export function DealsPage() {
     })
   }
 
-  const handleStageDeleted = (_stageId: string) => {
+  const handleStageDeleted = () => {
     setRequestVersion((currentVersion) => currentVersion + 1)
   }
 
@@ -423,10 +436,35 @@ export function DealsPage() {
 
   const systemStageName =
     stages.find((stage) => stage.is_system)?.name ?? 'Новый лид'
+  const filteredDealsCount = Object.values(deals).reduce(
+    (total, stageDeals) => total + stageDeals.length,
+    0,
+  )
 
   return (
     <>
       <section className="deals-page" aria-label="Сделки">
+        {contactFilter && (
+          <div className="deals-contact-filter" role="status">
+            <div>
+              <span>Связанные сделки</span>
+              <strong>{contactFilter.name}</strong>
+              <small>
+                Найдено: {filteredDealsCount}
+              </small>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                window.history.replaceState(null, '', '/app/deals')
+                setContactFilter(null)
+              }}
+            >
+              Показать все сделки
+            </button>
+          </div>
+        )}
+
         {dealMoveError && (
           <p className="deals-page__error" role="alert">
             {dealMoveError}
@@ -457,7 +495,7 @@ export function DealsPage() {
                     <span className="deals-stage__count">{stage.deal_count}</span>
                   </div>
 
-                  {stage.is_system ? (
+                  {contactFilter ? null : stage.is_system ? (
                     <button
                       className="deals-stage__action deals-stage__action--add"
                       type="button"
@@ -482,6 +520,7 @@ export function DealsPage() {
                   {stageDeals.map((deal) => (
                     <DealCard
                       deal={deal}
+                      allowDrag={!contactFilter}
                       isMoving={movingDealId === deal.id}
                       key={deal.id}
                       onDeleted={(deletedDealId) =>
@@ -496,8 +535,9 @@ export function DealsPage() {
             )
           })}
 
-          <article className="deals-column deals-column--add-stage">
-            {isStageEditorOpen ? (
+          {!contactFilter && (
+            <article className="deals-column deals-column--add-stage">
+              {isStageEditorOpen ? (
               <form
                 className="deals-stage-create"
                 onSubmit={(event) => void handleStageCreate(event)}
@@ -550,17 +590,18 @@ export function DealsPage() {
                   </p>
                 )}
               </form>
-            ) : (
-              <button
-                className="deals-add-stage"
-                type="button"
-                aria-label="Добавить этап"
-                onClick={openStageEditor}
-              >
-                +
-              </button>
-            )}
-          </article>
+              ) : (
+                <button
+                  className="deals-add-stage"
+                  type="button"
+                  aria-label="Добавить этап"
+                  onClick={openStageEditor}
+                >
+                  +
+                </button>
+              )}
+            </article>
+          )}
         </div>
       </section>
 
@@ -576,6 +617,7 @@ export function DealsPage() {
 
 type DealCardProps = {
   deal: ApiKanbanDeal
+  allowDrag: boolean
   isMoving: boolean
   onDeleted: (dealId: string) => void
   onDragStart: (event: DragEvent<HTMLElement>) => void
@@ -584,6 +626,7 @@ type DealCardProps = {
 
 function DealCard({
   deal,
+  allowDrag,
   isMoving,
   onDeleted,
   onDragStart,
@@ -592,7 +635,7 @@ function DealCard({
   return (
     <article
       className={`deals-card${isMoving ? ' deals-card--moving' : ''}`}
-      draggable={!isMoving}
+      draggable={allowDrag && !isMoving}
       aria-grabbed="false"
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -620,6 +663,54 @@ function DealCard({
       </div>
     </article>
   )
+}
+
+function getContactFilterFromLocation(): ContactFilter | null {
+  const searchParams = new URLSearchParams(window.location.search)
+  const id = searchParams.get('contact_id')?.trim()
+
+  if (!id) {
+    return null
+  }
+
+  return {
+    id,
+    name: searchParams.get('contact_name')?.trim() || 'Контакт',
+  }
+}
+
+async function filterKanbanByContact(
+  data: ApiKanbanResponse,
+  contactId: string,
+): Promise<ApiKanbanResponse> {
+  const stageEntries = await Promise.all(
+    data.stages.map(async (stage) => {
+      const stageDeals: ApiKanbanDeal[] = []
+      let cursor: string | null = null
+      let hasMore = true
+
+      while (hasMore) {
+        const response = await getDealsPage(stage.id, 100, cursor)
+        stageDeals.push(...response.deals)
+        cursor = response.next_cursor
+        hasMore = response.has_more && Boolean(cursor)
+      }
+
+      return [
+        stage.id,
+        stageDeals.filter((deal) => deal.contact?.id === contactId),
+      ] as const
+    }),
+  )
+  const deals = Object.fromEntries(stageEntries)
+
+  return {
+    stages: data.stages.map((stage) => ({
+      ...stage,
+      deal_count: deals[stage.id]?.length ?? 0,
+    })),
+    deals,
+  }
 }
 
 function DealsSkeleton() {

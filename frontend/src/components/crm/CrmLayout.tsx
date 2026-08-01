@@ -3,6 +3,10 @@ import logoFull from '../../assets/brand/logo-full.svg'
 import { DashboardPage } from './DashboardPage'
 import { AiSettingsPage } from './AiSettingsPage'
 import { DealsPage } from './DealsPage'
+import { ContactsPage } from './ContactsPage'
+import { TasksPage } from './TasksPage'
+import { ChatPage } from './ChatPage'
+import { SettingsPage } from './SettingsPage'
 import { AiAssistantModal, type AiChatMessage } from './AiAssistantModal'
 import {
   createAiChatSession,
@@ -31,24 +35,12 @@ type CrmSectionId =
   | 'settings'
   | 'chat'
 
-type PlaceholderSectionId = Exclude<CrmSectionId, 'dashboard' | 'ai' | 'deals'>
-
 type NavigationItem = {
   id: CrmSectionId
   label: string
   icon: SidebarIconName
   href: string
   variant?: 'ai'
-}
-
-type CrmPlaceholderSection = {
-  title: string
-  eyebrow: string
-  text: string
-  widgets: {
-    value: string
-    label: string
-  }[]
 }
 
 const navigationItems: NavigationItem[] = [
@@ -60,53 +52,6 @@ const navigationItems: NavigationItem[] = [
   { id: 'settings', label: 'Настройки', icon: 'settings', href: '/app/settings' },
   { id: 'chat', label: 'Чат', icon: 'chat', href: '/app/chats' },
 ]
-
-const placeholderSections: Record<PlaceholderSectionId, CrmPlaceholderSection> = {
-  contacts: {
-    eyebrow: 'CRM',
-    title: 'Контакты',
-    text:
-      'Здесь позже появится список клиентов и карточки контактов: имя, компания, телефон, e-mail и Telegram.',
-    widgets: [
-      { value: '0', label: 'Контактов' },
-      { value: '0', label: 'Компаний' },
-      { value: 'mock', label: 'Данные позже' },
-    ],
-  },
-  tasks: {
-    eyebrow: 'CRM',
-    title: 'Задачи',
-    text:
-      'Здесь позже появится раздел задач: статусы, сроки, карточки задач и управление действиями менеджера.',
-    widgets: [
-      { value: '0', label: 'Новых задач' },
-      { value: '0', label: 'В работе' },
-      { value: '0', label: 'Завершено' },
-    ],
-  },
-  settings: {
-    eyebrow: 'CRM',
-    title: 'Настройки',
-    text:
-      'Здесь позже появятся общие настройки аккаунта, команды, уведомлений, интеграций и доступа.',
-    widgets: [
-      { value: 'mock', label: 'Профиль' },
-      { value: 'mock', label: 'Команда' },
-      { value: 'mock', label: 'Интеграции' },
-    ],
-  },
-  chat: {
-    eyebrow: 'CRM',
-    title: 'Чат',
-    text:
-      'Здесь позже появится единое окно переписок с клиентами и возможность подключать AI к диалогам.',
-    widgets: [
-      { value: '0', label: 'Диалогов' },
-      { value: '0', label: 'Новых сообщений' },
-      { value: 'mock', label: 'Чат позже' },
-    ],
-  },
-}
 
 const sidebarIconPaths: Record<SidebarIconName, string[]> = {
   ai: [
@@ -169,10 +114,6 @@ function SidebarIcon({ name }: { name: SidebarIconName }) {
       ))}
     </svg>
   )
-}
-
-function isPlaceholderSection(section: CrmSectionId): section is PlaceholderSectionId {
-  return section !== 'dashboard' && section !== 'ai' && section !== 'deals'
 }
 
 export function CrmLayout() {
@@ -448,7 +389,7 @@ export function CrmLayout() {
 
   const renderContent = () => {
     if (activeSection === 'dashboard') {
-      return <DashboardPage />
+      return <DashboardPage onShowAll={() => openSection('/app/tasks')} />
     }
 
     if (activeSection === 'ai') {
@@ -459,30 +400,37 @@ export function CrmLayout() {
       return <DealsPage />
     }
 
-    if (!isPlaceholderSection(activeSection)) {
-      return null
+    if (activeSection === 'contacts') {
+      return (
+        <ContactsPage
+          onOpenRelatedDeals={(contact) => {
+            const searchParams = new URLSearchParams({
+              contact_id: contact.id,
+              contact_name: contact.name,
+            })
+            const href = `/app/deals?${searchParams.toString()}`
+
+            window.history.pushState(null, '', href)
+            setActiveSection('deals')
+            window.scrollTo(0, 0)
+          }}
+        />
+      )
     }
 
-    const currentSection = placeholderSections[activeSection]
+    if (activeSection === 'tasks') {
+      return <TasksPage />
+    }
 
-    return (
-      <>
-        <section className="crm-hero-card">
-          <p className="crm-hero-card__eyebrow">{currentSection.eyebrow}</p>
-          <h1 className="crm-hero-card__title">{currentSection.title}</h1>
-          <p className="crm-hero-card__text">{currentSection.text}</p>
-        </section>
+    if (activeSection === 'chat') {
+      return <ChatPage />
+    }
 
-        <section className="crm-widgets" aria-label={`Заглушки раздела ${currentSection.title}`}>
-          {currentSection.widgets.map((widget) => (
-            <article className="crm-widget" key={widget.label}>
-              <span className="crm-widget__value">{widget.value}</span>
-              <span className="crm-widget__label">{widget.label}</span>
-            </article>
-          ))}
-        </section>
-      </>
-    )
+    if (activeSection === 'settings') {
+      return <SettingsPage />
+    }
+
+    return null
   }
 
   return (
