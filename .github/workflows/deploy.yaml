@@ -1,96 +1,239 @@
 name: Deploy Prodavan
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - develop
+  workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Новый запуск ждёт завершения текущего деплоя и не прерывает его.
 concurrency:
   group: prodavan-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
-  BACKEND_IMAGE: maxwell884/prodavan-backend:develop
-  FRONTEND_IMAGE: maxwell884/prodavan-frontend:develop
+  BACKEND_REPOSITORY: maxwell884/prodavan-backend
+  FRONTEND_REPOSITORY: maxwell884/prodavan-frontend
   DEPLOY_DIR: prodavan-deploy
+  HEALTHCHECK_URL: https://pyprojects.online/api/health/ready
 
 jobs:
-  build-and-deploy:
+  checks:
+    name: Check backend and frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: ci-only-django-secret-key-not-for-production-012345678901234567890
+      JWT_SIGNING_KEY: ci-only-jwt-signing-key-not-for-production-012345678901234567890
+      INTEGRATION_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      INTEGRATION_ENCRYPTION_KEY_ID: ci-v1
+      DATABASE_ENGINE: sqlite
+      EMAIL_BACKEND: locmem
+      DEFAULT_FROM_EMAIL: ci@example.com
+      AUTH_COOKIE_SECURE: "False"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Test backend
+        run: |
+          python -m pip install --disable-pip-version-check uv
+          uv sync --frozen
+          uv run python manage.py test
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  deploy:
+    name: Build and deploy
+    needs: checks
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push backend image
-        uses: docker/build-push-action@v6
+      - name: Build and push backend
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
+          pull: true
           push: true
-          tags: ${{ env.BACKEND_IMAGE }}
+          tags: |
+            ${{ env.BACKEND_REPOSITORY }}:develop
+            ${{ env.BACKEND_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
-      - name: Build and push frontend image
-        uses: docker/build-push-action@v6
+      - name: Build and push frontend
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
+          pull: true
           push: true
-          tags: ${{ env.FRONTEND_IMAGE }}
-          build-args: |
-            VITE_API_URL=/api
+          tags: |
+            ${{ env.FRONTEND_REPOSITORY }}:develop
+            ${{ env.FRONTEND_REPOSITORY }}:${{ github.sha }}
+          build-args: VITE_API_URL=/api
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
-      - name: Copy compose to server
-        env:
-          SSH_HOST: ${{ secrets.SERVER_HOST }}
-          SSH_USER: ${{ secrets.SERVER_USER }}
-          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          SERVER_SSH_PORT: ${{ secrets.SERVER_SSH_PORT }}
+      # На сервер отправляется Compose с точным SHA, а не с изменяемым тегом develop.
+      - name: Prepare release compose
         run: |
-          set -e
+          set -Eeuo pipefail
+          cp docker-compose.deploy.yaml docker-compose.release.yaml
+          sed -i "s|${BACKEND_REPOSITORY}:develop|${BACKEND_REPOSITORY}:${GITHUB_SHA}|g" docker-compose.release.yaml
+          sed -i "s|${FRONTEND_REPOSITORY}:develop|${FRONTEND_REPOSITORY}:${GITHUB_SHA}|g" docker-compose.release.yaml
+          grep -Fq "${BACKEND_REPOSITORY}:${GITHUB_SHA}" docker-compose.release.yaml
+          grep -Fq "${FRONTEND_REPOSITORY}:${GITHUB_SHA}" docker-compose.release.yaml
 
-          SSH_PORT="${SERVER_SSH_PORT:-22}"
-
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/prodavan_deploy_key
-          chmod 600 ~/.ssh/prodavan_deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/prodavan_deploy_key ~/.ssh/known_hosts
 
-          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
-
-          ssh -i ~/.ssh/prodavan_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p ~/${DEPLOY_DIR}"
-
-          scp -i ~/.ssh/prodavan_deploy_key -P "$SSH_PORT" docker-compose.deploy.yaml "$SSH_USER@$SSH_HOST:~/${DEPLOY_DIR}/docker-compose.deploy.yaml"
-
-      - name: Restart containers on server
+      - name: Upload and deploy
         env:
           SSH_HOST: ${{ secrets.SERVER_HOST }}
           SSH_USER: ${{ secrets.SERVER_USER }}
-          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
           SERVER_SSH_PORT: ${{ secrets.SERVER_SSH_PORT }}
         run: |
-          set -e
+          set -Eeuo pipefail
 
           SSH_PORT="${SERVER_SSH_PORT:-22}"
+          SSH_OPTIONS=(
+            -i ~/.ssh/prodavan_deploy_key
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
 
-          ssh -i ~/.ssh/prodavan_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "
-            set -e
-            cd ~/${DEPLOY_DIR}
-            if docker ps >/dev/null 2>&1; then
-              DOCKER='docker'
-            else
-              DOCKER='sudo docker'
+          # DEPLOY_DIR намеренно подставляется на GitHub runner.
+          # shellcheck disable=SC2029
+          ssh "${SSH_OPTIONS[@]}" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$DEPLOY_DIR'"
+
+          scp "${SSH_OPTIONS[@]}" -P "$SSH_PORT" \
+            docker-compose.release.yaml \
+            "$SSH_USER@$SSH_HOST:~/$DEPLOY_DIR/docker-compose.deploy.next.yaml"
+
+          # Константы деплоя намеренно подставляются на GitHub runner.
+          # shellcheck disable=SC2029
+          ssh "${SSH_OPTIONS[@]}" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_DIR='$DEPLOY_DIR' HEALTHCHECK_URL='$HEALTHCHECK_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          cd "$HOME/$DEPLOY_DIR"
+
+          if docker info >/dev/null 2>&1; then
+            DOCKER=(docker)
+          elif sudo -n docker info >/dev/null 2>&1; then
+            DOCKER=(sudo -n docker)
+          else
+            echo "Deploy user cannot access Docker." >&2
+            exit 1
+          fi
+
+          compose_next() {
+            "${DOCKER[@]}" compose --env-file .env -f docker-compose.deploy.next.yaml "$@"
+          }
+
+          compose_live() {
+            "${DOCKER[@]}" compose --env-file .env -f docker-compose.deploy.yaml "$@"
+          }
+
+          test -s .env || { echo "$HOME/$DEPLOY_DIR/.env is missing." >&2; exit 1; }
+          test -s docker-compose.deploy.next.yaml
+
+          # Сначала проверяем новый Compose и образ, не меняя работающий релиз.
+          compose_next config --quiet
+          compose_next pull backend frontend
+          compose_next run --rm --no-deps backend \
+            python manage.py check --deploy
+
+          if [[ -f docker-compose.deploy.yaml ]]; then
+            cp -f docker-compose.deploy.yaml docker-compose.deploy.previous.yaml
+          else
+            rm -f docker-compose.deploy.previous.yaml
+          fi
+
+          # Перед миграциями сохраняем дамп работающей PostgreSQL.
+          if [[ "$("${DOCKER[@]}" inspect --format '{{.State.Running}}' prodavan_db 2>/dev/null || true)" == "true" ]]; then
+            umask 077
+            mkdir -p backups
+            backup="backups/predeploy-${RELEASE_SHA}-$(date -u +%Y%m%dT%H%M%SZ).dump"
+            "${DOCKER[@]}" exec prodavan_db sh -c \
+              'pg_dump --format=custom --username="$POSTGRES_USER" "$POSTGRES_DB"' > "$backup"
+            test -s "$backup"
+            find backups -maxdepth 1 -type f -name 'predeploy-*.dump' -mtime +30 -delete
+            echo "Database backup: $HOME/$DEPLOY_DIR/$backup"
+          fi
+
+          mv -f docker-compose.deploy.next.yaml docker-compose.deploy.yaml
+
+          rollback() {
+            local status=$?
+            trap - ERR
+            echo "Deployment failed. Restoring previous Compose." >&2
+            if [[ -f docker-compose.deploy.previous.yaml ]]; then
+              cp -f docker-compose.deploy.previous.yaml docker-compose.deploy.yaml
+              compose_live up -d --remove-orphans --wait --wait-timeout 180 || true
             fi
-            \$DOCKER compose -f docker-compose.deploy.yaml pull
-            \$DOCKER compose -f docker-compose.deploy.yaml up -d --remove-orphans
-            \$DOCKER compose -f docker-compose.deploy.yaml ps
-          "
+            exit "$status"
+          }
+          trap rollback ERR
+
+          # --wait завершится успешно только после запуска всех сервисов и healthchecks.
+          compose_live up -d --remove-orphans --wait --wait-timeout 180
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 2 --retry-connrefused \
+            "$HEALTHCHECK_URL" >/dev/null
+          compose_live ps
+          trap - ERR
+          REMOTE_SCRIPT
+
+      - name: Remove SSH files
+        if: always()
+        run: rm -f ~/.ssh/prodavan_deploy_key ~/.ssh/known_hosts
