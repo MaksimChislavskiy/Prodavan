@@ -190,8 +190,10 @@ jobs:
           # Сначала проверяем новый Compose и образ, не меняя работающий релиз.
           compose_next config --quiet
           compose_next pull backend frontend
-          compose_next run --rm --no-deps backend \
-            python manage.py check --deploy
+          # Remote bash reads this script from stdin, so the container must not
+          # consume the remaining deployment commands.
+          compose_next run --rm --no-deps -T backend \
+            python manage.py check --deploy </dev/null
 
           if [[ -f docker-compose.deploy.yaml ]]; then
             cp -f docker-compose.deploy.yaml docker-compose.deploy.previous.yaml

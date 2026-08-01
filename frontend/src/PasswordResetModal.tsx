@@ -74,6 +74,11 @@ function PasswordResetModal({
   const isBusy = isSendingCode || isConfirmingCode || isSavingPassword
   const isCodeEntryBlocked =
     codeExpiresSeconds === 0 || codeError.includes('Превышено количество попыток')
+  const displayedCodeError =
+    codeError ||
+    (resetStep === 'code' && codeExpiresSeconds === 0
+      ? 'Срок действия кода истёк. Запросите новый код.'
+      : '')
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
@@ -115,15 +120,6 @@ function PasswordResetModal({
       window.clearInterval(intervalId)
     }
   }, [resetStep])
-
-  useEffect(() => {
-    if (resetStep !== 'code' || codeExpiresSeconds !== 0) {
-      return
-    }
-
-    setResendSeconds(0)
-    setCodeError('Срок действия кода истёк. Запросите новый код.')
-  }, [codeExpiresSeconds, resetStep])
 
   useEffect(() => {
     if (resetStep !== 'success') {
@@ -383,7 +379,7 @@ function PasswordResetModal({
     }
   }
 
-  const hasCodeError = Boolean(codeError)
+  const hasCodeError = Boolean(displayedCodeError)
   const resetModalClassName = [
     'passwordResetModal',
     resetStep === 'email' ? 'passwordResetModalEmail' : '',
@@ -571,7 +567,7 @@ function PasswordResetModal({
                     disabled={resendSeconds > 0 || isSendingCode}
                     onClick={() => void handleResendCode()}
                   >
-                    {codeError}
+                    {displayedCodeError}
                   </button>
                 )}
               </div>
