@@ -5,7 +5,18 @@ const ACCOUNT_DELETED_QUERY = 'account_deleted'
 const ACCOUNT_DELETED_MESSAGE_KEY = 'account_deleted_message'
 
 export function AccountDeletedNotice() {
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(() => {
+    const searchParams = new URLSearchParams(window.location.search)
+
+    if (searchParams.get(ACCOUNT_DELETED_QUERY) !== '1') {
+      return ''
+    }
+
+    return (
+      sessionStorage.getItem(ACCOUNT_DELETED_MESSAGE_KEY) ||
+      'Ваша учётная запись удалена'
+    )
+  })
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
@@ -13,9 +24,6 @@ export function AccountDeletedNotice() {
     if (searchParams.get(ACCOUNT_DELETED_QUERY) !== '1') {
       return
     }
-
-    const storedMessage = sessionStorage.getItem(ACCOUNT_DELETED_MESSAGE_KEY)
-    setMessage(storedMessage || 'Ваша учётная запись удалена')
 
     const cleanupTimerId = window.setTimeout(() => {
       sessionStorage.removeItem(ACCOUNT_DELETED_MESSAGE_KEY)

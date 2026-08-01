@@ -138,15 +138,10 @@ export function EditDealModal({
     const query = contactName.trim()
 
     if (isLoading || selectedContact || query.length < 2) {
-      setContactSuggestions([])
-      setContactSearchState('idle')
-      setContactSearchError('')
       return
     }
 
     let isCurrentSearch = true
-    setContactSearchState('loading')
-    setContactSearchError('')
 
     const timeoutId = window.setTimeout(() => {
       void searchContacts(query)
@@ -178,6 +173,16 @@ export function EditDealModal({
       window.clearTimeout(timeoutId)
     }
   }, [contactName, isLoading, selectedContact])
+
+  const handleContactNameChange = (value: string) => {
+    const shouldSearch = value.trim().length >= 2
+
+    setContactName(value)
+    setContactSuggestions([])
+    setContactSearchState(shouldSearch ? 'loading' : 'idle')
+    setContactSearchError('')
+    clearSaveError()
+  }
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (!isSaving && event.target === event.currentTarget) {
@@ -401,10 +406,9 @@ export function EditDealModal({
                       maxLength={100}
                       placeholder="Введите ФИО"
                       disabled={areContactFieldsLocked}
-                      onChange={(event) => {
-                        setContactName(event.target.value)
-                        clearSaveError()
-                      }}
+                      onChange={(event) =>
+                        handleContactNameChange(event.target.value)
+                      }
                     />
 
                     {selectedContact && (
