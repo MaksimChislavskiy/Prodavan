@@ -1,10 +1,19 @@
+x-backend-worker: &backend-worker
+  image: maxwell884/prodavan-backend:develop
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    DJANGO_SETTINGS_MODULE: config.settings
+  depends_on:
+    backend:
+      condition: service_healthy
+
 services:
   db:
     image: postgres:16-alpine
     container_name: prodavan_db
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -21,6 +30,11 @@ services:
     image: redis:7-alpine
     container_name: prodavan_redis
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   backend:
     image: maxwell884/prodavan-backend:develop
@@ -37,9 +51,21 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     expose:
       - "8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   frontend:
     image: maxwell884/prodavan-frontend:develop
@@ -53,7 +79,112 @@ services:
       - prodavan_media:/media:ro
       - prodavan_static:/static:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+
+  telegram_webhook_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "process_telegram_webhooks",
+        "--watch",
+        "--limit",
+        "1000",
+        "--poll-interval",
+        "1"
+      ]
+
+  outgoing_messages_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "process_outgoing_messages",
+        "--watch",
+        "--limit",
+        "1000",
+        "--poll-interval",
+        "1"
+      ]
+
+  ai_automation_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "process_ai_automation_events",
+        "--watch",
+        "--limit",
+        "1000",
+        "--poll-interval",
+        "1"
+      ]
+
+  ai_autopilot_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "process_ai_autopilot_jobs",
+        "--watch",
+        "--limit",
+        "1000",
+        "--poll-interval",
+        "1"
+      ]
+
+  knowledge_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "process_knowledge_documents",
+        "--watch",
+        "--limit",
+        "100",
+        "--poll-interval",
+        "1"
+      ]
+    volumes:
+      - prodavan_media:/app/media
+
+  auth_email_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "process_auth_emails",
+        "--watch",
+        "--limit",
+        "100",
+        "--poll-interval",
+        "1"
+      ]
+
+  maintenance_worker:
+    <<: *backend-worker
+    command:
+      [
+        "python",
+        "manage.py",
+        "run_maintenance_worker",
+        "--watch",
+        "--notification-interval",
+        "60",
+        "--telegram-interval",
+        "300",
+        "--ai-session-interval",
+        "300",
+        "--auth-cleanup-interval",
+        "86400"
+      ]
 
 volumes:
   prodavan_pg_data:
