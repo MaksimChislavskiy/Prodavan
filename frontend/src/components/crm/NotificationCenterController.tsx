@@ -137,7 +137,6 @@ export function NotificationCenterController() {
       socket.onopen = () => {
         reconnectAttempt = 0
         void refreshUnreadCount()
-        setRealtimeVersion((version) => version + 1)
       }
 
       socket.onmessage = (messageEvent) => {
