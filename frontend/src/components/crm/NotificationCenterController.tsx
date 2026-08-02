@@ -5,8 +5,8 @@ import {
   getNotificationUnreadCount,
   type NotificationRealtimeEvent,
 } from '../../shared/api/notificationsApi'
-import { NotificationsPage } from './NotificationsPage'
-import './NotificationsPage.css'
+import { FigmaNotificationsPage } from './FigmaNotificationsPage'
+import './FigmaNotificationsPage.css'
 
 const NOTIFICATIONS_PATH = '/app/notifications'
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000]
@@ -264,10 +264,14 @@ export function NotificationCenterController() {
       return
     }
 
+    const shell = portalTarget.closest<HTMLElement>('.crm-shell')
+
     portalTarget.classList.toggle('crm-content--notification-center', isOpen)
+    shell?.classList.toggle('crm-shell--notifications-open', isOpen)
 
     return () => {
       portalTarget.classList.remove('crm-content--notification-center')
+      shell?.classList.remove('crm-shell--notifications-open')
     }
   }, [isOpen, portalTarget])
 
@@ -277,7 +281,7 @@ export function NotificationCenterController() {
 
   return createPortal(
     <div className="notification-center-portal">
-      <NotificationsPage
+      <FigmaNotificationsPage
         unreadCount={unreadCount}
         realtimeVersion={realtimeVersion}
         onUnreadCountChange={setUnreadCount}
