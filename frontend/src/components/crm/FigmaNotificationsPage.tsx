@@ -1,10 +1,19 @@
-import { useEffect, useState, type ChangeEvent, type UIEvent } from 'react'
+import { useEffect, useState, type UIEvent } from 'react'
 import {
   deleteNotification,
   getNotifications,
   markNotificationRead,
   type ApiNotification,
 } from '../../shared/api/notificationsApi'
+import {
+  getTelegramSettings,
+  type ApiWorkspaceIntegration,
+} from '../../shared/api/workspaceSettingsApi'
+import {
+  readNotificationPreferences,
+  writeNotificationPreferences,
+  type NotificationPreferences,
+} from '../../shared/notificationPreferences'
 
 type FigmaNotificationsPageProps = {
   unreadCount: number
@@ -16,43 +25,7 @@ type FigmaNotificationsPageProps = {
 type PageState = 'loading' | 'ready' | 'error'
 type NotificationTone = 'critical' | 'warning' | 'success'
 type TabId = 'center' | 'settings'
-
-type NotificationPreferences = {
-  sosKeywords: string
-  callEnabled: boolean
-  browserEnabled: boolean
-  telegramEnabled: boolean
-  mobileEnabled: boolean
-  quietHoursEnabled: boolean
-}
-
-const SETTINGS_STORAGE_KEY = 'prodavan.notification-settings.figma.v1'
-
-const DEFAULT_PREFERENCES: NotificationPreferences = {
-  sosKeywords: '',
-  callEnabled: false,
-  browserEnabled: false,
-  telegramEnabled: false,
-  mobileEnabled: false,
-  quietHoursEnabled: false,
-}
-
-function readPreferences(): NotificationPreferences {
-  try {
-    const storedValue = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
-
-    if (!storedValue) {
-      return DEFAULT_PREFERENCES
-    }
-
-    return {
-      ...DEFAULT_PREFERENCES,
-      ...(JSON.parse(storedValue) as Partial<NotificationPreferences>),
-    }
-  } catch {
-    return DEFAULT_PREFERENCES
-  }
-}
+type TelegramLoadState = 'loading' | 'ready' | 'error'
 
 function formatNotificationDate(value: string) {
   const date = new Date(value)
@@ -204,10 +177,14 @@ function Toggle({
   checked,
   label,
   onChange,
+  disabled = false,
+  title,
 }: {
   checked: boolean
   label: string
-  onChange: (checked: boolean) => void
+  onChange?: (checked: boolean) => void
+  disabled?: boolean
+  title?: string
 }) {
   return (
     <button
@@ -216,7 +193,9 @@ function Toggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      title={title}
+      onClick={() => onChange?.(!checked)}
     >
       <span />
     </button>
@@ -239,21 +218,88 @@ export function FigmaNotificationsPage({
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState('')
-  const [preferences, setPreferences] = useState(readPreferences)
+  const [preferences, setPreferences] = useState<NotificationPreferences>(() => {
+    const storedPreferences = readNotificationPreferences()
+
+    if (
+      !('Notification' in window) ||
+      window.Notification.permission !== 'granted'
+    ) {
+      return { browserEnabled: false }
+    }
+
+    return storedPreferences
+  })
+  const [telegramIntegration, setTelegramIntegration] =
+    useState<ApiWorkspaceIntegration | null>(null)
+  const [telegramLoadState, setTelegramLoadState] =
+    useState<TelegramLoadState>('loading')
 
   const allLoadedSelected =
     notifications.length > 0 && notifications.every((item) => selectedIds.has(item.id))
+  const browserNotificationsSupported = 'Notification' in window
+  const browserNotificationsDenied =
+    browserNotificationsSupported && window.Notification.permission === 'denied'
+  const telegramConnected = telegramIntegration?.status === 'connected'
+
+  const telegramTitle = (() => {
+    if (telegramLoadState === 'loading') {
+      return 'Загружаем состояние Telegram из backend.'
+    }
+
+    if (telegramLoadState === 'error') {
+      return 'Не удалось получить состояние Telegram из backend.'
+    }
+
+    if (telegramConnected) {
+      const botName = telegramIntegration?.bot_username
+        ? ` ${telegramIntegration.bot_username}`
+        : ''
+
+      return `Telegram-бот${botName} подключён. Отдельной настройки дублирования уведомлений backend не предоставляет.`
+    }
+
+    return 'Telegram-бот не подключён. Подключение выполняется в основном разделе «Настройки».'
+  })()
+
+  const browserTitle = (() => {
+    if (!browserNotificationsSupported) {
+      return 'Этот браузер не поддерживает системные уведомления.'
+    }
+
+    if (browserNotificationsDenied) {
+      return 'Уведомления запрещены в настройках браузера.'
+    }
+
+    return 'Показывает системные уведомления из событий backend, пока CRM открыта в браузере.'
+  })()
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        SETTINGS_STORAGE_KEY,
-        JSON.stringify(preferences),
-      )
-    } catch {
-      return
-    }
+    writeNotificationPreferences(preferences)
   }, [preferences])
+
+  useEffect(() => {
+    let isMounted = true
+
+    getTelegramSettings()
+      .then((response) => {
+        if (!isMounted) {
+          return
+        }
+
+        setTelegramIntegration(response.integration)
+        setTelegramLoadState('ready')
+      })
+      .catch(() => {
+        if (isMounted) {
+          setTelegramLoadState('error')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (activeTab !== 'center') {
@@ -293,14 +339,23 @@ export function FigmaNotificationsPage({
     return () => abortController.abort()
   }, [activeTab, realtimeVersion])
 
-  const updatePreference = <K extends keyof NotificationPreferences>(
-    key: K,
-    value: NotificationPreferences[K],
-  ) => {
-    setPreferences((currentPreferences) => ({
-      ...currentPreferences,
-      [key]: value,
-    }))
+  const updateBrowserPreference = async (enabled: boolean) => {
+    if (!enabled) {
+      setPreferences({ browserEnabled: false })
+      return
+    }
+
+    if (!browserNotificationsSupported || browserNotificationsDenied) {
+      setPreferences({ browserEnabled: false })
+      return
+    }
+
+    const permission =
+      window.Notification.permission === 'default'
+        ? await window.Notification.requestPermission()
+        : window.Notification.permission
+
+    setPreferences({ browserEnabled: permission === 'granted' })
   }
 
   const setNotificationBusy = (notificationId: string, isBusy: boolean) => {
@@ -621,17 +676,19 @@ export function FigmaNotificationsPage({
         <div className="figma-notification-settings" role="tabpanel">
           <section className="figma-notification-settings__card figma-notification-settings__card--sos">
             <h2>Настройка SOS-сигналов</h2>
-            <label className="figma-notification-settings__search">
+            <label
+              className="figma-notification-settings__search"
+              title="Backend не предоставляет API для сохранения и применения SOS-слов."
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m21 20-4.3-4.3a8 8 0 1 0-1.4 1.4L19.6 21 21 20ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z" />
               </svg>
               <input
                 type="text"
-                value={preferences.sosKeywords}
+                value=""
+                disabled
                 placeholder="Введите слова, при появлении которых ИИ мгновенно перехватит чат вам"
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  updatePreference('sosKeywords', event.target.value)
-                }
+                aria-label="SOS-слова недоступны: backend API отсутствует"
               />
             </label>
             <p>Примеры тегов: суд, прокуратура, директор, верните деньги, жалоба, скидка 50%</p>
@@ -640,35 +697,38 @@ export function FigmaNotificationsPage({
           <section className="figma-notification-settings__card figma-notification-settings__card--channels">
             <h2>Настройка каналов доставки (Куда придет пуш)</h2>
             <div className="figma-notification-settings__rows">
-              <label>
+              <label title="Backend не предоставляет канал звонка-дозвона для уведомлений.">
                 <Toggle
-                  checked={preferences.callEnabled}
-                  label="Звонок-дозвон"
-                  onChange={(checked) => updatePreference('callEnabled', checked)}
+                  checked={false}
+                  label="Звонок-дозвон недоступен"
+                  disabled
                 />
                 <span>Звонок-дозвон (для критических ситуаций)</span>
               </label>
-              <label>
+              <label title={browserTitle}>
                 <Toggle
                   checked={preferences.browserEnabled}
                   label="Браузерное уведомление"
-                  onChange={(checked) => updatePreference('browserEnabled', checked)}
+                  disabled={!browserNotificationsSupported || browserNotificationsDenied}
+                  title={browserTitle}
+                  onChange={(checked) => void updateBrowserPreference(checked)}
                 />
                 <span>Браузерное уведомление (если открыта десктоп-версия)</span>
               </label>
-              <label>
+              <label title={telegramTitle}>
                 <Toggle
-                  checked={preferences.telegramEnabled}
-                  label="Дублирование в Telegram"
-                  onChange={(checked) => updatePreference('telegramEnabled', checked)}
+                  checked={telegramConnected}
+                  label={telegramConnected ? 'Telegram подключён' : 'Telegram не подключён'}
+                  disabled
+                  title={telegramTitle}
                 />
                 <span>Дублирование в личный Telegram (через системного бота-оповещателя)</span>
               </label>
-              <label>
+              <label title="Backend не предоставляет API мобильных push-уведомлений.">
                 <Toggle
-                  checked={preferences.mobileEnabled}
-                  label="Push-уведомление"
-                  onChange={(checked) => updatePreference('mobileEnabled', checked)}
+                  checked={false}
+                  label="Push-уведомление недоступно"
+                  disabled
                 />
                 <span>Push-уведомление в мобильном приложении CRM</span>
               </label>
@@ -677,11 +737,11 @@ export function FigmaNotificationsPage({
 
           <section className="figma-notification-settings__card figma-notification-settings__card--quiet">
             <h2>Режим “ Тихий час “:</h2>
-            <label>
+            <label title="Backend не предоставляет настройки расписания тихого часа.">
               <Toggle
-                checked={preferences.quietHoursEnabled}
-                label="Тихий час"
-                onChange={(checked) => updatePreference('quietHoursEnabled', checked)}
+                checked={false}
+                label="Тихий час недоступен"
+                disabled
               />
               <span>Вкл\ выкл</span>
             </label>
