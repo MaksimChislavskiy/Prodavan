@@ -5,11 +5,19 @@ import {
   getNotificationUnreadCount,
   type NotificationRealtimeEvent,
 } from '../../shared/api/notificationsApi'
+import { readNotificationPreferences } from '../../shared/notificationPreferences'
 import { FigmaNotificationsPage } from './FigmaNotificationsPage'
 import './FigmaNotificationsPage.css'
 
 const NOTIFICATIONS_PATH = '/app/notifications'
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000]
+
+type BrowserNotificationPayload = {
+  id: string
+  title: string
+  content: string
+  link: string
+}
 
 function isNotificationsPath(pathname: string) {
   return pathname === NOTIFICATIONS_PATH
@@ -49,6 +57,38 @@ function getUnreadCountFromEvent(event: NotificationRealtimeEvent) {
   const unreadCount = (payload as { unread_count?: unknown }).unread_count
 
   return typeof unreadCount === 'number' ? Math.max(0, unreadCount) : null
+}
+
+function getBrowserNotificationPayload(
+  event: NotificationRealtimeEvent,
+): BrowserNotificationPayload | null {
+  if (event.event !== 'notification_created') {
+    return null
+  }
+
+  const payload = event.payload
+
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const candidate = payload as {
+    id?: unknown
+    title?: unknown
+    content?: unknown
+    link?: unknown
+  }
+
+  if (typeof candidate.title !== 'string' || !candidate.title.trim()) {
+    return null
+  }
+
+  return {
+    id: typeof candidate.id === 'string' ? candidate.id : candidate.title,
+    title: candidate.title.trim(),
+    content: typeof candidate.content === 'string' ? candidate.content.trim() : '',
+    link: typeof candidate.link === 'string' ? candidate.link.trim() : '',
+  }
 }
 
 export function NotificationCenterController() {
@@ -110,6 +150,41 @@ export function NotificationCenterController() {
     let reconnectTimerId: number | null = null
     let socket: WebSocket | null = null
 
+    const showBrowserNotification = (event: NotificationRealtimeEvent) => {
+      if (
+        !document.hidden ||
+        !('Notification' in window) ||
+        window.Notification.permission !== 'granted' ||
+        !readNotificationPreferences().browserEnabled
+      ) {
+        return
+      }
+
+      const payload = getBrowserNotificationPayload(event)
+
+      if (!payload) {
+        return
+      }
+
+      const desktopNotification = new window.Notification(payload.title, {
+        body: payload.content,
+        icon: '/favicon.svg',
+        tag: `prodavan-notification-${payload.id}`,
+      })
+
+      desktopNotification.onclick = () => {
+        window.focus()
+        desktopNotification.close()
+
+        if (payload.link) {
+          navigateFromNotification(payload.link)
+          return
+        }
+
+        openNotifications()
+      }
+    }
+
     const scheduleReconnect = () => {
       if (isDisposed) {
         return
@@ -150,6 +225,8 @@ export function NotificationCenterController() {
           return
         }
 
+        showBrowserNotification(event)
+
         const nextUnreadCount = getUnreadCountFromEvent(event)
 
         if (nextUnreadCount !== null) {
@@ -182,7 +259,7 @@ export function NotificationCenterController() {
 
       socket?.close()
     }
-  }, [refreshUnreadCount])
+  }, [navigateFromNotification, openNotifications, refreshUnreadCount])
 
   useEffect(() => {
     let bellButton: HTMLButtonElement | null = null
