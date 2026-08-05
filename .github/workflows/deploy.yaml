@@ -234,6 +234,8 @@ jobs:
             "$HEALTHCHECK_URL" >/dev/null
           compose_live ps
           trap - ERR
+          "${DOCKER[@]}" image prune -a -f --filter "until=168h" \
+            || echo "Warning: Docker image cleanup failed." >&2
           REMOTE_SCRIPT
 
       - name: Remove SSH files
