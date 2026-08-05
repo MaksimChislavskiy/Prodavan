@@ -44,6 +44,34 @@
   font-family: Inter, Arial, sans-serif;
 }
 
+.figma-notifications-tabs {
+  height: 37px;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  margin-bottom: 24px;
+}
+
+.figma-notifications-tabs button {
+  box-sizing: border-box;
+  min-height: 37px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.figma-notifications-tabs button.figma-notifications-tabs__active {
+  background: #6366ff;
+  color: #f0f0f0;
+}
+
 .figma-notifications-panel {
   box-sizing: border-box;
   width: 100%;
@@ -373,9 +401,149 @@
   text-align: center;
 }
 
+.figma-notification-settings {
+  width: 818px;
+  max-width: 100%;
+}
+
+.figma-notification-settings__card {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 24px;
+  border: 1px solid #0b2b55;
+  border-radius: 24px;
+  background: #ffffff;
+}
+
+.figma-notification-settings__card h2 {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.figma-notification-settings__card--sos {
+  width: calc(100% - 8px);
+  min-height: 149px;
+  margin-left: 4px;
+  margin-bottom: 40px;
+  border-color: #000000;
+}
+
+.figma-notification-settings__search {
+  box-sizing: border-box;
+  width: 100%;
+  height: 39px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 16px;
+}
+
+.figma-notification-settings__search svg {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  fill: #0b2b55;
+}
+
+.figma-notification-settings__search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 18px;
+  line-height: 22px;
+}
+
+.figma-notification-settings__search input::placeholder {
+  color: #757575;
+  opacity: 1;
+}
+
+.figma-notification-settings__card--sos p {
+  margin: 8px 0 0;
+  color: #0b2b55;
+  font-size: 18px;
+  line-height: 22px;
+}
+
+.figma-notification-settings__card--channels {
+  min-height: 332px;
+  margin-bottom: 40px;
+}
+
+.figma-notification-settings__rows {
+  margin-top: 8px;
+}
+
+.figma-notification-settings__rows > label,
+.figma-notification-settings__card--quiet > label {
+  min-height: 59px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  color: #0b2b55;
+  font-size: 18px;
+  line-height: 22px;
+}
+
+.figma-notification-settings__card--quiet {
+  min-height: 139px;
+}
+
+.figma-notification-settings__card--quiet > label {
+  margin-top: 8px;
+  color: #000000;
+}
+
+.figma-notification-toggle {
+  box-sizing: border-box;
+  position: relative;
+  width: 48px;
+  height: 24px;
+  flex: 0 0 48px;
+  padding: 0;
+  border: 2px solid #0b2b55;
+  border-radius: 24px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.figma-notification-toggle span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0b2b55;
+  transition: transform 150ms ease;
+}
+
+.figma-notification-toggle--active span {
+  transform: translateX(24px);
+}
+
 @media (max-width: 900px) {
   .figma-notifications-page {
     margin-top: 0;
+  }
+
+  .figma-notifications-tabs {
+    gap: 12px;
+  }
+
+  .figma-notifications-tabs button {
+    font-size: 16px;
   }
 
   .figma-notifications-panel {
@@ -387,9 +555,25 @@
     height: auto;
     max-height: 501px;
   }
+
+  .figma-notification-settings__card {
+    padding: 20px;
+  }
+
+  .figma-notification-settings__rows > label,
+  .figma-notification-settings__card--quiet > label {
+    padding: 0;
+    font-size: 16px;
+  }
 }
 
 @media (max-width: 680px) {
+  .figma-notifications-tabs {
+    height: auto;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+
   .figma-notifications-panel {
     padding: 15px 12px 16px;
   }
@@ -431,5 +615,26 @@
   .figma-notification-card--compact,
   .figma-notification-card__compact-content {
     min-height: 84px;
+  }
+
+  .figma-notification-settings__card--sos,
+  .figma-notification-settings__card--channels,
+  .figma-notification-settings__card--quiet {
+    width: 100%;
+    min-height: 0;
+    margin-left: 0;
+    margin-bottom: 24px;
+  }
+
+  .figma-notification-settings__search input,
+  .figma-notification-settings__card--sos p {
+    font-size: 15px;
+    line-height: 20px;
+  }
+
+  .figma-notification-settings__rows > label,
+  .figma-notification-settings__card--quiet > label {
+    align-items: flex-start;
+    padding: 12px 0;
   }
 }
