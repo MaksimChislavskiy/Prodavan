@@ -1,4 +1,4 @@
-import { useEffect, useState, type UIEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type UIEvent } from 'react'
 import {
   deleteNotification,
   getNotifications,
@@ -15,6 +15,44 @@ type FigmaNotificationsPageProps = {
 
 type PageState = 'loading' | 'ready' | 'error'
 type NotificationTone = 'critical' | 'warning' | 'success'
+type TabId = 'center' | 'settings'
+
+type NotificationPreferences = {
+  sosKeywords: string
+  callEnabled: boolean
+  browserEnabled: boolean
+  telegramEnabled: boolean
+  mobileEnabled: boolean
+  quietHoursEnabled: boolean
+}
+
+const SETTINGS_STORAGE_KEY = 'prodavan.notification-settings.figma.v1'
+
+const DEFAULT_PREFERENCES: NotificationPreferences = {
+  sosKeywords: '',
+  callEnabled: false,
+  browserEnabled: false,
+  telegramEnabled: false,
+  mobileEnabled: false,
+  quietHoursEnabled: false,
+}
+
+function readPreferences(): NotificationPreferences {
+  try {
+    const storedValue = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+
+    if (!storedValue) {
+      return DEFAULT_PREFERENCES
+    }
+
+    return {
+      ...DEFAULT_PREFERENCES,
+      ...(JSON.parse(storedValue) as Partial<NotificationPreferences>),
+    }
+  } catch {
+    return DEFAULT_PREFERENCES
+  }
+}
 
 function formatNotificationDate(value: string) {
   const date = new Date(value)
@@ -162,12 +200,36 @@ function getChannelText(notification: ApiNotification) {
     : `Чат: ${getNotificationCategory(notification)}`
 }
 
+function Toggle({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean
+  label: string
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <button
+      className={`figma-notification-toggle ${checked ? 'figma-notification-toggle--active' : ''}`}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+    >
+      <span />
+    </button>
+  )
+}
+
 export function FigmaNotificationsPage({
   unreadCount,
   realtimeVersion,
   onUnreadCountChange,
   onNavigate,
 }: FigmaNotificationsPageProps) {
+  const [activeTab, setActiveTab] = useState<TabId>('center')
   const [pageState, setPageState] = useState<PageState>('loading')
   const [notifications, setNotifications] = useState<ApiNotification[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
@@ -177,11 +239,27 @@ export function FigmaNotificationsPage({
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [preferences, setPreferences] = useState(readPreferences)
 
   const allLoadedSelected =
     notifications.length > 0 && notifications.every((item) => selectedIds.has(item.id))
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SETTINGS_STORAGE_KEY,
+        JSON.stringify(preferences),
+      )
+    } catch {
+      return
+    }
+  }, [preferences])
+
+  useEffect(() => {
+    if (activeTab !== 'center') {
+      return
+    }
+
     const abortController = new AbortController()
 
     const loadNotifications = async () => {
@@ -196,8 +274,8 @@ export function FigmaNotificationsPage({
 
         setNotifications(response.notifications)
         setSelectedIds((currentSelectedIds) =>
-          new Set([...currentSelectedIds].filter((id) => loadedIds.has(id))),
-        )
+          new Set([...currentSelectedIds].filter((id) => loadedIds.has(id)),
+        ))
         setNextCursor(response.next_cursor)
         setHasMore(response.has_more)
         setPageState('ready')
@@ -213,7 +291,17 @@ export function FigmaNotificationsPage({
     void loadNotifications()
 
     return () => abortController.abort()
-  }, [realtimeVersion])
+  }, [activeTab, realtimeVersion])
+
+  const updatePreference = <K extends keyof NotificationPreferences>(
+    key: K,
+    value: NotificationPreferences[K],
+  ) => {
+    setPreferences((currentPreferences) => ({
+      ...currentPreferences,
+      [key]: value,
+    }))
+  }
 
   const setNotificationBusy = (notificationId: string, isBusy: boolean) => {
     setBusyIds((currentBusyIds) => {
@@ -368,59 +456,120 @@ export function FigmaNotificationsPage({
 
   return (
     <section className="figma-notifications-page" aria-label="Уведомления">
-      <section className="figma-notifications-panel">
-        <div className="figma-notifications-toolbar">
-          <label>
-            <input
-              type="checkbox"
-              checked={allLoadedSelected}
-              disabled={notifications.length === 0 || isDeleting}
-              onChange={toggleAll}
-            />
-            <span>Выбрать все</span>
-          </label>
+      <div className="figma-notifications-tabs" role="tablist" aria-label="Разделы уведомлений">
+        <button
+          className={activeTab === 'center' ? 'figma-notifications-tabs__active' : ''}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'center'}
+          onClick={() => setActiveTab('center')}
+        >
+          Центр уведомлений
+        </button>
+        <button
+          className={activeTab === 'settings' ? 'figma-notifications-tabs__active' : ''}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'settings'}
+          onClick={() => setActiveTab('settings')}
+        >
+          Настройки
+        </button>
+      </div>
 
-          <button
-            type="button"
-            disabled={selectedIds.size === 0 || isDeleting}
-            onClick={() => void deleteSelected()}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm1 6h2v8H9V9Zm4 0h2v8h-2V9Zm-7 0h2v10h8V9h2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9Z" />
-            </svg>
-            <span>Удалить</span>
-          </button>
-        </div>
+      {activeTab === 'center' ? (
+        <section className="figma-notifications-panel" role="tabpanel">
+          <div className="figma-notifications-toolbar">
+            <label>
+              <input
+                type="checkbox"
+                checked={allLoadedSelected}
+                disabled={notifications.length === 0 || isDeleting}
+                onChange={toggleAll}
+              />
+              <span>Выбрать все</span>
+            </label>
 
-        {actionError && (
-          <div className="figma-notifications-error" role="alert">
-            {actionError}
+            <button
+              type="button"
+              disabled={selectedIds.size === 0 || isDeleting}
+              onClick={() => void deleteSelected()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm1 6h2v8H9V9Zm4 0h2v8h-2V9Zm-7 0h2v10h8V9h2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9Z" />
+              </svg>
+              <span>Удалить</span>
+            </button>
           </div>
-        )}
 
-        <div className="figma-notifications-list" onScroll={handleListScroll}>
-          {pageState === 'loading' && (
-            <div className="figma-notifications-state">Загрузка...</div>
+          {actionError && (
+            <div className="figma-notifications-error" role="alert">
+              {actionError}
+            </div>
           )}
 
-          {pageState === 'error' && (
-            <div className="figma-notifications-state">Не удалось загрузить уведомления</div>
-          )}
+          <div className="figma-notifications-list" onScroll={handleListScroll}>
+            {pageState === 'loading' && (
+              <div className="figma-notifications-state">Загрузка...</div>
+            )}
 
-          {pageState === 'ready' && notifications.length === 0 && (
-            <div className="figma-notifications-state">Уведомлений нет</div>
-          )}
+            {pageState === 'error' && (
+              <div className="figma-notifications-state">Не удалось загрузить уведомления</div>
+            )}
 
-          {pageState === 'ready' &&
-            notifications.map((notification) => {
-              const isChat = isChatNotification(notification)
-              const tone = getNotificationTone(notification)
-              const isBusy = busyIds.has(notification.id)
+            {pageState === 'ready' && notifications.length === 0 && (
+              <div className="figma-notifications-state">Уведомлений нет</div>
+            )}
 
-              if (isChat) {
+            {pageState === 'ready' &&
+              notifications.map((notification) => {
+                const isChat = isChatNotification(notification)
+                const tone = getNotificationTone(notification)
+                const isBusy = busyIds.has(notification.id)
+
+                if (isChat) {
+                  return (
+                    <article
+                      className={`figma-notification-card figma-notification-card--chat figma-notification-card--${tone}`}
+                      key={notification.id}
+                    >
+                      <label className="figma-notification-card__select">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(notification.id)}
+                          disabled={isDeleting || isBusy}
+                          aria-label={`Выбрать уведомление «${notification.title}»`}
+                          onChange={() => toggleSelection(notification.id)}
+                        />
+                      </label>
+
+                      <button
+                        className="figma-notification-card__chat-content"
+                        type="button"
+                        disabled={isDeleting || isBusy}
+                        onClick={() => void openNotification(notification)}
+                      >
+                        <strong>{notification.title}</strong>
+                        <span className="figma-notification-card__date">
+                          {formatNotificationDate(notification.created_at)}
+                        </span>
+                        <span className="figma-notification-card__message">
+                          {notification.content}
+                        </span>
+                        <span className="figma-notification-card__channel">
+                          {getChannelText(notification)}
+                        </span>
+                        {notification.link && (
+                          <span className="figma-notification-card__link">Открыть чат</span>
+                        )}
+                      </button>
+                    </article>
+                  )
+                }
+
                 return (
                   <article
-                    className={`figma-notification-card figma-notification-card--chat figma-notification-card--${tone}`}
+                    className={`figma-notification-card figma-notification-card--compact figma-notification-card--${tone}`}
                     key={notification.id}
                   >
                     <label className="figma-notification-card__select">
@@ -434,79 +583,111 @@ export function FigmaNotificationsPage({
                     </label>
 
                     <button
-                      className="figma-notification-card__chat-content"
+                      className="figma-notification-card__compact-content"
                       type="button"
                       disabled={isDeleting || isBusy}
                       onClick={() => void openNotification(notification)}
                     >
-                      <strong>{notification.title}</strong>
-                      <span className="figma-notification-card__date">
-                        {formatNotificationDate(notification.created_at)}
+                      <span className="figma-notification-card__topline">
+                        <strong>{notification.title}</strong>
+                        <span>{getNotificationCategory(notification)}</span>
+                        <span>{formatNotificationDate(notification.created_at)}</span>
                       </span>
-                      <span className="figma-notification-card__message">
-                        {notification.content}
+                      <span
+                        className={`figma-notification-card__status figma-notification-card__status--${tone}`}
+                      >
+                        {getStatusText(notification, tone)}
                       </span>
-                      <span className="figma-notification-card__channel">
-                        {getChannelText(notification)}
+                      <span className="figma-notification-card__related">
+                        {getRelatedObjectText(notification)}
                       </span>
-                      {notification.link && (
-                        <span className="figma-notification-card__link">Открыть чат</span>
-                      )}
                     </button>
+
+                    <span className="figma-notification-card__more" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
                   </article>
                 )
-              }
+              })}
 
-              return (
-                <article
-                  className={`figma-notification-card figma-notification-card--compact figma-notification-card--${tone}`}
-                  key={notification.id}
-                >
-                  <label className="figma-notification-card__select">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(notification.id)}
-                      disabled={isDeleting || isBusy}
-                      aria-label={`Выбрать уведомление «${notification.title}»`}
-                      onChange={() => toggleSelection(notification.id)}
-                    />
-                  </label>
+            {isLoadingMore && (
+              <div className="figma-notifications-state">Загрузка...</div>
+            )}
+          </div>
+        </section>
+      ) : (
+        <div className="figma-notification-settings" role="tabpanel">
+          <section className="figma-notification-settings__card figma-notification-settings__card--sos">
+            <h2>Настройка SOS-сигналов</h2>
+            <label className="figma-notification-settings__search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21 20-4.3-4.3a8 8 0 1 0-1.4 1.4L19.6 21 21 20ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z" />
+              </svg>
+              <input
+                type="text"
+                value={preferences.sosKeywords}
+                placeholder="Введите слова, при появлении которых ИИ мгновенно перехватит чат вам"
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  updatePreference('sosKeywords', event.target.value)
+                }
+              />
+            </label>
+            <p>Примеры тегов: суд, прокуратура, директор, верните деньги, жалоба, скидка 50%</p>
+          </section>
 
-                  <button
-                    className="figma-notification-card__compact-content"
-                    type="button"
-                    disabled={isDeleting || isBusy}
-                    onClick={() => void openNotification(notification)}
-                  >
-                    <span className="figma-notification-card__topline">
-                      <strong>{notification.title}</strong>
-                      <span>{getNotificationCategory(notification)}</span>
-                      <span>{formatNotificationDate(notification.created_at)}</span>
-                    </span>
-                    <span
-                      className={`figma-notification-card__status figma-notification-card__status--${tone}`}
-                    >
-                      {getStatusText(notification, tone)}
-                    </span>
-                    <span className="figma-notification-card__related">
-                      {getRelatedObjectText(notification)}
-                    </span>
-                  </button>
+          <section className="figma-notification-settings__card figma-notification-settings__card--channels">
+            <h2>Настройка каналов доставки (Куда придет пуш)</h2>
+            <div className="figma-notification-settings__rows">
+              <label>
+                <Toggle
+                  checked={preferences.callEnabled}
+                  label="Звонок-дозвон"
+                  onChange={(checked) => updatePreference('callEnabled', checked)}
+                />
+                <span>Звонок-дозвон (для критических ситуаций)</span>
+              </label>
+              <label>
+                <Toggle
+                  checked={preferences.browserEnabled}
+                  label="Браузерное уведомление"
+                  onChange={(checked) => updatePreference('browserEnabled', checked)}
+                />
+                <span>Браузерное уведомление (если открыта десктоп-версия)</span>
+              </label>
+              <label>
+                <Toggle
+                  checked={preferences.telegramEnabled}
+                  label="Дублирование в Telegram"
+                  onChange={(checked) => updatePreference('telegramEnabled', checked)}
+                />
+                <span>Дублирование в личный Telegram (через системного бота-оповещателя)</span>
+              </label>
+              <label>
+                <Toggle
+                  checked={preferences.mobileEnabled}
+                  label="Push-уведомление"
+                  onChange={(checked) => updatePreference('mobileEnabled', checked)}
+                />
+                <span>Push-уведомление в мобильном приложении CRM</span>
+              </label>
+            </div>
+          </section>
 
-                  <span className="figma-notification-card__more" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </article>
-              )
-            })}
-
-          {isLoadingMore && (
-            <div className="figma-notifications-state">Загрузка...</div>
-          )}
+          <section className="figma-notification-settings__card figma-notification-settings__card--quiet">
+            <h2>Режим “ Тихий час “:</h2>
+            <label>
+              <Toggle
+                checked={preferences.quietHoursEnabled}
+                label="Тихий час"
+                onChange={(checked) => updatePreference('quietHoursEnabled', checked)}
+              />
+              <span>Вкл\ выкл</span>
+            </label>
+          </section>
         </div>
-      </section>
+      )}
     </section>
   )
 }
