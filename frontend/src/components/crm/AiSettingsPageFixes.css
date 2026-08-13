@@ -41,6 +41,25 @@
   gap: 8px;
 }
 
+.ai-settings-status-progress {
+  position: relative;
+  width: 72px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(99, 102, 255, 0.16);
+}
+
+.ai-settings-status-progress__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: #6366ff;
+  animation: ai-settings-upload-progress 1.2s ease-in-out infinite;
+}
+
 .ai-settings-status-info {
   display: inline-flex;
   align-items: center;
