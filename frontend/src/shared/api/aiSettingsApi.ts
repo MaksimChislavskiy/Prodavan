@@ -104,6 +104,15 @@ export function uploadKnowledgeFiles(files: File[]) {
   })
 }
 
+export function retryKnowledgeFile(documentId: string) {
+  return apiRequest<ApiKnowledgeDocument>(
+    `/api/ai/knowledge-base/files/${encodeURIComponent(documentId)}/retry`,
+    {
+      method: 'POST',
+    },
+  )
+}
+
 export function deleteKnowledgeFile(documentId: string) {
   return apiRequest<null>(`/api/ai/knowledge-base/files/${encodeURIComponent(documentId)}`, {
     method: 'DELETE',
