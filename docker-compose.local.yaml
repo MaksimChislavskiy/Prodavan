@@ -126,6 +126,51 @@ services:
       backend:
         condition: service_healthy
 
+  knowledge_worker:
+    image: prodavan-backend-local:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    command:
+      - python
+      - manage.py
+      - process_knowledge_documents
+      - --watch
+      - --limit
+      - "100"
+      - --poll-interval
+      - "1"
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DJANGO_DEBUG: "True"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DJANGO_SECURE_HSTS_SECONDS: "0"
+      DJANGO_SESSION_COOKIE_SECURE: "False"
+      DJANGO_CSRF_COOKIE_SECURE: "False"
+      AUTH_COOKIE_SECURE: "False"
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: ${POSTGRES_DB:-prodavan}
+      DATABASE_USER: ${POSTGRES_USER:-prodavan}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-prodavan-local-password}
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
+      CHANNEL_REDIS_URL: redis://redis:6379/0
+      CACHE_REDIS_URL: redis://redis:6379/0
+      CACHE_KEY_PREFIX: prodavan-local
+    volumes:
+      - prodavan_local_media:/app/media
+      - prodavan_local_static:/app/staticfiles
+    depends_on:
+      backend:
+        condition: service_healthy
+
   frontend:
     image: prodavan-frontend-local:latest
     build:
