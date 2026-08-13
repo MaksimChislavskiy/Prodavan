@@ -61,6 +61,7 @@
 }
 
 .ai-settings-status-info {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -68,6 +69,60 @@
   font-size: 16px;
   line-height: 1;
   cursor: help;
+}
+
+.ai-settings-status-info::after {
+  content: attr(title);
+  position: absolute;
+  z-index: 30;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: 320px;
+  padding: 8px 10px;
+  transform: translateX(-50%) translateY(4px);
+  border-radius: 8px;
+  background: #0b2b55;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: normal;
+  text-align: left;
+  box-shadow: 0 6px 18px rgba(1, 17, 38, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.ai-settings-status-info::before {
+  content: '';
+  position: absolute;
+  z-index: 31;
+  left: 50%;
+  bottom: calc(100% + 5px);
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  background: #0b2b55;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.ai-settings-status-info:hover::after,
+.ai-settings-status-info:focus::after,
+.ai-settings-status-info:hover::before,
+.ai-settings-status-info:focus::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ai-settings-status-info:hover::after,
+.ai-settings-status-info:focus::after {
+  transform: translateX(-50%) translateY(0);
 }
 
 .ai-settings-status-info:focus {
