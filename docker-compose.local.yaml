@@ -178,6 +178,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: /api
+        VITE_AI_SETUP_VIDEO_URL: ${AI_SETUP_VIDEO_URL:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"
