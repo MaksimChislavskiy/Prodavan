@@ -32,6 +32,8 @@ import {
   type TaskStatus,
   type UpdateTaskRequest,
 } from '../../shared/api/tasksApi'
+import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
+import { formatTaskDueDateForInput } from '../../shared/taskDateTime'
 import './TaskFormModal.css'
 import './TaskFormModalTzFixes.css'
 
@@ -167,11 +169,21 @@ export function TaskFormModal({
         mode === 'edit' && taskId
           ? getTask(taskId, controller.signal)
           : Promise.resolve(null)
-      const [loadedDeals, task] = await Promise.all([dealsPromise, taskPromise])
+      const settingsPromise =
+        mode === 'edit'
+          ? getWorkspaceSettings(controller.signal)
+          : Promise.resolve(null)
+      const [loadedDeals, task, workspaceSettings] = await Promise.all([
+        dealsPromise,
+        taskPromise,
+        settingsPromise,
+      ])
 
       setDeals(loadedDeals)
 
-      const nextDraft = task ? taskToDraft(task) : emptyTaskDraft
+      const nextDraft = task
+        ? taskToDraft(task, workspaceSettings?.timezone || 'UTC')
+        : emptyTaskDraft
       const nextContact = task?.contact
         ? {
             id: task.contact.id,
@@ -1105,41 +1117,20 @@ async function loadAllDeals(signal: AbortSignal) {
     )
 }
 
-function taskToDraft(task: ApiTaskDetail): TaskDraft {
+function taskToDraft(
+  task: ApiTaskDetail,
+  workspaceTimezone: string,
+): TaskDraft {
   return {
     title: task.title,
     dueDateType: task.due_date_type,
-    dueDate: formatDueDateInput(task),
+    dueDate: formatTaskDueDateForInput(task, workspaceTimezone),
     description: task.description ?? '',
     contactId: task.contact?.id ?? '',
     dealId: task.deal?.id ?? '',
     comment: task.comment ?? '',
     status: task.status,
   }
-}
-
-function formatDueDateInput(task: ApiTaskDetail) {
-  if (!task.due_date || task.due_date_type === 'none') {
-    return ''
-  }
-
-  const date = new Date(task.due_date)
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-
-  if (task.due_date_type === 'date') {
-    return `${year}-${month}-${day}`
-  }
-
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 function validateTaskDraft(draft: TaskDraft) {
