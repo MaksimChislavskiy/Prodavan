@@ -17,6 +17,8 @@ import {
   type TaskStatus,
   type TasksKanbanResponse,
 } from '../../shared/api/tasksApi'
+import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
+import { formatTaskDueDateForDisplay } from '../../shared/taskDateTime'
 import { TaskFormModal } from './TaskFormModal'
 import './TasksPage.css'
 
@@ -78,6 +80,7 @@ export function TasksPage() {
   const [movingTaskId, setMovingTaskId] = useState('')
   const [loadingMoreStatus, setLoadingMoreStatus] =
     useState<TaskStatus | null>(null)
+  const [workspaceTimezone, setWorkspaceTimezone] = useState('UTC')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -90,7 +93,11 @@ export function TasksPage() {
       }))
 
       try {
-        const data = await getTasksKanban(50, controller.signal)
+        const [data, workspaceSettings] = await Promise.all([
+          getTasksKanban(50, controller.signal),
+          getWorkspaceSettings(controller.signal),
+        ])
+        setWorkspaceTimezone(workspaceSettings.timezone || 'UTC')
         setState({
           data,
           isLoading: false,
@@ -505,6 +512,7 @@ export function TasksPage() {
                     column.tasks.map((task) => (
                       <TaskCard
                         task={task}
+                        workspaceTimezone={workspaceTimezone}
                         isSelected={selectedIds.has(task.id)}
                         isMoving={movingTaskId === task.id}
                         isMenuOpen={openMenuId === task.id}
@@ -612,6 +620,7 @@ export function TasksPage() {
 
 function TaskCard({
   task,
+  workspaceTimezone,
   isSelected,
   isMoving,
   isMenuOpen,
@@ -623,6 +632,7 @@ function TaskCard({
   onDragEnd,
 }: {
   task: ApiTask
+  workspaceTimezone: string
   isSelected: boolean
   isMoving: boolean
   isMenuOpen: boolean
@@ -724,7 +734,7 @@ function TaskCard({
             {task.is_overdue && task.status !== 'done' && (
               <b aria-label="Просрочено" title="Просрочено">!</b>
             )}
-            {formatTaskDueDate(task)}
+            {formatTaskDueDateForDisplay(task, workspaceTimezone)}
           </span>
 
           {task.deal && (
@@ -853,33 +863,6 @@ function getTaskContactName(task: ApiTask) {
     return 'Не указан'
   }
   return task.contact.company || task.contact.name
-}
-
-function formatTaskDueDate(task: ApiTask) {
-  if (!task.due_date || task.due_date_type === 'none') {
-    return 'Без срока'
-  }
-
-  const date = new Date(task.due_date)
-  if (Number.isNaN(date.getTime())) {
-    return 'Срок не указан'
-  }
-
-  if (task.due_date_type === 'date') {
-    return new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    }).format(date)
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
 }
 
 function formatTaskAmount(task: ApiTask) {
