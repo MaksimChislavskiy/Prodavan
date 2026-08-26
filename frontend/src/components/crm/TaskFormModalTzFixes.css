@@ -57,6 +57,116 @@
   top: calc(100% + 2px);
 }
 
+.task-form__contact-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.task-form__contact-combobox input {
+  padding-right: 68px;
+}
+
+.task-form__contact-clear {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #51667f;
+  font: inherit;
+  font-size: 20px;
+  line-height: 22px;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.task-form__contact-clear:hover:not(:disabled) {
+  background: #ecf4ff;
+  color: #0b2b55;
+}
+
+.task-form__contact-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-form__contact-spinner {
+  position: absolute;
+  top: 50%;
+  right: 40px;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 2px solid #d9ddff;
+  border-top-color: #6366ff;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  animation: task-form-contact-spin 700ms linear infinite;
+}
+
+.task-form__contact-options {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(420px, 100%);
+  max-height: 240px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid rgba(11, 43, 85, 0.18);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 35px rgba(11, 43, 85, 0.18);
+}
+
+.task-form__contact-options > button {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-form__contact-options > button:hover,
+.task-form__contact-options > button.is-active {
+  background: #ecf4ff;
+}
+
+.task-form__contact-options strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.task-form__contact-options span {
+  color: #51667f;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.task-form__contact-options p {
+  margin: 0;
+  padding: 10px;
+  color: #c70f0f;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .task-form__actions {
   width: 100%;
   margin-top: auto;
@@ -96,6 +206,12 @@
   filter: brightness(0.96);
 }
 
+@keyframes task-form-contact-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
 @media (max-width: 900px) {
   .task-form__deadline-row,
   .task-form--create .task-form__deadline-row {
@@ -120,6 +236,10 @@
 
   .task-form__field--status {
     grid-column: auto;
+  }
+
+  .task-form__contact-options {
+    width: 100%;
   }
 
   .task-form__actions {
