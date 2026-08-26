@@ -48,8 +48,8 @@ type TelegramMutationResponse = TelegramSettingsResponse & {
   message: string
 }
 
-export function getWorkspaceSettings() {
-  return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings')
+export function getWorkspaceSettings(signal?: AbortSignal) {
+  return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', { signal })
 }
 
 export function updateWorkspaceSettings(payload: UpdateWorkspaceSettingsPayload) {
