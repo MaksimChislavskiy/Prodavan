@@ -20,10 +20,8 @@ class ContactDealDetachTests(TestCase):
             is_confirmed=True,
         )
         self.workspace = self.user.workspace
-        self.stage = SalesStage.objects.create(
+        self.stage = SalesStage.objects.get(
             workspace=self.workspace,
-            name='Новый лид',
-            order=1,
             is_system=True,
         )
 
