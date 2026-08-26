@@ -71,7 +71,11 @@ export function getContact(contactId: string, signal?: AbortSignal) {
   return apiRequest<ApiContact>(`/api/contacts/${contactId}`, { signal })
 }
 
-export function searchContacts(query: string, limit = 5) {
+export function searchContacts(
+  query: string,
+  limit = 5,
+  signal?: AbortSignal,
+) {
   const searchParams = new URLSearchParams({
     query,
     limit: String(limit),
@@ -79,6 +83,7 @@ export function searchContacts(query: string, limit = 5) {
 
   return apiRequest<ApiContactAutocomplete[]>(
     `/api/contacts/search?${searchParams.toString()}`,
+    { signal },
   )
 }
 
