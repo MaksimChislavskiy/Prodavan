@@ -1,6 +1,12 @@
 import uuid
 
-from .views import TaskHistoryView, TasksView, validation_response
+from .models import Task
+from .views import (
+    TaskDashboardView,
+    TaskHistoryView,
+    TasksView,
+    validation_response,
+)
 
 
 LIMIT_ERROR = 'Значение должно быть от 1 до 100.'
@@ -42,6 +48,31 @@ class TaskListCreateView(TasksView):
                     'Idempotency-Key': ['Заголовок должен содержать UUID.'],
                 })
         return super().post(request)
+
+
+class TaskDashboardContractView(TaskDashboardView):
+    """Dashboard returns the full Task DTO, not the compact kanban DTO."""
+
+    def get(self, request):
+        response = super().get(request)
+        tasks = response.data.get('tasks', [])
+        if not tasks:
+            return response
+
+        task_ids = [item['id'] for item in tasks]
+        details = {
+            str(task_id): (description, comment)
+            for task_id, description, comment in Task.objects.filter(
+                workspace=request.user.workspace,
+                is_deleted=False,
+                id__in=task_ids,
+            ).values_list('id', 'description', 'comment')
+        }
+        for item in tasks:
+            description, comment = details.get(item['id'], (None, None))
+            item['description'] = description
+            item['comment'] = comment
+        return response
 
 
 class TaskHistoryContractView(TaskHistoryView):
