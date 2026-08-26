@@ -1,8 +1,14 @@
 import uuid
 
+from rest_framework import status
+from rest_framework.response import Response
+
+from deals.models import Deal
+
 from .models import Task
 from .views import (
     TaskDashboardView,
+    TaskDetailView,
     TaskHistoryView,
     TasksView,
     validation_response,
@@ -10,6 +16,12 @@ from .views import (
 
 
 LIMIT_ERROR = 'Значение должно быть от 1 до 100.'
+RELATION_ERROR = {
+    'error': {
+        'code': 'RELATION_MISMATCH',
+        'message': 'Выбранная сделка не связана с указанным контактом.',
+    },
+}
 
 
 def _validate_optional_limit(request):
@@ -23,6 +35,15 @@ def _validate_optional_limit(request):
     if not 1 <= parsed <= 100:
         return validation_response({'limit': [LIMIT_ERROR]})
     return None
+
+
+def _parse_uuid_or_none(value):
+    if value is None:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return Ellipsis
 
 
 class TaskListCreateView(TasksView):
@@ -73,6 +94,44 @@ class TaskDashboardContractView(TaskDashboardView):
             item['description'] = description
             item['comment'] = comment
         return response
+
+
+class TaskDetailContractView(TaskDetailView):
+    """Apply the PATCH relation rule exactly as specified in section 10.9.6."""
+
+    def patch(self, request, task_id):
+        if 'contact_id' not in request.data:
+            return super().patch(request, task_id)
+
+        task = Task.objects.filter(
+            id=task_id,
+            workspace=request.user.workspace,
+            is_deleted=False,
+        ).only('deal_id').first()
+        if task is None:
+            return super().patch(request, task_id)
+
+        raw_deal_id = request.data.get('deal_id', task.deal_id)
+        if raw_deal_id is None:
+            return super().patch(request, task_id)
+
+        contact_id = _parse_uuid_or_none(request.data.get('contact_id'))
+        deal_id = _parse_uuid_or_none(raw_deal_id)
+        if contact_id is Ellipsis or deal_id is Ellipsis:
+            return super().patch(request, task_id)
+
+        deal = Deal.objects.filter(
+            id=deal_id,
+            workspace=request.user.workspace,
+            is_deleted=False,
+        ).only('contact_id').first()
+        if deal is None:
+            return super().patch(request, task_id)
+
+        if deal.contact_id != contact_id:
+            return Response(RELATION_ERROR, status=status.HTTP_400_BAD_REQUEST)
+
+        return super().patch(request, task_id)
 
 
 class TaskHistoryContractView(TaskHistoryView):
