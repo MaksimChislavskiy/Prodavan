@@ -1,16 +1,22 @@
 from datetime import timedelta
 
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
+from messaging.realtime import broadcast_user_event
 from tasks.dates import local_day_bounds, workspace_timezone
 from tasks.models import DueDateType, Task, TaskStatus
+from workspaces.models import Workspace
 
 from .models import Notification, NotificationType
-from .services import create_notification
+from .services import create_notification, notification_payload, unread_count
 
 
 DUE_SOON_WINDOW = timedelta(hours=1)
 TASK_ENTITY_TYPE = 'task'
+OVERDUE_SUMMARY_ENTITY_TYPE = 'task_overdue_summary'
+OVERDUE_SUMMARY_HOUR = 9
 
 
 def create_task_deadline_notifications(*, now=None):
@@ -48,6 +54,129 @@ def create_task_deadline_notifications(*, now=None):
         )
 
     return counters
+
+
+def create_overdue_task_summary_notifications(*, now=None, force=False):
+    """Synchronize the single overdue-task summary notification for each user.
+
+    Scheduled runs are active during the workspace-local 09:00 hour. Repeated worker
+    iterations are idempotent: an existing summary is only changed when the count changes.
+    ``force=True`` is used when a user receives a new session token so the requirement to
+    check overdue tasks on the first login is also covered.
+    """
+    now = now or timezone.now()
+    counters = {
+        'workspaces_checked': 0,
+        'users_checked': 0,
+        'summaries_changed': 0,
+    }
+
+    workspaces = Workspace.objects.all().order_by('id')
+    for workspace in workspaces:
+        local_now = now.astimezone(workspace_timezone(workspace))
+        if not force and local_now.hour != OVERDUE_SUMMARY_HOUR:
+            continue
+
+        counters['workspaces_checked'] += 1
+        users = workspace.users.filter(
+            is_active=True,
+            is_deleted=False,
+        ).order_by('created_at', 'id')
+        for user in users:
+            counters['users_checked'] += 1
+            counters['summaries_changed'] += sync_overdue_task_summary_for_user(
+                user,
+                now=now,
+            )
+
+    return counters
+
+
+def sync_overdue_task_summary_for_user(user, *, now=None):
+    """Create, update or remove the user's aggregate overdue-task notification."""
+    if not user.is_active or user.is_deleted:
+        return 0
+
+    now = now or timezone.now()
+    workspace = user.workspace
+    count = overdue_task_count(workspace, now=now)
+    entity_id = str(workspace.id)
+
+    with transaction.atomic():
+        existing = (
+            Notification.objects.select_for_update()
+            .filter(
+                user=user,
+                type=NotificationType.TASK_OVERDUE,
+                entity_type=OVERDUE_SUMMARY_ENTITY_TYPE,
+                entity_id=entity_id,
+                is_deleted=False,
+            )
+            .order_by('-created_at', '-id')
+            .first()
+        )
+
+        if count == 0:
+            if existing is None:
+                return 0
+            existing.is_deleted = True
+            existing.deleted_at = now
+            existing.save(update_fields=('is_deleted', 'deleted_at', 'updated_at'))
+            _broadcast_summary_deleted(user.id, existing.id)
+            return 1
+
+        content = f'У вас {count} просроченных задач'
+        if existing is None:
+            create_notification(
+                user=user,
+                type=NotificationType.TASK_OVERDUE,
+                title='Просроченные задачи',
+                content=content,
+                link='/app/tasks',
+                entity_type=OVERDUE_SUMMARY_ENTITY_TYPE,
+                entity_id=entity_id,
+                now=now,
+            )
+            return 1
+
+        if existing.content == content:
+            return 0
+
+        existing.title = 'Просроченные задачи'
+        existing.content = content
+        existing.link = '/app/tasks'
+        existing.is_read = False
+        existing.read_at = None
+        existing.save(
+            update_fields=(
+                'title',
+                'content',
+                'link',
+                'is_read',
+                'read_at',
+                'updated_at',
+            ),
+        )
+        _broadcast_summary_updated(user.id, existing)
+        return 1
+
+
+def overdue_task_count(workspace, *, now=None):
+    now = now or timezone.now()
+    _, local_day_start, _ = local_day_bounds(workspace, now=now)
+    return (
+        Task.objects.filter(
+            workspace=workspace,
+            is_deleted=False,
+            due_date__isnull=False,
+        )
+        .exclude(status=TaskStatus.DONE)
+        .filter(
+            Q(due_date_type=DueDateType.DATETIME, due_date__lt=now)
+            | Q(due_date_type=DueDateType.DATE, due_date__lt=local_day_start),
+        )
+        .count()
+    )
 
 
 def _notification_type_for_task(task, *, now):
@@ -124,3 +253,51 @@ def _notification_content(task, notification_type, *, now):
     tz = workspace_timezone(task.workspace)
     due_time = task.due_date.astimezone(tz).strftime('%H:%M')
     return f'Срок задачи «{title}» наступит сегодня в {due_time}.'
+
+
+def _broadcast_summary_updated(user_id, notification):
+    transaction.on_commit(
+        lambda: broadcast_user_event(
+            user_id,
+            {
+                'event': 'notification_updated',
+                'payload': notification_payload(notification),
+            },
+        ),
+    )
+    transaction.on_commit(
+        lambda: broadcast_user_event(
+            user_id,
+            {
+                'event': 'unread_count_updated',
+                'payload': {'unread_count': unread_count(notification.user)},
+            },
+        ),
+    )
+
+
+def _broadcast_summary_deleted(user_id, notification_id):
+    transaction.on_commit(
+        lambda: broadcast_user_event(
+            user_id,
+            {
+                'event': 'notification_deleted',
+                'payload': {'id': str(notification_id)},
+            },
+        ),
+    )
+    transaction.on_commit(
+        lambda: broadcast_user_event(
+            user_id,
+            {
+                'event': 'unread_count_updated',
+                'payload': {
+                    'unread_count': Notification.objects.filter(
+                        user_id=user_id,
+                        is_deleted=False,
+                        is_read=False,
+                    ).count(),
+                },
+            },
+        ),
+    )
