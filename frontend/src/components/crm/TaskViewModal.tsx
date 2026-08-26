@@ -10,6 +10,7 @@ import {
   type ApiTask,
   type ApiTaskDetail,
 } from '../../shared/api/tasksApi'
+import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
 import './TaskViewModal.css'
 
 type TaskViewModalProps = {
@@ -31,6 +32,7 @@ export function TaskViewModal({
   const modalRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const [task, setTask] = useState<ApiTaskDetail | null>(null)
+  const [workspaceTimezone, setWorkspaceTimezone] = useState('UTC')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [requestVersion, setRequestVersion] = useState(0)
@@ -43,8 +45,12 @@ export function TaskViewModal({
       setError('')
 
       try {
-        const data = await getTask(taskId, controller.signal)
+        const [data, settings] = await Promise.all([
+          getTask(taskId, controller.signal),
+          getWorkspaceSettings().catch(() => null),
+        ])
         setTask(data)
+        setWorkspaceTimezone(settings?.timezone || 'UTC')
         window.setTimeout(() => closeButtonRef.current?.focus(), 0)
       } catch (loadError) {
         if (isAbortError(loadError)) {
@@ -182,7 +188,7 @@ export function TaskViewModal({
             <h3>{task.title}</h3>
 
             <p className="task-view-modal__due">
-              Дата выполнения: {formatTaskDueDate(task)}
+              Дата выполнения: {formatTaskDueDate(task, workspaceTimezone)}
             </p>
 
             <p className="task-view-modal__description">
@@ -207,7 +213,7 @@ export function TaskViewModal({
   )
 }
 
-function formatTaskDueDate(task: ApiTaskDetail) {
+function formatTaskDueDate(task: ApiTaskDetail, workspaceTimezone: string) {
   if (!task.due_date || task.due_date_type === 'none') {
     return 'Без срока'
   }
@@ -223,6 +229,7 @@ function formatTaskDueDate(task: ApiTaskDetail) {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
+      timeZone: workspaceTimezone,
     }).format(date)
   }
 
@@ -232,11 +239,12 @@ function formatTaskDueDate(task: ApiTaskDetail) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: workspaceTimezone,
   }).format(date)
 }
 
 function formatTaskAmount(task: ApiTaskDetail) {
-  if (!task.deal?.amount) {
+  if (!task.deal || task.deal.amount == null) {
     return ''
   }
 
@@ -249,10 +257,13 @@ function formatTaskAmount(task: ApiTaskDetail) {
   const formattedAmount = new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(amount)
+  const currencySymbols: Record<string, string> = {
+    RUB: '₽',
+    USD: '$',
+    EUR: '€',
+  }
 
-  return task.deal.currency === 'RUB'
-    ? `${formattedAmount} ₽`
-    : `${formattedAmount} ${task.deal.currency}`
+  return `${formattedAmount} ${currencySymbols[task.deal.currency] ?? task.deal.currency}`
 }
 
 function isAbortError(error: unknown) {
