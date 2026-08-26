@@ -6,8 +6,10 @@ import './PasswordResetModal.mobile.css'
 import { AccountDeletedNotice } from './components/AccountDeletedNotice'
 import { CrmAppPage } from './pages/CrmAppPage'
 import { installAiMaterialsController } from './shared/aiMaterialsController'
+import { installCrmRealtime } from './shared/crmRealtime'
 
 installAiMaterialsController()
+installCrmRealtime()
 
 const rootPage = window.location.pathname === '/profile'
   ? <CrmAppPage />
