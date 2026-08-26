@@ -29,6 +29,7 @@ import {
   type UpdateTaskRequest,
 } from '../../shared/api/tasksApi'
 import './TaskFormModal.css'
+import './TaskFormModalTzFixes.css'
 
 type TaskFormMode = 'create' | 'edit'
 
