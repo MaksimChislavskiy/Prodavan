@@ -78,7 +78,7 @@ def update_ai_settings(*, workspace_id, user, validated_data):
             raise AISettingsServiceError(
                 'VERSION_CONFLICT',
                 'Настройки были изменены другим пользователем или в другой '
-                'вкладке. Обновите страницу и повторите попытку.',
+                'вкладке. Обновите страницу.',
                 status_code=409,
                 extra={'current_version': settings_object.version},
             )

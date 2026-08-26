@@ -3,6 +3,7 @@ import {
   deleteKnowledgeFile,
   getAiSettings,
   getKnowledgeFiles,
+  retryKnowledgeFile,
   updateAiSettings,
   uploadKnowledgeFiles,
   type ApiAiSettings,
@@ -11,13 +12,16 @@ import {
 } from '../../shared/api/aiSettingsApi'
 import './AiSettingsPage.css'
 import './AiSettingsPageRefresh.css'
+import './AiSettingsPageFixes.css'
 
 const MAX_INSTRUCTION_LENGTH = 5000
 const KNOWLEDGE_PAGE_SIZE = 50
 const MAX_KNOWLEDGE_FILE_SIZE = 20 * 1024 * 1024
 const MAX_KNOWLEDGE_FILES_PER_UPLOAD = 20
+const MAX_KNOWLEDGE_FILE_NAME_LENGTH = 255
 const ALLOWED_KNOWLEDGE_FILE_EXTENSIONS = ['pdf', 'txt', 'docx', 'csv']
 const KNOWLEDGE_FILE_ACCEPT = '.pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const AI_SETUP_GUIDE_URL = '/static/ai_setup_guide.pdf'
 
 type AiSettingsState = {
   settings: ApiAiSettings | null
@@ -35,6 +39,11 @@ type KnowledgeFilesState = {
 
 type SaveStatus = 'idle' | 'success' | 'error'
 
+type LeaveWarningState = {
+  href: string
+  message: string
+} | null
+
 export function AiSettingsPage() {
   const knowledgeFileInputRef = useRef<HTMLInputElement | null>(null)
   const [state, setState] = useState<AiSettingsState>({ settings: null, isLoading: true, error: '' })
@@ -45,6 +54,7 @@ export function AiSettingsPage() {
     isLoading: true,
     error: '',
   })
+  const [knowledgePage, setKnowledgePage] = useState(1)
   const [instruction, setInstruction] = useState('')
   const [initialInstruction, setInitialInstruction] = useState('')
   const [isInstructionSaving, setIsInstructionSaving] = useState(false)
@@ -60,9 +70,16 @@ export function AiSettingsPage() {
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
   const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
   const [deletingKnowledgeFileId, setDeletingKnowledgeFileId] = useState<string | null>(null)
+  const [retryingKnowledgeFileId, setRetryingKnowledgeFileId] = useState<string | null>(null)
   const [isResetSaving, setIsResetSaving] = useState(false)
   const [resetStatus, setResetStatus] = useState<SaveStatus>('idle')
   const [resetMessage, setResetMessage] = useState('')
+  const [leaveWarning, setLeaveWarning] = useState<LeaveWarningState>(null)
+
+  const hasUnsavedInstruction = instruction !== initialInstruction
+  const hasPendingKnowledgeDocuments = knowledgeState.files.some(
+    (file) => file.status === 'uploading' || file.status === 'processing',
+  )
 
   useEffect(() => {
     let isMounted = true
@@ -80,7 +97,9 @@ export function AiSettingsPage() {
         setState({
           settings: null,
           isLoading: false,
-          error: error instanceof Error ? error.message : 'Не удалось загрузить настройки AI',
+          error: error instanceof Error
+            ? error.message
+            : 'Не удалось загрузить настройки. Обновите страницу.',
         })
       }
     }
@@ -90,6 +109,7 @@ export function AiSettingsPage() {
         const response = await getKnowledgeFiles(1, KNOWLEDGE_PAGE_SIZE)
         if (!isMounted) return
 
+        setKnowledgePage(response.page)
         setKnowledgeState({
           files: response.files,
           total: response.total,
@@ -104,7 +124,9 @@ export function AiSettingsPage() {
           total: 0,
           storage: null,
           isLoading: false,
-          error: error instanceof Error ? error.message : 'Не удалось загрузить базу знаний',
+          error: error instanceof Error
+            ? error.message
+            : 'Не удалось загрузить список документов. Обновите страницу.',
         })
       }
     }
@@ -117,13 +139,109 @@ export function AiSettingsPage() {
     }
   }, [])
 
-  if (state.isLoading) {
+  useEffect(() => {
+    if (!hasPendingKnowledgeDocuments) {
+      return
+    }
+
+    let isDisposed = false
+
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        try {
+          const response = await getKnowledgeFiles(knowledgePage, KNOWLEDGE_PAGE_SIZE)
+          if (isDisposed) return
+
+          setKnowledgeState({
+            files: response.files,
+            total: response.total,
+            storage: response.storage,
+            isLoading: false,
+            error: '',
+          })
+        } catch {
+          // Фоновое обновление не должно перекрывать уже загруженный список ошибкой.
+        }
+      })()
+    }, 2000)
+
+    return () => {
+      isDisposed = true
+      window.clearInterval(intervalId)
+    }
+  }, [hasPendingKnowledgeDocuments, knowledgePage])
+
+  useEffect(() => {
+    const shouldWarn = isKnowledgeUploading || hasUnsavedInstruction
+
+    if (!shouldWarn) {
+      return
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    const handleInternalLinkClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) {
+        return
+      }
+
+      const anchor = event.target.closest('a[href]')
+
+      if (!(anchor instanceof HTMLAnchorElement)) {
+        return
+      }
+
+      if (anchor.target === '_blank' || anchor.hasAttribute('download')) {
+        return
+      }
+
+      const url = new URL(anchor.href, window.location.href)
+
+      if (
+        url.origin !== window.location.origin
+        || !url.pathname.startsWith('/app')
+        || url.href === window.location.href
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      setLeaveWarning({
+        href: `${url.pathname}${url.search}${url.hash}`,
+        message: isKnowledgeUploading
+          ? 'Загрузка документов ещё не завершена. Покинуть страницу?'
+          : 'У вас есть несохранённые изменения. Покинуть страницу без сохранения?',
+      })
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('click', handleInternalLinkClick, true)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('click', handleInternalLinkClick, true)
+    }
+  }, [hasUnsavedInstruction, isKnowledgeUploading])
+
+  if (state.isLoading || knowledgeState.isLoading) {
     return (
-      <main className="ai-settings-page">
+      <main className="ai-settings-page" aria-busy="true" aria-label="Загрузка настроек AI">
         <section className="ai-settings-card ai-settings-card--instruction">
           <h1 className="ai-settings-card__title">Инструкция для AI</h1>
           <div className="ai-settings-skeleton" />
           <div className="ai-settings-skeleton ai-settings-skeleton--button" />
+        </section>
+        <section className="ai-settings-card ai-settings-card--autopilot">
+          <div className="ai-settings-skeleton ai-settings-skeleton--short" />
+        </section>
+        <section className="ai-settings-card ai-settings-card--knowledge">
+          <div className="ai-settings-skeleton ai-settings-skeleton--wide" />
+          <div className="ai-settings-skeleton ai-settings-skeleton--wide" />
         </section>
       </main>
     )
@@ -134,19 +252,24 @@ export function AiSettingsPage() {
       <main className="ai-settings-page">
         <section className="ai-settings-card ai-settings-card--instruction">
           <h1 className="ai-settings-card__title">Ошибка загрузки</h1>
-          <p className="ai-settings-card__text">{state.error || 'Не удалось получить настройки AI.'}</p>
+          <p className="ai-settings-card__text">
+            {state.error || 'Не удалось загрузить настройки. Обновите страницу.'}
+          </p>
         </section>
       </main>
     )
   }
 
   const { settings } = state
-  const isInstructionChanged = instruction !== initialInstruction
+  const isInstructionChanged = hasUnsavedInstruction
   const isInstructionTooLong = instruction.length > MAX_INSTRUCTION_LENGTH
   const canSaveInstruction = isInstructionChanged && !isInstructionTooLong && !isInstructionSaving
+  const knowledgeTotalPages = Math.max(1, Math.ceil(knowledgeState.total / KNOWLEDGE_PAGE_SIZE))
 
-  const refreshKnowledgeFiles = async () => {
-    const response = await getKnowledgeFiles(1, KNOWLEDGE_PAGE_SIZE)
+  const refreshKnowledgeFiles = async (page = knowledgePage) => {
+    const response = await getKnowledgeFiles(page, KNOWLEDGE_PAGE_SIZE)
+
+    setKnowledgePage(response.page)
     setKnowledgeState({
       files: response.files,
       total: response.total,
@@ -171,10 +294,14 @@ export function AiSettingsPage() {
       setInstruction(updatedSettings.instruction)
       setInitialInstruction(updatedSettings.instruction)
       setSaveStatus('success')
-      setSaveMessage('Инструкция сохранена')
+      setSaveMessage('Изменения сохранены')
     } catch (error) {
       setSaveStatus('error')
-      setSaveMessage(error instanceof Error ? error.message : 'Не удалось сохранить инструкцию')
+      setSaveMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось сохранить инструкцию. Попробуйте позже.',
+      )
     } finally {
       setIsInstructionSaving(false)
     }
@@ -196,10 +323,14 @@ export function AiSettingsPage() {
       })
       setState({ settings: updatedSettings, isLoading: false, error: '' })
       setAutopilotStatus('success')
-      setAutopilotMessage(isEnabled ? 'Автопилот включён' : 'Автопилот выключен')
+      setAutopilotMessage('Настройки автопилота сохранены')
     } catch (error) {
       setAutopilotStatus('error')
-      setAutopilotMessage(error instanceof Error ? error.message : 'Не удалось изменить автопилот')
+      setAutopilotMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось изменить состояние автопилота. Попробуйте позже.',
+      )
     } finally {
       setIsAutopilotSaving(false)
     }
@@ -230,7 +361,39 @@ export function AiSettingsPage() {
       await refreshKnowledgeFiles()
     } catch (error) {
       setKnowledgeUploadStatus('error')
-      setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось обновить список файлов')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить список документов. Обновите страницу.',
+      )
+    } finally {
+      setIsKnowledgeRefreshing(false)
+    }
+  }
+
+  const handleKnowledgePageChange = async (page: number) => {
+    if (
+      isKnowledgeRefreshing
+      || page < 1
+      || page > knowledgeTotalPages
+      || page === knowledgePage
+    ) {
+      return
+    }
+
+    setIsKnowledgeRefreshing(true)
+    setKnowledgeUploadStatus('idle')
+    setKnowledgeUploadMessage('')
+
+    try {
+      await refreshKnowledgeFiles(page)
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить список документов. Обновите страницу.',
+      )
     } finally {
       setIsKnowledgeRefreshing(false)
     }
@@ -260,12 +423,16 @@ export function AiSettingsPage() {
 
     try {
       const uploadResponse = await uploadKnowledgeFiles(files)
-      await refreshKnowledgeFiles()
+      await refreshKnowledgeFiles(1)
       setKnowledgeUploadStatus('success')
       setKnowledgeUploadMessage(`Загружено файлов: ${uploadResponse.accepted}`)
     } catch (error) {
       setKnowledgeUploadStatus('error')
-      setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось загрузить файлы')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить файл. Попробуйте позже.',
+      )
     } finally {
       setIsKnowledgeUploading(false)
       setIsKnowledgeDragActive(false)
@@ -304,7 +471,7 @@ export function AiSettingsPage() {
   }
 
   const handleKnowledgeFileDelete = async (file: ApiKnowledgeDocument) => {
-    if (deletingKnowledgeFileId) return
+    if (deletingKnowledgeFileId || retryingKnowledgeFileId) return
     if (!window.confirm(`Удалить файл «${file.name}» из базы знаний?`)) return
 
     setDeletingKnowledgeFileId(file.id)
@@ -318,15 +485,54 @@ export function AiSettingsPage() {
       setKnowledgeUploadMessage('Файл удалён')
     } catch (error) {
       setKnowledgeUploadStatus('error')
-      setKnowledgeUploadMessage(error instanceof Error ? error.message : 'Не удалось удалить файл')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось удалить файл. Попробуйте позже.',
+      )
     } finally {
       setDeletingKnowledgeFileId(null)
     }
   }
 
+  const handleKnowledgeFileRetry = async (file: ApiKnowledgeDocument) => {
+    if (retryingKnowledgeFileId || deletingKnowledgeFileId || file.status !== 'failed') {
+      return
+    }
+
+    setRetryingKnowledgeFileId(file.id)
+    setKnowledgeUploadStatus('idle')
+    setKnowledgeUploadMessage('')
+
+    try {
+      const retriedFile = await retryKnowledgeFile(file.id)
+
+      setKnowledgeState((current) => ({
+        ...current,
+        files: current.files.map((currentFile) =>
+          currentFile.id === retriedFile.id ? retriedFile : currentFile,
+        ),
+      }))
+
+      setKnowledgeUploadStatus('success')
+      setKnowledgeUploadMessage('Повторная обработка запущена')
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось повторить обработку документа. Попробуйте позже.',
+      )
+    } finally {
+      setRetryingKnowledgeFileId(null)
+    }
+  }
+
   const handleSettingsReset = async () => {
     if (isResetSaving) return
-    if (!window.confirm('Сбросить настройки AI? Инструкция будет очищена, автопилот будет выключен.')) return
+    if (!window.confirm('Сбросить настройки AI? Инструкция будет очищена, автопилот будет выключен.')) {
+      return
+    }
 
     setIsResetSaving(true)
     setResetStatus('idle')
@@ -356,6 +562,17 @@ export function AiSettingsPage() {
     }
   }
 
+  const confirmLeavePage = () => {
+    if (!leaveWarning) {
+      return
+    }
+
+    const href = leaveWarning.href
+    setLeaveWarning(null)
+    window.history.pushState(null, '', href)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
+
   return (
     <main className="ai-settings-page">
       <section className="ai-settings-card ai-settings-card--instruction">
@@ -367,6 +584,7 @@ export function AiSettingsPage() {
           placeholder="Введите инструкцию для AI-помощника"
           maxLength={MAX_INSTRUCTION_LENGTH + 1}
           rows={1}
+          disabled={isInstructionSaving}
           onChange={(event) => {
             setInstruction(event.target.value)
             setSaveStatus('idle')
@@ -377,11 +595,23 @@ export function AiSettingsPage() {
         />
 
         <div className="ai-settings-instruction-footer">
-          <span className={isInstructionTooLong ? 'ai-settings-instruction-counter ai-settings-instruction-counter--error' : 'ai-settings-instruction-counter'}>
+          <span
+            className={
+              isInstructionTooLong
+                ? 'ai-settings-instruction-counter ai-settings-instruction-counter--error'
+                : 'ai-settings-instruction-counter'
+            }
+          >
             {instruction.length}/{MAX_INSTRUCTION_LENGTH}
           </span>
           {saveMessage && (
-            <span className={saveStatus === 'error' ? 'ai-settings-save-message ai-settings-save-message--error' : 'ai-settings-save-message'}>
+            <span
+              className={
+                saveStatus === 'error'
+                  ? 'ai-settings-save-message ai-settings-save-message--error'
+                  : 'ai-settings-save-message'
+              }
+            >
               {saveMessage}
             </span>
           )}
@@ -393,14 +623,18 @@ export function AiSettingsPage() {
           disabled={!canSaveInstruction}
           onClick={() => void handleInstructionSave()}
         >
-          {isInstructionSaving ? 'Сохраняем...' : 'Сохранить'}
+          {isInstructionSaving ? 'Сохранение...' : 'Сохранить'}
         </button>
       </section>
 
       <section className="ai-settings-card ai-settings-card--autopilot">
         <div className="ai-settings-autopilot-title-row">
           <button
-            className={settings.autopilot_enabled ? 'ai-settings-switch ai-settings-switch--active' : 'ai-settings-switch'}
+            className={
+              settings.autopilot_enabled
+                ? 'ai-settings-switch ai-settings-switch--active'
+                : 'ai-settings-switch'
+            }
             type="button"
             aria-label={settings.autopilot_enabled ? 'Выключить автопилот' : 'Включить автопилот'}
             aria-pressed={settings.autopilot_enabled}
@@ -409,12 +643,25 @@ export function AiSettingsPage() {
           >
             <span className="ai-settings-switch__button" />
           </button>
+          {isAutopilotSaving && (
+            <span
+              className="ai-settings-autopilot-spinner"
+              role="status"
+              aria-label="Сохранение настроек автопилота"
+            />
+          )}
           <h2 className="ai-settings-card__title">Автопилот</h2>
         </div>
 
         <p className="ai-settings-card__text">AI сам отвечает на все входящие сообщения клиентов</p>
         {autopilotMessage && (
-          <p className={autopilotStatus === 'error' ? 'ai-settings-autopilot-message ai-settings-autopilot-message--error' : 'ai-settings-autopilot-message'}>
+          <p
+            className={
+              autopilotStatus === 'error'
+                ? 'ai-settings-autopilot-message ai-settings-autopilot-message--error'
+                : 'ai-settings-autopilot-message'
+            }
+          >
             {autopilotMessage}
           </p>
         )}
@@ -430,13 +677,15 @@ export function AiSettingsPage() {
           <div className="ai-settings-knowledge-actions">
             {knowledgeState.storage && (
               <span className="ai-settings-storage-summary">
-                {knowledgeState.storage.files_count}/{knowledgeState.storage.files_limit} файлов · {formatFileSize(knowledgeState.storage.used_bytes)} из {formatFileSize(knowledgeState.storage.limit_bytes)}
+                {knowledgeState.storage.files_count}/{knowledgeState.storage.files_limit} файлов ·{' '}
+                {formatFileSize(knowledgeState.storage.used_bytes)} из{' '}
+                {formatFileSize(knowledgeState.storage.limit_bytes)}
               </span>
             )}
             <button
               className="ai-settings-refresh-button"
               type="button"
-              disabled={knowledgeState.isLoading || isKnowledgeRefreshing}
+              disabled={isKnowledgeRefreshing}
               onClick={() => void handleKnowledgeRefresh()}
             >
               {isKnowledgeRefreshing ? 'Обновляем...' : 'Обновить'}
@@ -445,20 +694,26 @@ export function AiSettingsPage() {
         </div>
 
         <div
-          className={isKnowledgeDragActive ? 'ai-settings-upload-box ai-settings-upload-box--drag-active' : 'ai-settings-upload-box'}
+          className={
+            isKnowledgeDragActive
+              ? 'ai-settings-upload-box ai-settings-upload-box--drag-active'
+              : 'ai-settings-upload-box'
+          }
           onDragOver={handleKnowledgeDragOver}
           onDragLeave={handleKnowledgeDragLeave}
           onDrop={handleKnowledgeDrop}
         >
           <span className="ai-settings-upload-box__icon" aria-hidden="true">↥</span>
-          <span>Чтобы загрузить документ, перетащите их сюда или нажмите</span>
+          <span>Чтобы загрузить документ, перетащите его сюда или нажмите</span>
           <input
             className="ai-settings-file-input"
             ref={knowledgeFileInputRef}
             type="file"
             accept={KNOWLEDGE_FILE_ACCEPT}
             multiple
-            onChange={(event) => void handleKnowledgeFilesUpload(Array.from(event.target.files ?? []))}
+            onChange={(event) =>
+              void handleKnowledgeFilesUpload(Array.from(event.target.files ?? []))
+            }
           />
           <button
             className="ai-settings-upload-box__button"
@@ -466,20 +721,34 @@ export function AiSettingsPage() {
             disabled={isKnowledgeUploading}
             onClick={() => knowledgeFileInputRef.current?.click()}
           >
-            {isKnowledgeUploading ? 'Загружаем...' : 'Загрузить⌄'}
+            {isKnowledgeUploading ? 'Загрузка...' : 'Загрузить⌄'}
           </button>
         </div>
 
+        {isKnowledgeUploading && (
+          <div
+            className="ai-settings-upload-progress"
+            role="progressbar"
+            aria-label="Загрузка документов"
+          >
+            <span className="ai-settings-upload-progress__bar" />
+          </div>
+        )}
+
         {knowledgeUploadMessage && (
-          <p className={knowledgeUploadStatus === 'error' ? 'ai-settings-upload-message ai-settings-upload-message--error' : 'ai-settings-upload-message'}>
+          <p
+            className={
+              knowledgeUploadStatus === 'error'
+                ? 'ai-settings-upload-message ai-settings-upload-message--error'
+                : 'ai-settings-upload-message'
+            }
+          >
             {knowledgeUploadMessage}
           </p>
         )}
 
         <div className="ai-settings-knowledge-list">
-          {knowledgeState.isLoading ? (
-            <p className="ai-settings-knowledge-empty">Загружаем список документов...</p>
-          ) : knowledgeState.error ? (
+          {knowledgeState.error ? (
             <p className="ai-settings-knowledge-error">{knowledgeState.error}</p>
           ) : knowledgeState.files.length === 0 ? (
             <p className="ai-settings-knowledge-empty">Файлы пока не загружены</p>
@@ -502,19 +771,62 @@ export function AiSettingsPage() {
                       <td>{formatFileSize(file.size)}</td>
                       <td>{formatDate(file.uploaded_at)}</td>
                       <td>
-                        <span className={`ai-settings-status-badge ai-settings-status-badge--${file.status}`}>
-                          {getKnowledgeStatusLabel(file.status)}
-                        </span>
+                        <div className="ai-settings-status-cell">
+                          <span
+                            className={`ai-settings-status-badge ai-settings-status-badge--${file.status}`}
+                          >
+                            {getKnowledgeStatusLabel(file.status)}
+                          </span>
+                          {file.status === 'uploading' && (
+                            <span
+                              className="ai-settings-status-progress"
+                              role="progressbar"
+                              aria-label={`Загрузка файла ${file.name}`}
+                            >
+                              <span className="ai-settings-status-progress__bar" />
+                            </span>
+                          )}
+                          {file.status === 'failed' && (
+                            <span
+                              className="ai-settings-status-info"
+                              title={file.error_reason || 'Причина ошибки не указана'}
+                              aria-label={`Причина ошибки: ${file.error_reason || 'не указана'}`}
+                              tabIndex={0}
+                            >
+                              ⓘ
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
-                        <button
-                          className="ai-settings-table-action-button"
-                          type="button"
-                          disabled={deletingKnowledgeFileId === file.id}
-                          onClick={() => void handleKnowledgeFileDelete(file)}
-                        >
-                          {deletingKnowledgeFileId === file.id ? 'Удаляем...' : 'Удалить'}
-                        </button>
+                        <div className="ai-settings-table-actions">
+                          {file.status === 'failed' && (
+                            <button
+                              className="ai-settings-table-action-button ai-settings-table-action-button--retry"
+                              type="button"
+                              disabled={
+                                retryingKnowledgeFileId === file.id
+                                || deletingKnowledgeFileId === file.id
+                              }
+                              onClick={() => void handleKnowledgeFileRetry(file)}
+                            >
+                              {retryingKnowledgeFileId === file.id
+                                ? 'Повторяем...'
+                                : 'Повторить обработку'}
+                            </button>
+                          )}
+                          <button
+                            className="ai-settings-table-action-button"
+                            type="button"
+                            disabled={
+                              deletingKnowledgeFileId === file.id
+                              || retryingKnowledgeFileId === file.id
+                            }
+                            onClick={() => void handleKnowledgeFileDelete(file)}
+                          >
+                            {deletingKnowledgeFileId === file.id ? 'Удаляем...' : 'Удалить'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -523,8 +835,27 @@ export function AiSettingsPage() {
             </div>
           )}
 
-          {!knowledgeState.isLoading && !knowledgeState.error && knowledgeState.total > 0 && (
-            <p className="ai-settings-knowledge-total">Показано {knowledgeState.files.length} из {knowledgeState.total}</p>
+          {!knowledgeState.error && knowledgeState.total > 0 && (
+            <div className="ai-settings-pagination" aria-label="Пагинация документов">
+              <button
+                type="button"
+                disabled={knowledgePage <= 1 || isKnowledgeRefreshing}
+                onClick={() => void handleKnowledgePageChange(knowledgePage - 1)}
+              >
+                Предыдущая страница
+              </button>
+              <span>
+                Страница {knowledgePage} из {knowledgeTotalPages} · Показано{' '}
+                {knowledgeState.files.length} из {knowledgeState.total}
+              </span>
+              <button
+                type="button"
+                disabled={knowledgePage >= knowledgeTotalPages || isKnowledgeRefreshing}
+                onClick={() => void handleKnowledgePageChange(knowledgePage + 1)}
+              >
+                Следующая страница
+              </button>
+            </div>
           )}
         </div>
       </section>
@@ -536,9 +867,14 @@ export function AiSettingsPage() {
             <span aria-hidden="true">▶</span>
             Смотреть обучающее видео
           </button>
-          <button className="ai-settings-guide-link" type="button" disabled>
+          <a
+            className="ai-settings-guide-link"
+            href={AI_SETUP_GUIDE_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
             Читать инструкцию
-          </button>
+          </a>
         </div>
       </section>
 
@@ -552,18 +888,37 @@ export function AiSettingsPage() {
       </button>
 
       {resetMessage && (
-        <p className={resetStatus === 'error' ? 'ai-settings-reset-message ai-settings-reset-message--error' : 'ai-settings-reset-message'}>
+        <p
+          className={
+            resetStatus === 'error'
+              ? 'ai-settings-reset-message ai-settings-reset-message--error'
+              : 'ai-settings-reset-message'
+          }
+        >
           {resetMessage}
         </p>
       )}
 
       {isAutopilotConfirmOpen && (
         <div className="ai-settings-modal-backdrop" role="presentation">
-          <div className="ai-settings-modal" role="dialog" aria-modal="true" aria-labelledby="ai-autopilot-confirm-title">
-            <h2 className="ai-settings-modal__title" id="ai-autopilot-confirm-title">Включить автопилот?</h2>
-            <p className="ai-settings-modal__text">AI сможет автоматически отвечать клиентам в чате. Продолжить?</p>
+          <div
+            className="ai-settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ai-autopilot-confirm-title"
+          >
+            <h2 className="ai-settings-modal__title" id="ai-autopilot-confirm-title">
+              Включить автопилот?
+            </h2>
+            <p className="ai-settings-modal__text">
+              AI сможет автоматически отвечать клиентам в чате. Продолжить?
+            </p>
             <div className="ai-settings-modal__actions">
-              <button className="ai-settings-modal__button ai-settings-modal__button--secondary" type="button" onClick={() => setIsAutopilotConfirmOpen(false)}>
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--secondary"
+                type="button"
+                onClick={() => setIsAutopilotConfirmOpen(false)}
+              >
                 Отмена
               </button>
               <button
@@ -581,28 +936,64 @@ export function AiSettingsPage() {
           </div>
         </div>
       )}
+
+      {leaveWarning && (
+        <div className="ai-settings-modal-backdrop" role="presentation">
+          <div
+            className="ai-settings-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="ai-leave-warning-title"
+          >
+            <h2 className="ai-settings-modal__title" id="ai-leave-warning-title">
+              Покинуть страницу?
+            </h2>
+            <p className="ai-settings-modal__text">{leaveWarning.message}</p>
+            <div className="ai-settings-modal__actions">
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--secondary"
+                type="button"
+                onClick={() => setLeaveWarning(null)}
+              >
+                Остаться
+              </button>
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--primary"
+                type="button"
+                onClick={confirmLeavePage}
+              >
+                Покинуть страницу
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
 
 function validateKnowledgeFiles(files: File[]) {
   if (files.length > MAX_KNOWLEDGE_FILES_PER_UPLOAD) {
-    return `За один раз можно загрузить не больше ${MAX_KNOWLEDGE_FILES_PER_UPLOAD} файлов.`
+    return 'Можно загружать не более 20 файлов одновременно.'
   }
 
   for (const file of files) {
+    if (file.name.length > MAX_KNOWLEDGE_FILE_NAME_LENGTH) {
+      return 'Имя файла не должно превышать 255 символов.'
+    }
+
+    if (file.size > MAX_KNOWLEDGE_FILE_SIZE) {
+      return 'Размер файла не должен превышать 20 МБ.'
+    }
+
     const extension = getFileExtension(file.name)
 
     if (!ALLOWED_KNOWLEDGE_FILE_EXTENSIONS.includes(extension)) {
-      return `Файл «${file.name}» имеет неподдерживаемый формат. Разрешены только PDF, TXT, DOCX, CSV.`
+      return 'Поддерживаются только PDF, TXT, DOCX, CSV.'
     }
 
     if (file.size === 0) {
       return `Файл «${file.name}» пустой.`
-    }
-
-    if (file.size > MAX_KNOWLEDGE_FILE_SIZE) {
-      return `Файл «${file.name}» больше 20 МБ.`
     }
   }
 

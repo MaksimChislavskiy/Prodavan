@@ -23,6 +23,8 @@ export class ApiError extends Error {
   }
 }
 
+let refreshAccessTokenPromise: Promise<boolean> | null = null
+
 export async function apiRequest<TResponse>(
   path: string,
   options: ApiRequestOptions = {},
@@ -85,7 +87,17 @@ function getRequestBody(body: unknown, isFormDataBody: boolean) {
   return JSON.stringify(body)
 }
 
-async function refreshAccessToken() {
+function refreshAccessToken() {
+  if (!refreshAccessTokenPromise) {
+    refreshAccessTokenPromise = performRefreshAccessToken().finally(() => {
+      refreshAccessTokenPromise = null
+    })
+  }
+
+  return refreshAccessTokenPromise
+}
+
+async function performRefreshAccessToken() {
   try {
     const response = await fetch('/api/auth/refresh', {
       method: 'POST',
@@ -95,15 +107,26 @@ async function refreshAccessToken() {
     const data = await response.json().catch(() => null)
 
     if (!response.ok || !isRefreshSessionResponse(data)) {
-      clearAccessToken()
+      handleExpiredSession()
       return false
     }
 
     setAccessToken(data.access_token)
     return true
   } catch {
-    clearAccessToken()
+    handleExpiredSession()
     return false
+  }
+}
+
+function handleExpiredSession() {
+  clearAccessToken()
+
+  if (
+    typeof window !== 'undefined'
+    && window.location.pathname.startsWith('/app')
+  ) {
+    window.location.replace('/')
   }
 }
 
