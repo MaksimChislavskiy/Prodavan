@@ -73,3 +73,18 @@ class TaskContractViewTests(TestCase):
             response.data['errors']['limit'],
             'Значение должно быть от 1 до 100.',
         )
+
+    def test_dashboard_returns_description_and_comment_from_full_task_dto(self):
+        Task.objects.create(
+            workspace=self.user.workspace,
+            title='Задача рабочего стола',
+            description='Полное описание',
+            comment='Комментарий менеджера',
+        )
+
+        response = self.client.get('/api/tasks/dashboard')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['tasks']), 1)
+        self.assertEqual(response.data['tasks'][0]['description'], 'Полное описание')
+        self.assertEqual(response.data['tasks'][0]['comment'], 'Комментарий менеджера')
