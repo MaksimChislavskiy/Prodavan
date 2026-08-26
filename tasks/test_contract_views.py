@@ -4,6 +4,8 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from contacts.models import Contact
+from deals.models import Deal, SalesStage
 from users.models import User
 
 from .models import Task
@@ -21,6 +23,21 @@ class TaskContractViewTests(TestCase):
             is_confirmed=True,
         )
         self.client.force_authenticate(self.user)
+        self.contact = Contact.objects.create(
+            workspace=self.user.workspace,
+            name='Иван Петров',
+        )
+        self.stage = SalesStage.objects.get(
+            workspace=self.user.workspace,
+            is_system=True,
+        )
+        self.deal = Deal.objects.create(
+            workspace=self.user.workspace,
+            stage=self.stage,
+            contact=self.contact,
+            name='Продажа лицензии',
+            amount='100000.00',
+        )
 
     def test_create_rejects_non_uuid_idempotency_key(self):
         response = self.client.post(
@@ -88,3 +105,49 @@ class TaskContractViewTests(TestCase):
         self.assertEqual(len(response.data['tasks']), 1)
         self.assertEqual(response.data['tasks'][0]['description'], 'Полное описание')
         self.assertEqual(response.data['tasks'][0]['comment'], 'Комментарий менеджера')
+
+    def test_contact_change_does_not_leave_deal_of_another_contact(self):
+        task = Task.objects.create(
+            workspace=self.user.workspace,
+            title='Связанная задача',
+            contact=self.contact,
+            deal=self.deal,
+        )
+
+        response = self.client.patch(
+            f'/api/tasks/{task.id}',
+            {
+                'version': task.version,
+                'contact_id': None,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error']['code'], 'RELATION_MISMATCH')
+        task.refresh_from_db()
+        self.assertEqual(task.contact_id, self.contact.id)
+        self.assertEqual(task.deal_id, self.deal.id)
+
+    def test_contact_and_deal_can_be_cleared_together(self):
+        task = Task.objects.create(
+            workspace=self.user.workspace,
+            title='Связанная задача',
+            contact=self.contact,
+            deal=self.deal,
+        )
+
+        response = self.client.patch(
+            f'/api/tasks/{task.id}',
+            {
+                'version': task.version,
+                'contact_id': None,
+                'deal_id': None,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.contact_id)
+        self.assertIsNone(task.deal_id)
