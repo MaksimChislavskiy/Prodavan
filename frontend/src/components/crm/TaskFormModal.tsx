@@ -6,10 +6,14 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
 } from 'react'
 import { ApiError } from '../../shared/api/apiClient'
-import { getContacts, type ApiContact } from '../../shared/api/contactsApi'
+import {
+  searchContacts,
+  type ApiContactAutocomplete,
+} from '../../shared/api/contactsApi'
 import {
   getDealsPage,
   getKanban,
@@ -32,6 +36,11 @@ import './TaskFormModal.css'
 import './TaskFormModalTzFixes.css'
 
 type TaskFormMode = 'create' | 'edit'
+
+type TaskContactOption = Pick<
+  ApiContactAutocomplete,
+  'id' | 'name' | 'company'
+>
 
 type TaskDraft = {
   title: string
@@ -83,9 +92,17 @@ export function TaskFormModal({
     key: createTaskIdempotencyKey(),
     payload: '',
   })
+
   const [draft, setDraft] = useState<TaskDraft>(emptyTaskDraft)
-  const [contacts, setContacts] = useState<ApiContact[]>([])
   const [deals, setDeals] = useState<ApiKanbanDeal[]>([])
+  const [selectedContact, setSelectedContact] =
+    useState<TaskContactOption | null>(null)
+  const [contactQuery, setContactQuery] = useState('')
+  const [contactOptions, setContactOptions] = useState<ApiContactAutocomplete[]>([])
+  const [contactActiveIndex, setContactActiveIndex] = useState(0)
+  const [isContactSearchOpen, setIsContactSearchOpen] = useState(false)
+  const [isContactSearching, setIsContactSearching] = useState(false)
+  const [contactSearchError, setContactSearchError] = useState('')
   const [version, setVersion] = useState<number | null>(
     mode === 'create' ? 0 : null,
   )
@@ -105,9 +122,11 @@ export function TaskFormModal({
     if (draft.contactId) {
       return deals.filter((deal) => deal.contact?.id === draft.contactId)
     }
+
     if (draft.dealId) {
       return deals.filter((deal) => deal.id === draft.dealId)
     }
+
     return []
   }, [deals, draft.contactId, draft.dealId])
 
@@ -143,18 +162,31 @@ export function TaskFormModal({
     setRequestError('')
 
     try {
-      const choicesPromise = loadTaskChoices(controller.signal)
+      const dealsPromise = loadAllDeals(controller.signal)
       const taskPromise =
         mode === 'edit' && taskId
           ? getTask(taskId, controller.signal)
           : Promise.resolve(null)
-      const [choices, task] = await Promise.all([choicesPromise, taskPromise])
+      const [loadedDeals, task] = await Promise.all([dealsPromise, taskPromise])
 
-      setContacts(choices.contacts)
-      setDeals(choices.deals)
+      setDeals(loadedDeals)
 
       const nextDraft = task ? taskToDraft(task) : emptyTaskDraft
+      const nextContact = task?.contact
+        ? {
+            id: task.contact.id,
+            name: task.contact.name,
+            company: task.contact.company,
+          }
+        : null
+
       setDraft(nextDraft)
+      setSelectedContact(nextContact)
+      setContactQuery(nextContact ? formatContactOption(nextContact) : '')
+      setContactOptions([])
+      setContactActiveIndex(0)
+      setIsContactSearchOpen(false)
+      setContactSearchError('')
       setInitialDraft(serializeTaskDraft(nextDraft))
       setInitialFields(serializeTaskFields(nextDraft))
       setInitialStatus(nextDraft.status)
@@ -192,6 +224,7 @@ export function TaskFormModal({
     if (isSaving || isDeleting) {
       return
     }
+
     if (isDirty) {
       setIsCloseConfirmOpen(true)
     } else {
@@ -214,6 +247,68 @@ export function TaskFormModal({
   }, [loadForm, stopCurrentRequest])
 
   useEffect(() => {
+    if (!isInitialized) {
+      return
+    }
+
+    const query = contactQuery.trim()
+    const selectedLabel = selectedContact
+      ? formatContactOption(selectedContact)
+      : ''
+
+    if (selectedContact && contactQuery === selectedLabel) {
+      setContactOptions([])
+      setIsContactSearchOpen(false)
+      setIsContactSearching(false)
+      setContactSearchError('')
+      return
+    }
+
+    if (query.length < 2) {
+      setContactOptions([])
+      setIsContactSearchOpen(false)
+      setIsContactSearching(false)
+      setContactSearchError('')
+      return
+    }
+
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(async () => {
+      setIsContactSearching(true)
+      setContactSearchError('')
+
+      try {
+        const results = await searchContacts(query, 5, controller.signal)
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setContactOptions(results)
+        setContactActiveIndex(0)
+        setIsContactSearchOpen(results.length > 0)
+      } catch (error) {
+        if (isAbortError(error)) {
+          return
+        }
+
+        setContactOptions([])
+        setContactSearchError('Не удалось найти контакты.')
+        setIsContactSearchOpen(true)
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsContactSearching(false)
+        }
+      }
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [contactQuery, isInitialized, selectedContact])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         isCloseConfirmOpen ||
@@ -224,6 +319,11 @@ export function TaskFormModal({
       }
 
       if (event.key === 'Escape') {
+        if (isContactSearchOpen) {
+          setIsContactSearchOpen(false)
+          return
+        }
+
         event.preventDefault()
         requestClose()
         return
@@ -238,12 +338,14 @@ export function TaskFormModal({
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
         ),
       )
+
       if (focusableElements.length === 0) {
         return
       }
 
       const firstElement = focusableElements[0]
       const lastElement = focusableElements[focusableElements.length - 1]
+
       if (event.shiftKey && document.activeElement === firstElement) {
         event.preventDefault()
         lastElement.focus()
@@ -258,6 +360,7 @@ export function TaskFormModal({
   }, [
     isCloseConfirmOpen,
     isConflictConfirmOpen,
+    isContactSearchOpen,
     isDeleteConfirmOpen,
     requestClose,
   ])
@@ -298,27 +401,109 @@ export function TaskFormModal({
     setRequestError('')
   }
 
-  const updateContact = (event: ChangeEvent<HTMLSelectElement>) => {
-    const contactId = event.target.value
+  const updateContactQuery = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value
+
+    setContactQuery(value)
+    setSelectedContact(null)
+    setContactOptions([])
+    setContactActiveIndex(0)
+    setContactSearchError('')
+    setIsContactSearchOpen(value.trim().length >= 2)
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      contactId: '',
+      dealId: currentDraft.contactId ? '' : currentDraft.dealId,
+    }))
+    setRequestError('')
+  }
+
+  const selectContact = (contact: TaskContactOption) => {
+    const label = formatContactOption(contact)
+
+    setSelectedContact(contact)
+    setContactQuery(label)
+    setContactOptions([])
+    setContactActiveIndex(0)
+    setIsContactSearchOpen(false)
+    setContactSearchError('')
     setDraft((currentDraft) => {
       const selectedTaskDeal = deals.find(
         (deal) => deal.id === currentDraft.dealId,
       )
       const canKeepDeal =
-        selectedTaskDeal &&
-        (!contactId || selectedTaskDeal.contact?.id === contactId)
+        selectedTaskDeal?.contact?.id === contact.id
 
       return {
         ...currentDraft,
-        contactId,
+        contactId: contact.id,
         dealId: canKeepDeal ? currentDraft.dealId : '',
       }
     })
     setRequestError('')
   }
 
+  const clearContact = () => {
+    setSelectedContact(null)
+    setContactQuery('')
+    setContactOptions([])
+    setContactActiveIndex(0)
+    setIsContactSearchOpen(false)
+    setContactSearchError('')
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      contactId: '',
+      dealId: currentDraft.contactId ? '' : currentDraft.dealId,
+    }))
+    setRequestError('')
+  }
+
+  const handleContactKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === 'Escape' && isContactSearchOpen) {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsContactSearchOpen(false)
+      return
+    }
+
+    if (contactOptions.length === 0) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsContactSearchOpen(true)
+      setContactActiveIndex((currentIndex) =>
+        Math.min(currentIndex + 1, contactOptions.length - 1),
+      )
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsContactSearchOpen(true)
+      setContactActiveIndex((currentIndex) => Math.max(currentIndex - 1, 0))
+      return
+    }
+
+    if (event.key === 'Enter' && isContactSearchOpen) {
+      const activeContact = contactOptions[contactActiveIndex]
+
+      if (activeContact) {
+        event.preventDefault()
+        event.stopPropagation()
+        selectContact(activeContact)
+      }
+    }
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+
     if (!canSubmit) {
       return
     }
@@ -339,6 +524,7 @@ export function TaskFormModal({
 
       if (mode === 'create') {
         const serializedPayload = JSON.stringify(payload)
+
         if (idempotencyRef.current.payload !== serializedPayload) {
           idempotencyRef.current = {
             key: createTaskIdempotencyKey(),
@@ -356,6 +542,7 @@ export function TaskFormModal({
       }
 
       let currentVersion = version as number
+
       if (fieldsChanged) {
         const request: UpdateTaskRequest = {
           version: currentVersion,
@@ -597,23 +784,97 @@ export function TaskFormModal({
             </label>
 
             <div className="task-form__relations">
-              <label className="task-form__field task-form__field--contact">
-                <span className="task-form__visually-hidden">Клиент</span>
-                <select
-                  value={draft.contactId}
-                  disabled={isSaving || isDeleting}
-                  onChange={updateContact}
+              <div className="task-form__field task-form__field--contact">
+                <span
+                  className="task-form__visually-hidden"
+                  id="task-contact-label"
                 >
-                  <option value="">Клиент не выбран</option>
-                  {contacts.map((contact) => (
-                    <option value={contact.id} key={contact.id}>
-                      {contact.company
-                        ? `${contact.name} · ${contact.company}`
-                        : contact.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Клиент
+                </span>
+                <div className="task-form__contact-combobox">
+                  <input
+                    type="text"
+                    value={contactQuery}
+                    placeholder="Найти клиента"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-labelledby="task-contact-label"
+                    aria-autocomplete="list"
+                    aria-expanded={isContactSearchOpen}
+                    aria-controls="task-contact-options"
+                    aria-activedescendant={
+                      isContactSearchOpen && contactOptions[contactActiveIndex]
+                        ? `task-contact-option-${contactOptions[contactActiveIndex].id}`
+                        : undefined
+                    }
+                    disabled={isSaving || isDeleting}
+                    onChange={updateContactQuery}
+                    onKeyDown={handleContactKeyDown}
+                    onFocus={() => {
+                      if (contactOptions.length > 0 || contactSearchError) {
+                        setIsContactSearchOpen(true)
+                      }
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setIsContactSearchOpen(false), 120)
+                    }}
+                  />
+
+                  {(contactQuery || draft.contactId) && (
+                    <button
+                      className="task-form__contact-clear"
+                      type="button"
+                      aria-label="Очистить выбранного клиента"
+                      title="Очистить"
+                      disabled={isSaving || isDeleting}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={clearContact}
+                    >
+                      ×
+                    </button>
+                  )}
+
+                  {isContactSearching && (
+                    <span
+                      className="task-form__contact-spinner"
+                      aria-label="Поиск контактов"
+                      role="status"
+                    />
+                  )}
+                </div>
+
+                {isContactSearchOpen && (
+                  <div
+                    className="task-form__contact-options"
+                    id="task-contact-options"
+                    role="listbox"
+                    aria-label="Найденные контакты"
+                  >
+                    {contactSearchError ? (
+                      <p role="alert">{contactSearchError}</p>
+                    ) : contactOptions.length > 0 ? (
+                      contactOptions.map((contact, index) => (
+                        <button
+                          className={
+                            index === contactActiveIndex ? 'is-active' : ''
+                          }
+                          id={`task-contact-option-${contact.id}`}
+                          type="button"
+                          role="option"
+                          aria-selected={index === contactActiveIndex}
+                          key={contact.id}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onMouseEnter={() => setContactActiveIndex(index)}
+                          onClick={() => selectContact(contact)}
+                        >
+                          <strong>{contact.name}</strong>
+                          {contact.company && <span>{contact.company}</span>}
+                        </button>
+                      ))
+                    ) : null}
+                  </div>
+                )}
+              </div>
 
               <label className="task-form__field task-form__field--deal">
                 <span className="task-form__visually-hidden">Сделка</span>
@@ -767,12 +1028,14 @@ function TaskDecisionDialog({
 
   useEffect(() => {
     secondaryButtonRef.current?.focus()
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !disabled) {
         event.preventDefault()
         onSecondary()
       }
     }
+
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [disabled, onSecondary])
@@ -811,35 +1074,11 @@ function TaskDecisionDialog({
   )
 }
 
-async function loadTaskChoices(signal: AbortSignal) {
-  const contactsPromise = loadAllContacts(signal)
-  const dealsPromise = loadAllDeals(signal)
-  const [contacts, deals] = await Promise.all([contactsPromise, dealsPromise])
-  return { contacts, deals }
-}
-
-async function loadAllContacts(signal: AbortSignal) {
-  const contacts: ApiContact[] = []
-  let page = 1
-  let total = 1
-
-  while (contacts.length < total) {
-    const response = await getContacts(page, 100, signal)
-    contacts.push(...response.contacts)
-    total = response.total
-    page += 1
-    if (response.contacts.length === 0) {
-      break
-    }
-  }
-  return contacts
-}
-
 async function loadAllDeals(signal: AbortSignal) {
   const kanban = await getKanban(signal)
   const stageDeals = await Promise.all(
     kanban.stages.map(async (stage) => {
-      const deals: ApiKanbanDeal[] = []
+      const stageDeals: ApiKanbanDeal[] = []
       let cursor: string | null = null
       let hasMore = true
 
@@ -850,11 +1089,12 @@ async function loadAllDeals(signal: AbortSignal) {
           cursor,
           signal,
         )
-        deals.push(...response.deals)
+        stageDeals.push(...response.deals)
         cursor = response.next_cursor
         hasMore = response.has_more && Boolean(cursor)
       }
-      return deals
+
+      return stageDeals
     }),
   )
 
@@ -884,6 +1124,7 @@ function formatDueDateInput(task: ApiTaskDetail) {
   }
 
   const date = new Date(task.due_date)
+
   if (Number.isNaN(date.getTime())) {
     return ''
   }
@@ -891,6 +1132,7 @@ function formatDueDateInput(task: ApiTaskDetail) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
+
   if (task.due_date_type === 'date') {
     return `${year}-${month}-${day}`
   }
@@ -954,12 +1196,19 @@ function normalizeNullableText(value: string) {
   return normalizedValue || null
 }
 
+function formatContactOption(contact: TaskContactOption) {
+  return contact.company
+    ? `${contact.name} · ${contact.company}`
+    : contact.name
+}
+
 function formatDealAmount(deal: ApiKanbanDeal | null) {
   if (!deal || deal.amount == null) {
     return ''
   }
 
   const amount = Number(deal.amount)
+
   if (!Number.isFinite(amount)) {
     return `${deal.amount} ${deal.currency}`
   }
@@ -972,6 +1221,7 @@ function formatDealAmount(deal: ApiKanbanDeal | null) {
     USD: '$',
     EUR: '€',
   }
+
   return `${formattedAmount} ${currencySymbols[deal.currency] ?? deal.currency}`
 }
 
