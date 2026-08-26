@@ -1,6 +1,6 @@
 from django.test import TestCase, override_settings
 
-from deals.models import Deal, SalesStage
+from deals.models import Deal, DealHistory, SalesStage
 from users.models import User
 
 from .models import Contact
@@ -35,7 +35,7 @@ class ContactDealDetachTests(TestCase):
             name=name,
         )
 
-    def test_single_delete_detaches_related_deals(self):
+    def test_single_delete_detaches_related_deals_without_deal_audit(self):
         contact = Contact.objects.create(
             workspace=self.workspace,
             name='Иван Петров',
@@ -52,6 +52,7 @@ class ContactDealDetachTests(TestCase):
         deal.refresh_from_db()
         self.assertTrue(contact.is_deleted)
         self.assertIsNone(deal.contact_id)
+        self.assertFalse(DealHistory.objects.filter(deal=deal).exists())
 
     def test_bulk_delete_detaches_only_related_workspace_deals(self):
         first = Contact.objects.create(
@@ -83,3 +84,6 @@ class ContactDealDetachTests(TestCase):
         self.assertIsNone(first_deal.contact_id)
         self.assertIsNone(second_deal.contact_id)
         self.assertEqual(untouched_deal.contact_id, untouched.id)
+        self.assertFalse(
+            DealHistory.objects.filter(deal__in=[first_deal, second_deal]).exists(),
+        )
