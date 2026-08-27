@@ -8,7 +8,10 @@ from django.db import close_old_connections
 from ai_assistant.maintenance import close_inactive_chat_sessions
 from notifications.deal_attention import create_deal_attention_notifications
 from notifications.missed_chat_messages import create_missed_chat_notifications
-from notifications.task_deadlines import create_task_deadline_notifications
+from notifications.task_deadlines import (
+    create_overdue_task_summary_notifications,
+    create_task_deadline_notifications,
+)
 from users.maintenance import cleanup_expired_auth_records
 from workspaces.telegram_services import check_all_telegram_integrations
 
@@ -142,15 +145,16 @@ class Command(BaseCommand):
 
     def _run_notifications(self):
         deadline = create_task_deadline_notifications()
+        overdue_summary = create_overdue_task_summary_notifications()
         missed = create_missed_chat_notifications()
         deals = create_deal_attention_notifications()
         created = sum(
             result['notifications_created']
             for result in (deadline, missed, deals)
-        )
+        ) + overdue_summary['summaries_changed']
         self.stdout.write(
             self.style.SUCCESS(
-                f'Периодические уведомления: создано {created}.',
+                f'Периодические уведомления: создано/обновлено {created}.',
             ),
         )
 

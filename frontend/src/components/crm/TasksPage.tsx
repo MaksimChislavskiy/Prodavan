@@ -6,6 +6,7 @@ import {
   type DragEvent,
   type MouseEvent,
 } from 'react'
+import { ApiError } from '../../shared/api/apiClient'
 import {
   bulkDeleteTasks,
   deleteTask,
@@ -16,8 +17,9 @@ import {
   type TaskStatus,
   type TasksKanbanResponse,
 } from '../../shared/api/tasksApi'
+import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
+import { formatTaskDueDateForDisplay } from '../../shared/taskDateTime'
 import { TaskFormModal } from './TaskFormModal'
-import { TaskViewModal } from './TaskViewModal'
 import './TasksPage.css'
 
 const taskStatuses: TaskStatus[] = ['new', 'in_progress', 'done']
@@ -27,7 +29,7 @@ const taskStatusLabels: Record<
   { title: string; shortTitle: string }
 > = {
   new: {
-    title: 'Новые задачи',
+    title: 'Новая',
     shortTitle: 'Новая',
   },
   in_progress: {
@@ -35,7 +37,7 @@ const taskStatusLabels: Record<
     shortTitle: 'В работе',
   },
   done: {
-    title: 'Завершённые задачи',
+    title: 'Выполнена',
     shortTitle: 'Выполнена',
   },
 }
@@ -48,7 +50,6 @@ type TasksBoardState = {
 
 type TaskDialog =
   | { mode: 'create' }
-  | { mode: 'view'; taskId: string; taskTitle: string }
   | { mode: 'edit'; taskId: string; taskTitle: string }
 
 type DeleteRequest =
@@ -79,6 +80,7 @@ export function TasksPage() {
   const [movingTaskId, setMovingTaskId] = useState('')
   const [loadingMoreStatus, setLoadingMoreStatus] =
     useState<TaskStatus | null>(null)
+  const [workspaceTimezone, setWorkspaceTimezone] = useState('UTC')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -91,8 +93,11 @@ export function TasksPage() {
       }))
 
       try {
-        const data = await getTasksKanban(50, controller.signal)
-
+        const [data, workspaceSettings] = await Promise.all([
+          getTasksKanban(50, controller.signal),
+          getWorkspaceSettings(controller.signal),
+        ])
+        setWorkspaceTimezone(workspaceSettings.timezone || 'UTC')
         setState({
           data,
           isLoading: false,
@@ -136,7 +141,6 @@ export function TasksPage() {
       ) {
         return
       }
-
       setOpenMenuId('')
     }
 
@@ -148,7 +152,6 @@ export function TasksPage() {
 
     document.addEventListener('pointerdown', closeMenu)
     document.addEventListener('keydown', closeMenuByKeyboard)
-
     return () => {
       document.removeEventListener('pointerdown', closeMenu)
       document.removeEventListener('keydown', closeMenuByKeyboard)
@@ -175,13 +178,11 @@ export function TasksPage() {
   const toggleTask = (taskId: string) => {
     setSelectedIds((currentIds) => {
       const nextIds = new Set(currentIds)
-
       if (nextIds.has(taskId)) {
         nextIds.delete(taskId)
       } else {
         nextIds.add(taskId)
       }
-
       return nextIds
     })
   }
@@ -196,7 +197,6 @@ export function TasksPage() {
     if (isDeleting) {
       return
     }
-
     setDeleteRequest(null)
     setDeleteError('')
   }
@@ -217,10 +217,9 @@ export function TasksPage() {
         const result = await bulkDeleteTasks(
           deleteRequest.tasks.map((task) => task.id),
         )
+        const skippedCount = result.skipped_ids.length
         setToast(
-          result.deleted_count === 1
-            ? 'Удалена 1 задача.'
-            : `Удалено задач: ${result.deleted_count}.`,
+          `Удалено задач: ${result.deleted_count}. Пропущено: ${skippedCount}.`,
         )
       }
 
@@ -240,16 +239,13 @@ export function TasksPage() {
 
   const loadMore = async (status: TaskStatus) => {
     const column = state.data?.[status]
-
     if (!column?.next_cursor || loadingMoreStatus) {
       return
     }
 
     setLoadingMoreStatus(status)
-
     try {
       const response = await getTasksPage(status, 50, column.next_cursor)
-
       setState((currentState) => {
         if (!currentState.data) {
           return currentState
@@ -257,7 +253,6 @@ export function TasksPage() {
 
         const currentTasks = currentState.data[status].tasks
         const knownIds = new Set(currentTasks.map((task) => task.id))
-
         return {
           ...currentState,
           data: {
@@ -268,9 +263,7 @@ export function TasksPage() {
                 ...currentTasks,
                 ...response.tasks.filter((task) => !knownIds.has(task.id)),
               ],
-              next_cursor: response.has_more
-                ? response.next_cursor
-                : null,
+              next_cursor: response.has_more ? response.next_cursor : null,
             },
           },
         }
@@ -330,7 +323,6 @@ export function TasksPage() {
     status: TaskStatus,
   ) => {
     const relatedTarget = event.relatedTarget
-
     if (
       dropTargetStatus === status &&
       (!(relatedTarget instanceof Node) ||
@@ -350,7 +342,6 @@ export function TasksPage() {
 
   const moveTask = async (status: TaskStatus) => {
     const currentDraggedTask = draggedTask
-
     setDraggedTask(null)
     setDropTargetStatus(null)
 
@@ -363,7 +354,6 @@ export function TasksPage() {
     }
 
     setMovingTaskId(currentDraggedTask.task.id)
-
     try {
       await updateTaskStatus(
         currentDraggedTask.task.id,
@@ -375,11 +365,17 @@ export function TasksPage() {
       )
       reloadBoard()
     } catch (error) {
-      setToast(
-        error instanceof Error
-          ? error.message
-          : 'Не удалось изменить статус задачи.',
-      )
+      if (error instanceof ApiError && error.status === 409) {
+        setToast('Задача была изменена другим пользователем. Обновите данные.')
+      } else if (error instanceof ApiError && error.status === 404) {
+        setToast('Задача не найдена или уже удалена.')
+      } else {
+        setToast(
+          error instanceof Error
+            ? error.message
+            : 'Не удалось изменить статус задачи.',
+        )
+      }
       reloadBoard()
     } finally {
       setMovingTaskId('')
@@ -516,18 +512,12 @@ export function TasksPage() {
                     column.tasks.map((task) => (
                       <TaskCard
                         task={task}
+                        workspaceTimezone={workspaceTimezone}
                         isSelected={selectedIds.has(task.id)}
                         isMoving={movingTaskId === task.id}
                         isMenuOpen={openMenuId === task.id}
                         key={task.id}
                         onSelect={() => toggleTask(task.id)}
-                        onOpen={() =>
-                          setDialog({
-                            mode: 'view',
-                            taskId: task.id,
-                            taskTitle: task.title,
-                          })
-                        }
                         onEdit={() => {
                           setOpenMenuId('')
                           setDialog({
@@ -601,28 +591,6 @@ export function TasksPage() {
         />
       )}
 
-      {dialog?.mode === 'view' && (
-        <TaskViewModal
-          taskId={dialog.taskId}
-          taskTitle={dialog.taskTitle}
-          onClose={() => setDialog(null)}
-          onEdit={(task) =>
-            setDialog({
-              mode: 'edit',
-              taskId: task.id,
-              taskTitle: task.title,
-            })
-          }
-          onDelete={(task) =>
-            openDeleteConfirmation({
-              kind: 'single',
-              tasks: [task],
-            })
-          }
-          onNotFound={handleTaskNotFound}
-        />
-      )}
-
       {deleteRequest && (
         <TaskDeleteConfirmModal
           request={deleteRequest}
@@ -652,11 +620,11 @@ export function TasksPage() {
 
 function TaskCard({
   task,
+  workspaceTimezone,
   isSelected,
   isMoving,
   isMenuOpen,
   onSelect,
-  onOpen,
   onEdit,
   onDelete,
   onToggleMenu,
@@ -664,11 +632,11 @@ function TaskCard({
   onDragEnd,
 }: {
   task: ApiTask
+  workspaceTimezone: string
   isSelected: boolean
   isMoving: boolean
   isMenuOpen: boolean
   onSelect: () => void
-  onOpen: () => void
   onEdit: () => void
   onDelete: () => void
   onToggleMenu: () => void
@@ -682,9 +650,10 @@ function TaskCard({
     ) {
       return
     }
-
-    onOpen()
+    onEdit()
   }
+
+  const amount = formatTaskAmount(task)
 
   return (
     <article
@@ -740,9 +709,6 @@ function TaskCard({
                 role="menu"
                 aria-label={`Действия с задачей ${task.title}`}
               >
-                <button type="button" role="menuitem" onClick={onOpen}>
-                  Просмотреть
-                </button>
                 <button type="button" role="menuitem" onClick={onEdit}>
                   Редактировать
                 </button>
@@ -766,9 +732,9 @@ function TaskCard({
         <div className="tasks-card__meta">
           <span className={task.is_overdue ? 'is-overdue' : ''}>
             {task.is_overdue && task.status !== 'done' && (
-              <b aria-label="Просрочено">!</b>
+              <b aria-label="Просрочено" title="Просрочено">!</b>
             )}
-            {formatTaskDueDate(task)}
+            {formatTaskDueDateForDisplay(task, workspaceTimezone)}
           </span>
 
           {task.deal && (
@@ -777,7 +743,7 @@ function TaskCard({
             </span>
           )}
 
-          {formatTaskAmount(task) && <strong>{formatTaskAmount(task)}</strong>}
+          {amount && <strong>{amount}</strong>}
         </div>
       </div>
     </article>
@@ -894,47 +860,17 @@ function TasksSkeleton() {
 
 function getTaskContactName(task: ApiTask) {
   if (!task.contact) {
-    return 'Контакт не указан'
+    return 'Не указан'
   }
-
   return task.contact.company || task.contact.name
 }
 
-function formatTaskDueDate(task: ApiTask) {
-  if (!task.due_date || task.due_date_type === 'none') {
-    return 'Без срока'
-  }
-
-  const date = new Date(task.due_date)
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Срок не указан'
-  }
-
-  if (task.due_date_type === 'date') {
-    return new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    }).format(date)
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
 function formatTaskAmount(task: ApiTask) {
-  if (!task.deal?.amount) {
+  if (!task.deal || task.deal.amount == null) {
     return ''
   }
 
   const amount = Number(task.deal.amount)
-
   if (!Number.isFinite(amount)) {
     return `${task.deal.amount} ${task.deal.currency}`
   }
@@ -942,10 +878,13 @@ function formatTaskAmount(task: ApiTask) {
   const formattedAmount = new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(amount)
-
-  return task.deal.currency === 'RUB'
-    ? `${formattedAmount} ₽`
-    : `${formattedAmount} ${task.deal.currency}`
+  const currencySymbols: Record<string, string> = {
+    RUB: '₽',
+    USD: '$',
+    EUR: '€',
+  }
+  const currency = currencySymbols[task.deal.currency] ?? task.deal.currency
+  return `${formattedAmount} ${currency}`
 }
 
 function isAbortError(error: unknown) {

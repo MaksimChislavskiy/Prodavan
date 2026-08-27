@@ -6,12 +6,13 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
 } from 'react'
 import { ApiError } from '../../shared/api/apiClient'
 import {
-  getContacts,
-  type ApiContact,
+  searchContacts,
+  type ApiContactAutocomplete,
 } from '../../shared/api/contactsApi'
 import {
   getDealsPage,
@@ -24,14 +25,24 @@ import {
   deleteTask,
   getTask,
   updateTask,
+  updateTaskStatus,
   type ApiTaskDetail,
   type CreateTaskRequest,
   type TaskDueDateType,
+  type TaskStatus,
   type UpdateTaskRequest,
 } from '../../shared/api/tasksApi'
+import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
+import { formatTaskDueDateForInput } from '../../shared/taskDateTime'
 import './TaskFormModal.css'
+import './TaskFormModalTzFixes.css'
 
 type TaskFormMode = 'create' | 'edit'
+
+type TaskContactOption = Pick<
+  ApiContactAutocomplete,
+  'id' | 'name' | 'company'
+>
 
 type TaskDraft = {
   title: string
@@ -41,6 +52,7 @@ type TaskDraft = {
   contactId: string
   dealId: string
   comment: string
+  status: TaskStatus
 }
 
 type TaskFormModalProps = {
@@ -62,6 +74,7 @@ const emptyTaskDraft: TaskDraft = {
   contactId: '',
   dealId: '',
   comment: '',
+  status: 'new',
 }
 
 export function TaskFormModal({
@@ -81,13 +94,23 @@ export function TaskFormModal({
     key: createTaskIdempotencyKey(),
     payload: '',
   })
+
   const [draft, setDraft] = useState<TaskDraft>(emptyTaskDraft)
-  const [contacts, setContacts] = useState<ApiContact[]>([])
   const [deals, setDeals] = useState<ApiKanbanDeal[]>([])
+  const [selectedContact, setSelectedContact] =
+    useState<TaskContactOption | null>(null)
+  const [contactQuery, setContactQuery] = useState('')
+  const [contactOptions, setContactOptions] = useState<ApiContactAutocomplete[]>([])
+  const [contactActiveIndex, setContactActiveIndex] = useState(0)
+  const [isContactSearchOpen, setIsContactSearchOpen] = useState(false)
+  const [isContactSearching, setIsContactSearching] = useState(false)
+  const [contactSearchError, setContactSearchError] = useState('')
   const [version, setVersion] = useState<number | null>(
     mode === 'create' ? 0 : null,
   )
   const [initialDraft, setInitialDraft] = useState('')
+  const [initialFields, setInitialFields] = useState('')
+  const [initialStatus, setInitialStatus] = useState<TaskStatus>('new')
   const [isLoading, setIsLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -116,6 +139,9 @@ export function TaskFormModal({
 
   const serializedDraft = serializeTaskDraft(draft)
   const isDirty = initialDraft !== '' && serializedDraft !== initialDraft
+  const fieldsChanged =
+    initialFields !== '' && serializeTaskFields(draft) !== initialFields
+  const statusChanged = mode === 'edit' && draft.status !== initialStatus
   const validation = validateTaskDraft(draft)
   const canSubmit =
     validation.isValid &&
@@ -138,27 +164,45 @@ export function TaskFormModal({
     setRequestError('')
 
     try {
-      const choicesPromise = loadTaskChoices(controller.signal)
+      const dealsPromise = loadAllDeals(controller.signal)
       const taskPromise =
         mode === 'edit' && taskId
           ? getTask(taskId, controller.signal)
           : Promise.resolve(null)
-      const [choices, task] = await Promise.all([choicesPromise, taskPromise])
+      const settingsPromise =
+        mode === 'edit'
+          ? getWorkspaceSettings(controller.signal)
+          : Promise.resolve(null)
+      const [loadedDeals, task, workspaceSettings] = await Promise.all([
+        dealsPromise,
+        taskPromise,
+        settingsPromise,
+      ])
 
-      setContacts(choices.contacts)
-      setDeals(choices.deals)
+      setDeals(loadedDeals)
 
-      if (task) {
-        const nextDraft = taskToDraft(task)
-        setDraft(nextDraft)
-        setInitialDraft(serializeTaskDraft(nextDraft))
-        setVersion(task.version)
-      } else {
-        setDraft(emptyTaskDraft)
-        setInitialDraft(serializeTaskDraft(emptyTaskDraft))
-        setVersion(0)
-      }
+      const nextDraft = task
+        ? taskToDraft(task, workspaceSettings?.timezone || 'UTC')
+        : emptyTaskDraft
+      const nextContact = task?.contact
+        ? {
+            id: task.contact.id,
+            name: task.contact.name,
+            company: task.contact.company,
+          }
+        : null
 
+      setDraft(nextDraft)
+      setSelectedContact(nextContact)
+      setContactQuery(nextContact ? formatContactOption(nextContact) : '')
+      setContactOptions([])
+      setContactActiveIndex(0)
+      setIsContactSearchOpen(false)
+      setContactSearchError('')
+      setInitialDraft(serializeTaskDraft(nextDraft))
+      setInitialFields(serializeTaskFields(nextDraft))
+      setInitialStatus(nextDraft.status)
+      setVersion(task?.version ?? 0)
       setIsInitialized(true)
       window.setTimeout(() => titleInputRef.current?.focus(), 0)
     } catch (error) {
@@ -215,6 +259,68 @@ export function TaskFormModal({
   }, [loadForm, stopCurrentRequest])
 
   useEffect(() => {
+    if (!isInitialized) {
+      return
+    }
+
+    const query = contactQuery.trim()
+    const selectedLabel = selectedContact
+      ? formatContactOption(selectedContact)
+      : ''
+
+    if (selectedContact && contactQuery === selectedLabel) {
+      setContactOptions([])
+      setIsContactSearchOpen(false)
+      setIsContactSearching(false)
+      setContactSearchError('')
+      return
+    }
+
+    if (query.length < 2) {
+      setContactOptions([])
+      setIsContactSearchOpen(false)
+      setIsContactSearching(false)
+      setContactSearchError('')
+      return
+    }
+
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(async () => {
+      setIsContactSearching(true)
+      setContactSearchError('')
+
+      try {
+        const results = await searchContacts(query, 5, controller.signal)
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setContactOptions(results)
+        setContactActiveIndex(0)
+        setIsContactSearchOpen(results.length > 0)
+      } catch (error) {
+        if (isAbortError(error)) {
+          return
+        }
+
+        setContactOptions([])
+        setContactSearchError('Не удалось найти контакты.')
+        setIsContactSearchOpen(true)
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsContactSearching(false)
+        }
+      }
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [contactQuery, isInitialized, selectedContact])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         isCloseConfirmOpen ||
@@ -225,6 +331,11 @@ export function TaskFormModal({
       }
 
       if (event.key === 'Escape') {
+        if (isContactSearchOpen) {
+          setIsContactSearchOpen(false)
+          return
+        }
+
         event.preventDefault()
         requestClose()
         return
@@ -261,6 +372,7 @@ export function TaskFormModal({
   }, [
     isCloseConfirmOpen,
     isConflictConfirmOpen,
+    isContactSearchOpen,
     isDeleteConfirmOpen,
     requestClose,
   ])
@@ -273,7 +385,6 @@ export function TaskFormModal({
       >,
     ) => {
       const value = event.target.value
-
       setDraft((currentDraft) => ({
         ...currentDraft,
         [field]: value,
@@ -281,38 +392,125 @@ export function TaskFormModal({
       setRequestError('')
     }
 
-  const updateDueDate = (event: ChangeEvent<HTMLInputElement>) => {
-    const dueDate = event.target.value
+  const updateDueDateType = (event: ChangeEvent<HTMLSelectElement>) => {
+    const dueDateType = event.target.value as TaskDueDateType
     setDraft((currentDraft) => ({
       ...currentDraft,
-      dueDate,
-      dueDateType: dueDate
-        ? currentDraft.dueDateType === 'none'
-          ? 'datetime'
-          : currentDraft.dueDateType
-        : 'none',
+      dueDateType,
+      dueDate:
+        dueDateType === 'none' || currentDraft.dueDateType !== dueDateType
+          ? ''
+          : currentDraft.dueDate,
     }))
     setRequestError('')
   }
 
-  const updateContact = (event: ChangeEvent<HTMLSelectElement>) => {
-    const contactId = event.target.value
+  const updateDueDate = (event: ChangeEvent<HTMLInputElement>) => {
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      dueDate: event.target.value,
+    }))
+    setRequestError('')
+  }
 
+  const updateContactQuery = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value
+
+    setContactQuery(value)
+    setSelectedContact(null)
+    setContactOptions([])
+    setContactActiveIndex(0)
+    setContactSearchError('')
+    setIsContactSearchOpen(value.trim().length >= 2)
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      contactId: '',
+      dealId: currentDraft.contactId ? '' : currentDraft.dealId,
+    }))
+    setRequestError('')
+  }
+
+  const selectContact = (contact: TaskContactOption) => {
+    const label = formatContactOption(contact)
+
+    setSelectedContact(contact)
+    setContactQuery(label)
+    setContactOptions([])
+    setContactActiveIndex(0)
+    setIsContactSearchOpen(false)
+    setContactSearchError('')
     setDraft((currentDraft) => {
       const selectedTaskDeal = deals.find(
         (deal) => deal.id === currentDraft.dealId,
       )
       const canKeepDeal =
-        selectedTaskDeal &&
-        (!contactId || selectedTaskDeal.contact?.id === contactId)
+        selectedTaskDeal?.contact?.id === contact.id
 
       return {
         ...currentDraft,
-        contactId,
+        contactId: contact.id,
         dealId: canKeepDeal ? currentDraft.dealId : '',
       }
     })
     setRequestError('')
+  }
+
+  const clearContact = () => {
+    setSelectedContact(null)
+    setContactQuery('')
+    setContactOptions([])
+    setContactActiveIndex(0)
+    setIsContactSearchOpen(false)
+    setContactSearchError('')
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      contactId: '',
+      dealId: currentDraft.contactId ? '' : currentDraft.dealId,
+    }))
+    setRequestError('')
+  }
+
+  const handleContactKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === 'Escape' && isContactSearchOpen) {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsContactSearchOpen(false)
+      return
+    }
+
+    if (contactOptions.length === 0) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsContactSearchOpen(true)
+      setContactActiveIndex((currentIndex) =>
+        Math.min(currentIndex + 1, contactOptions.length - 1),
+      )
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsContactSearchOpen(true)
+      setContactActiveIndex((currentIndex) => Math.max(currentIndex - 1, 0))
+      return
+    }
+
+    if (event.key === 'Enter' && isContactSearchOpen) {
+      const activeContact = contactOptions[contactActiveIndex]
+
+      if (activeContact) {
+        event.preventDefault()
+        event.stopPropagation()
+        selectContact(activeContact)
+      }
+    }
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -352,15 +550,36 @@ export function TaskFormModal({
           controller.signal,
         )
         onCreated()
-      } else {
+        return
+      }
+
+      let currentVersion = version as number
+
+      if (fieldsChanged) {
         const request: UpdateTaskRequest = {
-          version: version as number,
+          version: currentVersion,
           ...payload,
         }
-
-        await updateTask(taskId as string, request, controller.signal)
-        onUpdated()
+        const updatedTask = await updateTask(
+          taskId as string,
+          request,
+          controller.signal,
+        )
+        currentVersion = updatedTask.version
       }
+
+      if (statusChanged) {
+        const updatedTask = await updateTaskStatus(
+          taskId as string,
+          draft.status,
+          currentVersion,
+          controller.signal,
+        )
+        currentVersion = updatedTask.version
+      }
+
+      setVersion(currentVersion)
+      onUpdated()
     } catch (error) {
       if (isAbortError(error)) {
         return
@@ -380,11 +599,11 @@ export function TaskFormModal({
         onNotFound()
       } else {
         setRequestError(
-          error instanceof Error
-            ? error.message
-            : mode === 'create'
-              ? 'Не удалось создать задачу.'
-              : 'Не удалось обновить задачу.',
+          mode === 'edit'
+            ? 'Не удалось сохранить изменения. Попробуйте позже.'
+            : error instanceof Error
+              ? error.message
+              : 'Не удалось создать задачу.',
         )
       }
     } finally {
@@ -418,11 +637,7 @@ export function TaskFormModal({
         onNotFound()
       } else {
         setIsDeleteConfirmOpen(false)
-        setRequestError(
-          error instanceof Error
-            ? error.message
-            : 'Не удалось удалить задачу.',
-        )
+        setRequestError('Не удалось удалить задачу. Попробуйте позже.')
       }
     } finally {
       if (requestControllerRef.current === controller) {
@@ -512,21 +727,61 @@ export function TaskFormModal({
               )}
             </label>
 
-            <label className="task-form__due">
-              <span>Дата выполнения:</span>
-              <input
-                type={
-                  draft.dueDateType === 'date' ? 'date' : 'datetime-local'
-                }
-                value={draft.dueDate}
-                disabled={isSaving || isDeleting}
-                aria-invalid={Boolean(validation.dueDateError)}
-                onChange={updateDueDate}
-              />
-              {validation.dueDateError && (
-                <em role="alert">{validation.dueDateError}</em>
+            <div className="task-form__deadline-row">
+              <label className="task-form__field task-form__field--due-type">
+                <span>Тип срока</span>
+                <select
+                  value={draft.dueDateType}
+                  disabled={isSaving || isDeleting}
+                  onChange={updateDueDateType}
+                >
+                  <option value="none">Без срока</option>
+                  <option value="date">Дата</option>
+                  <option value="datetime">Дата и время</option>
+                </select>
+              </label>
+
+              <label className="task-form__due">
+                <span>Дата выполнения</span>
+                {draft.dueDateType === 'none' ? (
+                  <input
+                    type="text"
+                    value="Без срока"
+                    disabled
+                    readOnly
+                    aria-label="Дата выполнения: без срока"
+                  />
+                ) : (
+                  <input
+                    type={
+                      draft.dueDateType === 'date' ? 'date' : 'datetime-local'
+                    }
+                    value={draft.dueDate}
+                    disabled={isSaving || isDeleting}
+                    aria-invalid={Boolean(validation.dueDateError)}
+                    onChange={updateDueDate}
+                  />
+                )}
+                {validation.dueDateError && (
+                  <em role="alert">{validation.dueDateError}</em>
+                )}
+              </label>
+
+              {mode === 'edit' && (
+                <label className="task-form__field task-form__field--status">
+                  <span>Статус</span>
+                  <select
+                    value={draft.status}
+                    disabled={isSaving || isDeleting}
+                    onChange={updateField('status')}
+                  >
+                    <option value="new">Новая</option>
+                    <option value="in_progress">В работе</option>
+                    <option value="done">Выполнена</option>
+                  </select>
+                </label>
               )}
-            </label>
+            </div>
 
             <label className="task-form__field task-form__field--description">
               <span className="task-form__visually-hidden">Описание</span>
@@ -541,23 +796,97 @@ export function TaskFormModal({
             </label>
 
             <div className="task-form__relations">
-              <label className="task-form__field task-form__field--contact">
-                <span className="task-form__visually-hidden">Клиент</span>
-                <select
-                  value={draft.contactId}
-                  disabled={isSaving || isDeleting}
-                  onChange={updateContact}
+              <div className="task-form__field task-form__field--contact">
+                <span
+                  className="task-form__visually-hidden"
+                  id="task-contact-label"
                 >
-                  <option value="">Выберите клиента</option>
-                  {contacts.map((contact) => (
-                    <option value={contact.id} key={contact.id}>
-                      {contact.company
-                        ? `${contact.name} · ${contact.company}`
-                        : contact.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Клиент
+                </span>
+                <div className="task-form__contact-combobox">
+                  <input
+                    type="text"
+                    value={contactQuery}
+                    placeholder="Найти клиента"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-labelledby="task-contact-label"
+                    aria-autocomplete="list"
+                    aria-expanded={isContactSearchOpen}
+                    aria-controls="task-contact-options"
+                    aria-activedescendant={
+                      isContactSearchOpen && contactOptions[contactActiveIndex]
+                        ? `task-contact-option-${contactOptions[contactActiveIndex].id}`
+                        : undefined
+                    }
+                    disabled={isSaving || isDeleting}
+                    onChange={updateContactQuery}
+                    onKeyDown={handleContactKeyDown}
+                    onFocus={() => {
+                      if (contactOptions.length > 0 || contactSearchError) {
+                        setIsContactSearchOpen(true)
+                      }
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setIsContactSearchOpen(false), 120)
+                    }}
+                  />
+
+                  {(contactQuery || draft.contactId) && (
+                    <button
+                      className="task-form__contact-clear"
+                      type="button"
+                      aria-label="Очистить выбранного клиента"
+                      title="Очистить"
+                      disabled={isSaving || isDeleting}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={clearContact}
+                    >
+                      ×
+                    </button>
+                  )}
+
+                  {isContactSearching && (
+                    <span
+                      className="task-form__contact-spinner"
+                      aria-label="Поиск контактов"
+                      role="status"
+                    />
+                  )}
+                </div>
+
+                {isContactSearchOpen && (
+                  <div
+                    className="task-form__contact-options"
+                    id="task-contact-options"
+                    role="listbox"
+                    aria-label="Найденные контакты"
+                  >
+                    {contactSearchError ? (
+                      <p role="alert">{contactSearchError}</p>
+                    ) : contactOptions.length > 0 ? (
+                      contactOptions.map((contact, index) => (
+                        <button
+                          className={
+                            index === contactActiveIndex ? 'is-active' : ''
+                          }
+                          id={`task-contact-option-${contact.id}`}
+                          type="button"
+                          role="option"
+                          aria-selected={index === contactActiveIndex}
+                          key={contact.id}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onMouseEnter={() => setContactActiveIndex(index)}
+                          onClick={() => selectContact(contact)}
+                        >
+                          <strong>{contact.name}</strong>
+                          {contact.company && <span>{contact.company}</span>}
+                        </button>
+                      ))
+                    ) : null}
+                  </div>
+                )}
+              </div>
 
               <label className="task-form__field task-form__field--deal">
                 <span className="task-form__visually-hidden">Сделка</span>
@@ -570,7 +899,7 @@ export function TaskFormModal({
                   }
                   onChange={updateField('dealId')}
                 >
-                  <option value="">Выберите сделку</option>
+                  <option value="">Сделка не выбрана</option>
                   {filteredDeals.map((deal) => (
                     <option value={deal.id} key={deal.id}>
                       {deal.name}
@@ -605,17 +934,39 @@ export function TaskFormModal({
             )}
 
             <footer className="task-form__actions">
-              <button
-                className="task-form__button task-form__button--primary"
-                type="submit"
-                disabled={!canSubmit}
-              >
-                {isSaving
-                  ? 'Сохранение…'
-                  : mode === 'create'
-                    ? 'Создать'
-                    : 'Сохранить'}
-              </button>
+              <div>
+                {mode === 'edit' && (
+                  <button
+                    className="task-form__button task-form__button--danger"
+                    type="button"
+                    disabled={isSaving || isDeleting}
+                    onClick={() => setIsDeleteConfirmOpen(true)}
+                  >
+                    Удалить
+                  </button>
+                )}
+              </div>
+              <div>
+                <button
+                  className="task-form__button task-form__button--secondary"
+                  type="button"
+                  disabled={isSaving || isDeleting}
+                  onClick={requestClose}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="task-form__button task-form__button--primary"
+                  type="submit"
+                  disabled={!canSubmit}
+                >
+                  {isSaving
+                    ? 'Сохранение…'
+                    : mode === 'create'
+                      ? 'Создать'
+                      : 'Сохранить'}
+                </button>
+              </div>
             </footer>
           </form>
         )}
@@ -637,8 +988,8 @@ export function TaskFormModal({
 
         {isConflictConfirmOpen && (
           <TaskDecisionDialog
-            title="Задача была изменена"
-            text="Ваши изменения не сохранены. Загрузить актуальные данные?"
+            title="Задача была изменена другим пользователем"
+            text="Ваши изменения не сохранены. Обновить данные?"
             primaryLabel="Обновить"
             secondaryLabel="Остаться"
             onPrimary={() => {
@@ -652,7 +1003,7 @@ export function TaskFormModal({
         {isDeleteConfirmOpen && (
           <TaskDecisionDialog
             title="Удалить задачу?"
-            text={`Задача «${taskTitle || draft.title}» исчезнет из канбана. Действие невозможно отменить.`}
+            text={`Вы действительно хотите удалить задачу «${taskTitle || draft.title}»? Действие невозможно отменить.`}
             primaryLabel={isDeleting ? 'Удаление…' : 'Удалить'}
             secondaryLabel="Отмена"
             danger
@@ -685,7 +1036,6 @@ function TaskDecisionDialog({
   onPrimary: () => void
   onSecondary: () => void
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null)
   const secondaryButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -706,7 +1056,6 @@ function TaskDecisionDialog({
     <div className="task-decision-overlay" role="presentation">
       <div
         className="task-decision"
-        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="task-decision-title"
@@ -737,41 +1086,11 @@ function TaskDecisionDialog({
   )
 }
 
-async function loadTaskChoices(signal: AbortSignal) {
-  const contactsPromise = loadAllContacts(signal)
-  const dealsPromise = loadAllDeals(signal)
-  const [contacts, deals] = await Promise.all([contactsPromise, dealsPromise])
-
-  return {
-    contacts,
-    deals,
-  }
-}
-
-async function loadAllContacts(signal: AbortSignal) {
-  const contacts: ApiContact[] = []
-  let page = 1
-  let total = 1
-
-  while (contacts.length < total) {
-    const response = await getContacts(page, 100, signal)
-    contacts.push(...response.contacts)
-    total = response.total
-    page += 1
-
-    if (response.contacts.length === 0) {
-      break
-    }
-  }
-
-  return contacts
-}
-
 async function loadAllDeals(signal: AbortSignal) {
   const kanban = await getKanban(signal)
   const stageDeals = await Promise.all(
     kanban.stages.map(async (stage) => {
-      const deals: ApiKanbanDeal[] = []
+      const stageDeals: ApiKanbanDeal[] = []
       let cursor: string | null = null
       let hasMore = true
 
@@ -782,12 +1101,12 @@ async function loadAllDeals(signal: AbortSignal) {
           cursor,
           signal,
         )
-        deals.push(...response.deals)
+        stageDeals.push(...response.deals)
         cursor = response.next_cursor
         hasMore = response.has_more && Boolean(cursor)
       }
 
-      return deals
+      return stageDeals
     }),
   )
 
@@ -798,40 +1117,20 @@ async function loadAllDeals(signal: AbortSignal) {
     )
 }
 
-function taskToDraft(task: ApiTaskDetail): TaskDraft {
+function taskToDraft(
+  task: ApiTaskDetail,
+  workspaceTimezone: string,
+): TaskDraft {
   return {
     title: task.title,
     dueDateType: task.due_date_type,
-    dueDate: formatDueDateInput(task),
+    dueDate: formatTaskDueDateForInput(task, workspaceTimezone),
     description: task.description ?? '',
     contactId: task.contact?.id ?? '',
     dealId: task.deal?.id ?? '',
     comment: task.comment ?? '',
+    status: task.status,
   }
-}
-
-function formatDueDateInput(task: ApiTaskDetail) {
-  if (!task.due_date || task.due_date_type === 'none') {
-    return ''
-  }
-
-  const date = new Date(task.due_date)
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-
-  if (task.due_date_type === 'date') {
-    return `${year}-${month}-${day}`
-  }
-
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 function validateTaskDraft(draft: TaskDraft) {
@@ -872,8 +1171,15 @@ function buildTaskPayload(draft: TaskDraft): CreateTaskRequest {
   }
 }
 
-function serializeTaskDraft(draft: TaskDraft) {
+function serializeTaskFields(draft: TaskDraft) {
   return JSON.stringify(buildTaskPayload(draft))
+}
+
+function serializeTaskDraft(draft: TaskDraft) {
+  return JSON.stringify({
+    ...buildTaskPayload(draft),
+    status: draft.status,
+  })
 }
 
 function normalizeNullableText(value: string) {
@@ -881,8 +1187,14 @@ function normalizeNullableText(value: string) {
   return normalizedValue || null
 }
 
+function formatContactOption(contact: TaskContactOption) {
+  return contact.company
+    ? `${contact.name} · ${contact.company}`
+    : contact.name
+}
+
 function formatDealAmount(deal: ApiKanbanDeal | null) {
-  if (!deal?.amount) {
+  if (!deal || deal.amount == null) {
     return ''
   }
 
@@ -895,10 +1207,13 @@ function formatDealAmount(deal: ApiKanbanDeal | null) {
   const formattedAmount = new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(amount)
+  const currencySymbols: Record<string, string> = {
+    RUB: '₽',
+    USD: '$',
+    EUR: '€',
+  }
 
-  return deal.currency === 'RUB'
-    ? `${formattedAmount} ₽`
-    : `${formattedAmount} ${deal.currency}`
+  return `${formattedAmount} ${currencySymbols[deal.currency] ?? deal.currency}`
 }
 
 function isAbortError(error: unknown) {

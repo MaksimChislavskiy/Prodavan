@@ -52,6 +52,19 @@ def _audit(*, workspace, user, action, contact_id=None, changes=None, context=No
     )
 
 
+def _detach_deals_for_contacts(*, workspace, contact_ids):
+    """Remove contact links from deals without creating deal business audit events."""
+    from deals.models import Deal
+
+    if not contact_ids:
+        return 0
+
+    return Deal.objects.filter(
+        workspace=workspace,
+        contact_id__in=contact_ids,
+    ).update(contact=None)
+
+
 def create_contact(
     *,
     workspace,
@@ -153,6 +166,10 @@ def delete_contact(*, workspace, user, contact_id, audit_context=None):
         contact.is_deleted = True
         contact.deleted_at = now
         contact.save(update_fields=('is_deleted', 'deleted_at', 'updated_at'))
+        _detach_deals_for_contacts(
+            workspace=workspace,
+            contact_ids=[contact.id],
+        )
         _audit(
             workspace=workspace,
             user=user,
@@ -199,6 +216,10 @@ def bulk_delete_contacts(*, workspace, user, contact_ids, audit_context=None):
                 id__in=active_ids,
                 is_deleted=False,
             ).update(is_deleted=True, deleted_at=now, updated_at=now)
+            _detach_deals_for_contacts(
+                workspace=workspace,
+                contact_ids=active_ids,
+            )
             detach_tasks_for_contacts(
                 workspace=workspace,
                 contact_ids=active_ids,
