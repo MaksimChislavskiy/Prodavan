@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   createContact,
   searchContacts,
@@ -227,7 +228,7 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
     contactSearchState !== 'idle'
   const areContactFieldsLocked = isSaving || Boolean(selectedContact)
 
-  return (
+  return createPortal(
     <div
       className="create-deal-overlay"
       role="presentation"
@@ -489,7 +490,8 @@ export function CreateDealModal({ onClose, onCreated }: CreateDealModalProps) {
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
