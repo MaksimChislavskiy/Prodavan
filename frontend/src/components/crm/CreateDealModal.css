@@ -5,8 +5,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   padding: 24px;
-  overflow-y: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
   background: rgba(11, 43, 85, 0.38);
   backdrop-filter: blur(3px);
 }
@@ -14,9 +16,13 @@
 .create-deal-modal {
   position: relative;
   box-sizing: border-box;
-  width: 540px;
-  height: 732px;
+  width: min(540px, calc(100vw - 48px));
+  height: min(732px, calc(100vh - 48px));
+  height: min(732px, calc(100dvh - 48px));
+  min-height: 0;
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-radius: 24px;
   background:
@@ -56,10 +62,12 @@
 
 .create-deal-modal__header {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   box-sizing: border-box;
   width: 100%;
   height: 57px;
+  min-height: 57px;
+  flex: 0 0 57px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -107,15 +115,20 @@
   z-index: 1;
   box-sizing: border-box;
   width: 100%;
-  height: 675px;
+  min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 30px 20px 40px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .create-deal-form__main {
-  width: 500px;
+  width: min(500px, 100%);
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -226,6 +239,7 @@
   z-index: 20;
   box-sizing: border-box;
   width: 320px;
+  max-width: calc(100vw - 64px);
   max-height: 220px;
   overflow-y: auto;
   padding: 6px;
@@ -393,7 +407,7 @@
 
 .create-deal-form__error {
   box-sizing: border-box;
-  width: 500px;
+  width: min(500px, 100%);
   min-height: 18px;
   margin: 10px 0 0;
   padding: 5px 10px;
@@ -408,6 +422,8 @@
 .create-deal-form__submit {
   width: 186px;
   height: 40px;
+  min-height: 40px;
+  flex: 0 0 auto;
   margin-top: auto;
   padding: 0 20px;
   border: 0;
@@ -435,19 +451,23 @@
 
 @media (max-width: 620px) {
   .create-deal-overlay {
-    align-items: flex-start;
     padding: 12px;
   }
 
   .create-deal-modal {
-    width: min(540px, 100%);
-    height: auto;
-    min-height: 732px;
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+    height: calc(100dvh - 24px);
+    max-height: none;
+    border-radius: 18px;
+  }
+
+  .create-deal-modal__header {
+    border-radius: 18px 18px 0 0;
   }
 
   .create-deal-form {
-    height: auto;
-    min-height: 675px;
+    padding: 24px 16px 28px;
   }
 
   .create-deal-form__main,
@@ -462,6 +482,60 @@
   }
 
   .create-deal-form__contact-options {
-    width: min(320px, calc(100vw - 64px));
+    width: min(320px, calc(100vw - 56px));
+    max-width: calc(100vw - 56px);
+  }
+
+  .create-deal-form__submit {
+    margin-top: 24px;
+  }
+}
+
+@media (max-width: 460px) {
+  .create-deal-form {
+    padding: 20px 16px 24px;
+  }
+
+  .create-deal-form__main {
+    gap: 16px;
+  }
+
+  .create-deal-form__row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .create-deal-form__plain-input,
+  .create-deal-form__amount-input,
+  .create-deal-form__contact-search {
+    width: 100%;
+    max-width: none;
+    flex-basis: auto;
+  }
+
+  .create-deal-form__plain-input {
+    text-align: left;
+  }
+
+  .create-deal-form__contact-options {
+    left: 0;
+    right: auto;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .create-deal-form__comment {
+    height: 110px;
+    padding: 16px;
+  }
+
+  .create-deal-form__chat-button {
+    align-self: stretch;
+    width: 100%;
+  }
+
+  .create-deal-form__submit {
+    width: 100%;
   }
 }
