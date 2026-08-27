@@ -18,6 +18,10 @@ class MaintenanceWorkerCommandTests(SimpleTestCase):
                 return_value={'notifications_created': 1},
             ),
             patch(
+                f'{COMMAND_MODULE}.create_overdue_task_summary_notifications',
+                return_value={'summaries_changed': 4},
+            ),
+            patch(
                 f'{COMMAND_MODULE}.create_missed_chat_notifications',
                 return_value={'notifications_created': 2},
             ),
@@ -52,7 +56,10 @@ class MaintenanceWorkerCommandTests(SimpleTestCase):
 
         for task in self.tasks:
             task.assert_called_once()
-        self.assertIn('Периодические уведомления: создано 6.', stdout.getvalue())
+        self.assertIn(
+            'Периодические уведомления: создано/обновлено 10.',
+            stdout.getvalue(),
+        )
         self.assertIn('Telegram-интеграций проверено: 4.', stdout.getvalue())
         self.assertIn('Неактивных AI-сессий закрыто: 5.', stdout.getvalue())
         self.assertIn('Временных auth-записей удалено: 6.', stdout.getvalue())
@@ -111,11 +118,11 @@ class MaintenanceWorkerCommandTests(SimpleTestCase):
                 stdout=StringIO(),
             )
 
-        for task in self.tasks[:3]:
+        for task in self.tasks[:4]:
             self.assertEqual(task.call_count, 3)
-        self.assertEqual(self.tasks[3].call_count, 2)
         self.assertEqual(self.tasks[4].call_count, 2)
         self.assertEqual(self.tasks[5].call_count, 2)
+        self.assertEqual(self.tasks[6].call_count, 2)
 
     def test_worker_rejects_non_positive_intervals(self):
         with self.assertRaisesMessage(
