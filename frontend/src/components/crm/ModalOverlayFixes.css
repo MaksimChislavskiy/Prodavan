@@ -1,0 +1,54 @@
+/*
+ * Общие правила для модальных окон CRM.
+ *
+ * Большинство модалок рендерятся внутри .crm-main. У .crm-main исторически
+ * включен overflow-x: hidden, из-за чего fixed-overlay обрезался по левой
+ * границе рабочей области и не мог перекрыть sidebar. Пока открыта модалка,
+ * разрешаем ей выходить за границы .crm-main и центрироваться относительно
+ * всего viewport.
+ */
+.crm-main:has([role='dialog'][aria-modal='true']) {
+  overflow-x: visible;
+}
+
+/*
+ * Старые окна задач дополнительно учитывали ширину sidebar в padding-left.
+ * После снятия clipping эта компенсация больше не нужна: она сдвигала окно
+ * вправо от центра viewport.
+ */
+@media (min-width: 901px) {
+  .crm-main .task-form-overlay,
+  .crm-main .task-view-overlay {
+    padding-left: 30px;
+  }
+}
+
+/*
+ * AI assistant раньше был absolute-overlay только внутри рабочей области.
+ * Приводим его к тому же поведению, что и остальные CRM-модалки.
+ */
+.crm-main .ai-assistant-overlay {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  padding: 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.crm-main .ai-assistant-window {
+  height: min(680px, calc(100vh - 48px));
+  height: min(680px, calc(100dvh - 48px));
+}
+
+@media (max-width: 900px) {
+  .crm-main .ai-assistant-overlay {
+    padding: 20px;
+  }
+
+  .crm-main .ai-assistant-window {
+    height: min(640px, calc(100vh - 40px));
+    height: min(640px, calc(100dvh - 40px));
+  }
+}
