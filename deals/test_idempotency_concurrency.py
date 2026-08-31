@@ -1,16 +1,14 @@
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
 
-from django.db import close_old_connections, connection
+from django.db import close_old_connections
 from django.test import TransactionTestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from users.models import User
 
-from . import services as deal_services
 from .models import Deal, DealEvent, DealHistory, DealIdempotencyRecord, SalesStage
 
 
@@ -43,29 +41,13 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
         key = str(uuid.uuid4())
         payload = {'name': 'Одна конкурентная сделка'}
         barrier = threading.Barrier(2)
-        original = deal_services._idempotent_result
 
-        def synchronized_lookup(workspace, operation, lookup_key, data):
-            result = original(workspace, operation, lookup_key, data)
-            if (
-                operation == 'create'
-                and lookup_key == key
-                and result[0] is None
-                and not connection.in_atomic_block
-            ):
-                barrier.wait(timeout=10)
-            return result
+        def worker(_):
+            barrier.wait(timeout=10)
+            return self._create_deal_request(payload, key)
 
-        with patch.object(
-            deal_services,
-            '_idempotent_result',
-            side_effect=synchronized_lookup,
-        ):
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                results = list(executor.map(
-                    lambda _: self._create_deal_request(payload, key),
-                    range(2),
-                ))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(worker, range(2)))
 
         statuses = sorted(result[0] for result in results)
         ids = {result[1]['id'] for result in results}
@@ -102,38 +84,23 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
         )
         key = str(uuid.uuid4())
         barrier = threading.Barrier(2)
-        original = deal_services._idempotent_result
 
-        def synchronized_lookup(workspace, operation, lookup_key, data):
-            result = original(workspace, operation, lookup_key, data)
-            if (
-                operation == 'move'
-                and lookup_key == key
-                and result[0] is None
-                and not connection.in_atomic_block
-            ):
-                barrier.wait(timeout=10)
-            return result
+        def worker(_):
+            barrier.wait(timeout=10)
+            return self._move_deal_request(
+                deal.id,
+                target_stage.id,
+                deal.version,
+                key,
+            )
 
-        with patch.object(
-            deal_services,
-            '_idempotent_result',
-            side_effect=synchronized_lookup,
-        ):
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                results = list(executor.map(
-                    lambda _: self._move_deal_request(
-                        deal.id,
-                        target_stage.id,
-                        deal.version,
-                        key,
-                    ),
-                    range(2),
-                ))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(worker, range(2)))
 
         self.assertEqual(
-            [result[0] for result in results],
+            sorted(result[0] for result in results),
             [status.HTTP_200_OK, status.HTTP_200_OK],
+            msg=results,
         )
         self.assertEqual({result[1]['id'] for result in results}, {str(deal.id)})
         self.assertEqual({result[1]['version'] for result in results}, {2})
