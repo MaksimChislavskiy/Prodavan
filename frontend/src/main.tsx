@@ -12,11 +12,13 @@ import {
   CRM_REALTIME_RECONNECTED_EVENT,
   installCrmRealtime,
 } from './shared/crmRealtime'
+import { installDealsTouchDnd } from './shared/dealsTouchDnd'
 import { installTasksTouchDnd } from './shared/tasksTouchDnd'
 
 installAiMaterialsController()
 installCrmRealtime()
 installTasksTouchDnd()
+installDealsTouchDnd()
 
 const root = createRoot(document.getElementById('root')!)
 let appRevision = 0
