@@ -1,1 +1,1 @@
-export { EditDealModal as ViewDealModal } from './EditDealModalV2'
+export { RealtimeDealModal as ViewDealModal } from './RealtimeDealModal'
