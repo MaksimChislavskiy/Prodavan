@@ -54,7 +54,7 @@ export function getWorkspaceSettings(signal?: AbortSignal) {
 
 export function updateWorkspaceSettings(
   payload: UpdateWorkspaceSettingsPayload,
-  idempotencyKey = crypto.randomUUID(),
+  idempotencyKey: string = crypto.randomUUID(),
   signal?: AbortSignal,
 ) {
   return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', {
