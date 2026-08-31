@@ -145,7 +145,7 @@ export function deleteSalesStage(stageId: string, version: number) {
 
 export function createDeal(
   data: CreateDealRequest,
-  idempotencyKey: string,
+  idempotencyKey = createUuidV4(),
   signal?: AbortSignal,
 ) {
   return apiRequest<ApiKanbanDeal>('/api/crm/deals', {
