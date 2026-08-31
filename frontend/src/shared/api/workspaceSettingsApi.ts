@@ -37,7 +37,7 @@ export type ApiWorkspaceSettings = {
 export type UpdateWorkspaceSettingsPayload = {
   version: number
   timezone?: string
-  company?: ApiCompanySettings
+  company?: Partial<ApiCompanySettings>
 }
 
 type TelegramSettingsResponse = {
@@ -52,30 +52,39 @@ export function getWorkspaceSettings(signal?: AbortSignal) {
   return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', { signal })
 }
 
-export function updateWorkspaceSettings(payload: UpdateWorkspaceSettingsPayload) {
+export function updateWorkspaceSettings(
+  payload: UpdateWorkspaceSettingsPayload,
+  idempotencyKey = crypto.randomUUID(),
+  signal?: AbortSignal,
+) {
   return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', {
     method: 'PATCH',
     headers: {
       'If-Match': `"${payload.version}"`,
-      'Idempotency-Key': crypto.randomUUID(),
+      'Idempotency-Key': idempotencyKey,
     },
     body: payload,
+    signal,
   })
 }
 
-export function getTelegramSettings() {
-  return apiRequest<TelegramSettingsResponse>('/api/settings/integrations/telegram')
+export function getTelegramSettings(signal?: AbortSignal) {
+  return apiRequest<TelegramSettingsResponse>('/api/settings/integrations/telegram', {
+    signal,
+  })
 }
 
-export function connectTelegram(botToken: string) {
+export function connectTelegram(botToken: string, signal?: AbortSignal) {
   return apiRequest<TelegramMutationResponse>('/api/settings/integrations/telegram/connect', {
     method: 'POST',
     body: { bot_token: botToken },
+    signal,
   })
 }
 
-export function disconnectTelegram() {
+export function disconnectTelegram(signal?: AbortSignal) {
   return apiRequest<TelegramMutationResponse>('/api/settings/integrations/telegram/disconnect', {
     method: 'POST',
+    signal,
   })
 }
