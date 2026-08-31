@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { CRM_REALTIME_EVENT } from '../../shared/crmRealtime'
-import { showCrmToast } from '../../shared/crmToast'
+import { CRM_TOAST_EVENT, showCrmToast } from '../../shared/crmToast'
 import { EditDealModal as EditDealModalV2 } from './EditDealModalV2'
 
 type RealtimeDealModalProps = {
@@ -17,6 +17,10 @@ type RealtimePayload = {
   }
 }
 
+type ToastPayload = {
+  message?: unknown
+}
+
 export function RealtimeDealModal({
   dealId,
   dealName,
@@ -24,10 +28,23 @@ export function RealtimeDealModal({
 }: RealtimeDealModalProps) {
   const updateWarningShownRef = useRef(false)
   const deletedRef = useRef(false)
+  const suppressOwnUpdateUntilRef = useRef(0)
 
   useEffect(() => {
     updateWarningShownRef.current = false
     deletedRef.current = false
+    suppressOwnUpdateUntilRef.current = 0
+
+    const handleToast = (event: Event) => {
+      if (!(event instanceof CustomEvent)) {
+        return
+      }
+
+      const payload = event.detail as ToastPayload | null
+      if (payload?.message === 'Сделка успешно обновлена') {
+        suppressOwnUpdateUntilRef.current = Date.now() + 1_500
+      }
+    }
 
     const handleRealtime = (event: Event) => {
       if (!(event instanceof CustomEvent)) {
@@ -58,10 +75,12 @@ export function RealtimeDealModal({
       }
 
       // Собственное PATCH-обновление тоже приходит по WebSocket. Пока форма занята
-      // сохранением, предупреждение не показываем: актуальный ответ PATCH сам обновит
-      // локальный version/snapshot. Внешнее конкурентное изменение всё равно будет
-      // выявлено optimistic locking при сохранении.
-      if (document.querySelector('.create-deal-modal[aria-busy="true"]')) {
+      // сохранением или только что получила успешный ответ PATCH, предупреждение не
+      // показываем. Внешнее конкурентное изменение всё равно ловится version=.../409.
+      if (
+        document.querySelector('.create-deal-modal[aria-busy="true"]')
+        || Date.now() < suppressOwnUpdateUntilRef.current
+      ) {
         return
       }
 
@@ -69,8 +88,12 @@ export function RealtimeDealModal({
       showCrmToast('Сделка была изменена другим пользователем. Обновите данные.')
     }
 
+    window.addEventListener(CRM_TOAST_EVENT, handleToast)
     window.addEventListener(CRM_REALTIME_EVENT, handleRealtime)
-    return () => window.removeEventListener(CRM_REALTIME_EVENT, handleRealtime)
+    return () => {
+      window.removeEventListener(CRM_TOAST_EVENT, handleToast)
+      window.removeEventListener(CRM_REALTIME_EVENT, handleRealtime)
+    }
   }, [dealId, onClose])
 
   return (
