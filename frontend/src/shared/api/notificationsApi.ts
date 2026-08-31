@@ -50,6 +50,10 @@ type DeleteAllNotificationsResponse = {
 }
 
 const NOTIFICATIONS_REQUEST_TIMEOUT_MS = 10_000
+const notificationRequestOptions = {
+  timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
+  suppressGlobalErrorToast: true,
+} as const
 
 export function getNotifications(
   limit = 50,
@@ -65,16 +69,16 @@ export function getNotifications(
   return apiRequest<NotificationsPageResponse>(
     `/api/notifications?${searchParams.toString()}`,
     {
+      ...notificationRequestOptions,
       signal,
-      timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
     },
   )
 }
 
 export function getNotificationUnreadCount(signal?: AbortSignal) {
   return apiRequest<UnreadCountResponse>('/api/notifications/unread-count', {
+    ...notificationRequestOptions,
     signal,
-    timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
   })
 }
 
@@ -85,9 +89,9 @@ export function markNotificationRead(
   return apiRequest<MarkNotificationReadResponse>(
     `/api/notifications/${notificationId}/read`,
     {
+      ...notificationRequestOptions,
       method: 'PATCH',
       signal,
-      timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
     },
   )
 }
@@ -96,9 +100,9 @@ export function markAllNotificationsRead(signal?: AbortSignal) {
   return apiRequest<MarkAllNotificationsReadResponse>(
     '/api/notifications/mark-all-read',
     {
+      ...notificationRequestOptions,
       method: 'POST',
       signal,
-      timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
     },
   )
 }
@@ -108,17 +112,17 @@ export function deleteNotification(
   signal?: AbortSignal,
 ) {
   return apiRequest<null>(`/api/notifications/${notificationId}`, {
+    ...notificationRequestOptions,
     method: 'DELETE',
     signal,
-    timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
   })
 }
 
 export function deleteAllNotifications(signal?: AbortSignal) {
   return apiRequest<DeleteAllNotificationsResponse>('/api/notifications/all', {
+    ...notificationRequestOptions,
     method: 'DELETE',
     signal,
-    timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
   })
 }
 
