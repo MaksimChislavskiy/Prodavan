@@ -91,12 +91,34 @@ export type MoveDealRequest = {
   version: number
 }
 
+const primedDealResponses = new Map<string, ApiDealDetail>()
+
 export function getKanban(signal?: AbortSignal) {
   return apiRequest<ApiKanbanResponse>('/api/crm/kanban', { signal })
 }
 
 export function getDeal(dealId: string, signal?: AbortSignal) {
+  const primedDeal = primedDealResponses.get(dealId)
+
+  if (primedDeal) {
+    primedDealResponses.delete(dealId)
+
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'))
+    }
+
+    return Promise.resolve(primedDeal)
+  }
+
   return apiRequest<ApiDealDetail>(`/api/crm/deals/${dealId}`, { signal })
+}
+
+export function primeDealForNextRead(deal: ApiDealDetail) {
+  primedDealResponses.set(deal.id, deal)
+}
+
+export function discardPrimedDeal(dealId: string) {
+  primedDealResponses.delete(dealId)
 }
 
 export function getDealsPage(
@@ -138,7 +160,7 @@ export function deleteSalesStage(stageId: string, version: number) {
   return apiRequest<void>(`/api/crm/stages/${stageId}`, {
     method: 'DELETE',
     headers: {
-      'If-Match': `"${version}"`,
+      'If-Match': `\"${version}\"`,
     },
   })
 }
