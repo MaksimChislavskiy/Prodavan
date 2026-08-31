@@ -2,7 +2,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from django.db import connections
+from django.db import connection, connections
 from django.test import TransactionTestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -36,6 +36,16 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
             workspace=self.user.workspace,
             is_system=True,
         )
+
+    def tearDown(self):
+        # ThreadPoolExecutor создаёт отдельные Django/PostgreSQL connections.
+        # В локальном окружении CONN_MAX_AGE > 0, поэтому psycopg может оставить
+        # backend-session живой после завершения worker thread. Перед штатным
+        # TransactionTestCase teardown закрываем такие тестовые сессии, иначе
+        # PostgreSQL не даст удалить test_prodavan после полностью успешного прогона.
+        self._terminate_stray_postgresql_sessions()
+        connections.close_all()
+        super().tearDown()
 
     def test_concurrent_create_with_same_key_returns_same_deal(self):
         key = str(uuid.uuid4())
@@ -138,7 +148,7 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
             )
             return response.status_code, dict(response.data)
         finally:
-            connections.close_all()
+            self._close_worker_connection()
 
     def _move_deal_request(self, deal_id, stage_id, version, key):
         connections.close_all()
@@ -157,4 +167,26 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
             )
             return response.status_code, dict(response.data)
         finally:
-            connections.close_all()
+            self._close_worker_connection()
+
+    @staticmethod
+    def _close_worker_connection():
+        # Явно закрываем proxy текущего worker thread, а затем все инициализированные
+        # aliases этого thread. Это надёжнее close_old_connections при CONN_MAX_AGE.
+        connection.close()
+        connections.close_all()
+
+    @staticmethod
+    def _terminate_stray_postgresql_sessions():
+        if connection.vendor != 'postgresql':
+            return
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                '''
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid <> pg_backend_pid()
+                ''',
+            )
