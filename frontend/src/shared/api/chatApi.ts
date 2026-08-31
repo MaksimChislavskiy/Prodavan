@@ -1,4 +1,4 @@
-import { apiRequest } from './apiClient'
+import { ApiError, apiRequest } from './apiClient'
 import { getAccessToken } from './authToken'
 
 export type ApiChatContact = {
@@ -62,9 +62,62 @@ export function getChats(signal?: AbortSignal) {
   return apiRequest<ApiChatsResponse>('/api/chats?limit=100', { signal })
 }
 
-export function getChatsPage(
+export function getChat(chatId: string, signal?: AbortSignal) {
+  return apiRequest<ApiChat>(`/api/chats/${chatId}`, { signal })
+}
+
+export async function getChatsPage(
   page = 1,
   limit = 20,
+  signal?: AbortSignal,
+) {
+  const targetChatId = getDeepLinkedChatId()
+
+  if (!targetChatId) {
+    return requestChatsPage(page, limit, signal)
+  }
+
+  // ChatPageV2 normally selects the first row after the initial page is loaded.
+  // For a notification deep link we expose the requested chat as a one-row
+  // virtual first page. Subsequent virtual pages map to the ordinary sorted
+  // server pages, so the selected chat remains active while the rest of the
+  // list is filled normally and pagination stays available.
+  if (page === 1) {
+    const firstPagePromise = requestChatsPage(1, limit, signal)
+
+    try {
+      const [targetChat, firstPage] = await Promise.all([
+        getChat(targetChatId, signal),
+        firstPagePromise,
+      ])
+
+      return {
+        chats: [targetChat],
+        page: 1,
+        limit,
+        total: firstPage.total + limit,
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return firstPagePromise
+      }
+      throw error
+    }
+  }
+
+  const response = await requestChatsPage(page - 1, limit, signal)
+
+  return {
+    chats: response.chats.filter((chat) => chat.id !== targetChatId),
+    page,
+    limit: response.limit,
+    total: response.total + limit,
+  }
+}
+
+function requestChatsPage(
+  page: number,
+  limit: number,
   signal?: AbortSignal,
 ) {
   const searchParams = new URLSearchParams({
@@ -76,6 +129,15 @@ export function getChatsPage(
     `/api/chats?${searchParams.toString()}`,
     { signal },
   )
+}
+
+function getDeepLinkedChatId() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const chatId = new URLSearchParams(window.location.search).get('chat_id')?.trim()
+  return chatId || null
 }
 
 export function getChatMessages(
