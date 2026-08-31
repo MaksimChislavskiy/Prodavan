@@ -1,4 +1,5 @@
-import { apiRequest } from './apiClient'
+import { showCrmToast } from '../crmToast'
+import { ApiError, apiRequest } from './apiClient'
 
 export type ApiIntegrationStatus = 'connected' | 'disconnected'
 export type ApiIntegrationHealth = 'healthy' | 'degraded' | 'error' | null
@@ -48,24 +49,45 @@ type TelegramMutationResponse = TelegramSettingsResponse & {
   message: string
 }
 
+const SETTINGS_CONFLICT_MESSAGE =
+  'Настройки были изменены другим пользователем. Обновите страницу и повторите попытку.'
+
 export function getWorkspaceSettings(signal?: AbortSignal) {
   return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', { signal })
 }
 
-export function updateWorkspaceSettings(
+export async function updateWorkspaceSettings(
   payload: UpdateWorkspaceSettingsPayload,
   idempotencyKey: string = crypto.randomUUID(),
   signal?: AbortSignal,
 ) {
-  return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', {
-    method: 'PATCH',
-    headers: {
-      'If-Match': `"${payload.version}"`,
-      'Idempotency-Key': idempotencyKey,
-    },
-    body: payload,
-    signal,
-  })
+  try {
+    const settings = await apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', {
+      method: 'PATCH',
+      headers: {
+        'If-Match': `"${payload.version}"`,
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: payload,
+      signal,
+      suppressGlobalErrorToast: true,
+    })
+    showCrmToast({ kind: 'success', message: 'Настройки сохранены' })
+    return settings
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      showCrmToast({
+        kind: 'error',
+        message:
+          error instanceof ApiError && error.status === 409
+            ? SETTINGS_CONFLICT_MESSAGE
+            : error instanceof Error
+              ? error.message
+              : 'Не удалось сохранить настройки.',
+      })
+    }
+    throw error
+  }
 }
 
 export function getTelegramSettings(signal?: AbortSignal) {
