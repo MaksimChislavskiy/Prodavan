@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.tsx'
 import './PasswordResetModal.mobile.css'
 import { AccountDeletedNotice } from './components/AccountDeletedNotice'
+import { CrmToastController } from './components/crm/CrmToastController'
 import { CrmAppPage } from './pages/CrmAppPage'
 import { installAiMaterialsController } from './shared/aiMaterialsController'
 import {
@@ -32,6 +33,7 @@ function renderApplication() {
       <>
         {rootPage}
         <AccountDeletedNotice />
+        <CrmToastController />
       </>
     </StrictMode>,
   )
