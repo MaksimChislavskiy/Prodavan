@@ -1,4 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ApiError } from '../../shared/api/apiClient'
+import {
+  discardPrimedDeal,
+  getDeal,
+  primeDealForNextRead,
+} from '../../shared/api/dealsApi'
 import { CRM_REALTIME_EVENT } from '../../shared/crmRealtime'
 import { CRM_TOAST_EVENT, showCrmToast } from '../../shared/crmToast'
 import { EditDealModal as EditDealModalV2 } from './EditDealModalV2'
@@ -21,6 +27,8 @@ type ToastPayload = {
   message?: unknown
 }
 
+type LoadState = 'loading' | 'ready' | 'error'
+
 export function RealtimeDealModal({
   dealId,
   dealName,
@@ -29,6 +37,55 @@ export function RealtimeDealModal({
   const updateWarningShownRef = useRef(false)
   const deletedRef = useRef(false)
   const suppressOwnUpdateUntilRef = useRef(0)
+  const [loadState, setLoadState] = useState<LoadState>('loading')
+  const [loadError, setLoadError] = useState('')
+  const [loadRevision, setLoadRevision] = useState(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    discardPrimedDeal(dealId)
+    setLoadState('loading')
+    setLoadError('')
+
+    void getDeal(dealId, controller.signal)
+      .then((deal) => {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        primeDealForNextRead(deal)
+        setLoadState('ready')
+      })
+      .catch((error: unknown) => {
+        if (isAbortError(error)) {
+          return
+        }
+
+        if (error instanceof ApiError && error.status === 404) {
+          showCrmToast('Сделка не найдена или была удалена')
+          onClose()
+          return
+        }
+
+        if (error instanceof ApiError && error.status === 403) {
+          showCrmToast('У вас нет доступа к этой сделке')
+          onClose()
+          return
+        }
+
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'Не удалось загрузить данные сделки.',
+        )
+        setLoadState('error')
+      })
+
+    return () => {
+      controller.abort()
+      discardPrimedDeal(dealId)
+    }
+  }, [dealId, loadRevision, onClose])
 
   useEffect(() => {
     updateWarningShownRef.current = false
@@ -96,6 +153,51 @@ export function RealtimeDealModal({
     }
   }, [dealId, onClose])
 
+  if (loadState !== 'ready') {
+    return (
+      <div className="create-deal-overlay" role="presentation">
+        <div
+          className="create-deal-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="deal-guard-title"
+          aria-busy={loadState === 'loading'}
+        >
+          <header className="create-deal-modal__header">
+            <h2 id="deal-guard-title">Просмотр сделки</h2>
+            <button
+              className="create-deal-modal__close"
+              type="button"
+              aria-label="Закрыть"
+              onClick={onClose}
+            >
+              ×
+            </button>
+          </header>
+
+          <div
+            className="create-deal-v2__loading"
+            role={loadState === 'error' ? 'alert' : 'status'}
+          >
+            {loadState === 'loading' ? (
+              'Загружаем данные сделки…'
+            ) : (
+              <>
+                <p>{loadError}</p>
+                <button
+                  type="button"
+                  onClick={() => setLoadRevision((revision) => revision + 1)}
+                >
+                  Повторить
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <EditDealModalV2
       dealId={dealId}
@@ -113,4 +215,8 @@ function getDealId(payload: RealtimePayload | null) {
   return typeof payload?.data?.deal_id === 'string'
     ? payload.data.deal_id
     : null
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError'
 }
