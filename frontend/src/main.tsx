@@ -13,8 +13,10 @@ import {
   installCrmRealtime,
 } from './shared/crmRealtime'
 import { installDealsTouchDnd } from './shared/dealsTouchDnd'
+import { installNotificationDeepLinks } from './shared/notificationDeepLinks'
 import { installTasksTouchDnd } from './shared/tasksTouchDnd'
 
+installNotificationDeepLinks()
 installAiMaterialsController()
 installCrmRealtime()
 installTasksTouchDnd()
