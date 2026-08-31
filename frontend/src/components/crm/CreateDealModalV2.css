@@ -1,3 +1,7 @@
+.create-deal-modal {
+  width: min(600px, 95vw);
+}
+
 .create-deal-v2__field-error {
   display: block;
   margin-top: 4px;
