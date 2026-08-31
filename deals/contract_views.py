@@ -1,8 +1,8 @@
 import uuid
 
-from django.db import IntegrityError
-from rest_framework import status
+from django.db import transaction
 
+from .models import Deal, SalesStage
 from .views import DealStageView, DealsView, validation_response
 
 
@@ -24,13 +24,16 @@ class DealsContractView(DealsView):
                 ],
             })
 
-        try:
-            return super().post(request)
-        except IntegrityError:
-            # Два одинаковых POST могут одновременно не увидеть idempotency-запись.
-            # Один запрос фиксирует её первым, второй откатывается по unique constraint.
-            # После отката повторный вызов уже читает сохранённый результат и не создаёт
-            # вторую сделку.
+        # Создание сделки всегда начинается с блокировки системного этапа рабочего
+        # пространства. Поэтому второй одновременный запрос с тем же ключом ждёт
+        # коммита первого ещё до проверки idempotency-record и затем получает уже
+        # сохранённый ответ вместо попытки создать дубль.
+        with transaction.atomic():
+            SalesStage.objects.select_for_update().filter(
+                workspace=request.user.workspace,
+                is_system=True,
+                is_deleted=False,
+            ).first()
             return super().post(request)
 
 
@@ -50,13 +53,15 @@ class DealStageContractView(DealStageView):
                     ],
                 })
 
-        response = super().patch(request, deal_id)
-
-        if key is not None and response.status_code == status.HTTP_409_CONFLICT:
-            # При двух одновременных перемещениях второй запрос может успеть проверить
-            # idempotency-key до коммита первого, а после ожидания row lock получить
-            # VERSION_CONFLICT. Повторная попытка сначала увидит уже сохранённый
-            # idempotent result и вернёт тот же успешный ответ вместо ложного 409.
+        if key is None:
             return super().patch(request, deal_id)
 
-        return response
+        # Для идемпотентного Drag&Drop сериализуем запросы по самой сделке до
+        # первого чтения idempotency-record. После ожидания row lock второй запрос
+        # видит результат первого и возвращает тот же 200, а не ложный 409.
+        with transaction.atomic():
+            Deal.objects.select_for_update().filter(
+                id=deal_id,
+                workspace=request.user.workspace,
+            ).first()
+            return super().patch(request, deal_id)
