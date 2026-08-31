@@ -1,10 +1,14 @@
 import { clearAccessToken, getAccessToken, setAccessToken } from './authToken'
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+const REQUEST_TIMEOUT_MESSAGE = 'Сервер не отвечает. Попробуйте позже.'
+
 type ApiRequestOptions = {
   method?: string
   body?: unknown
   headers?: HeadersInit
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 type RefreshSessionResponse = {
@@ -29,7 +33,44 @@ export async function apiRequest<TResponse>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<TResponse> {
-  return makeApiRequest<TResponse>(path, options, true)
+  const timeoutMs = normalizeTimeout(options.timeoutMs)
+  const controller = new AbortController()
+  const sourceSignal = options.signal
+  let didTimeout = false
+
+  const handleSourceAbort = () => controller.abort()
+
+  if (sourceSignal?.aborted) {
+    controller.abort()
+  } else {
+    sourceSignal?.addEventListener('abort', handleSourceAbort, { once: true })
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    didTimeout = true
+    controller.abort()
+  }, timeoutMs)
+
+  try {
+    return await makeApiRequest<TResponse>(
+      path,
+      {
+        ...options,
+        signal: controller.signal,
+        timeoutMs: undefined,
+      },
+      true,
+    )
+  } catch (error) {
+    if (didTimeout && isAbortError(error)) {
+      throw new Error(REQUEST_TIMEOUT_MESSAGE)
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+    sourceSignal?.removeEventListener('abort', handleSourceAbort)
+  }
 }
 
 async function makeApiRequest<TResponse>(
@@ -41,7 +82,10 @@ async function makeApiRequest<TResponse>(
   const data = await response.json().catch(() => null)
 
   if (response.status === 401 && canRefreshToken && path !== '/api/auth/refresh') {
-    const isRefreshed = await refreshAccessToken()
+    const isRefreshed = await waitForPromiseWithSignal(
+      refreshAccessToken(),
+      options.signal,
+    )
 
     if (isRefreshed) {
       return makeApiRequest<TResponse>(path, options, false)
@@ -98,10 +142,17 @@ function refreshAccessToken() {
 }
 
 async function performRefreshAccessToken() {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    DEFAULT_REQUEST_TIMEOUT_MS,
+  )
+
   try {
     const response = await fetch('/api/auth/refresh', {
       method: 'POST',
       credentials: 'include',
+      signal: controller.signal,
     })
 
     const data = await response.json().catch(() => null)
@@ -116,6 +167,8 @@ async function performRefreshAccessToken() {
   } catch {
     handleExpiredSession()
     return false
+  } finally {
+    window.clearTimeout(timeoutId)
   }
 }
 
@@ -128,6 +181,63 @@ function handleExpiredSession() {
   ) {
     window.location.replace('/')
   }
+}
+
+function waitForPromiseWithSignal<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) {
+    return promise
+  }
+
+  if (signal.aborted) {
+    return Promise.reject(createAbortError())
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const handleAbort = () => {
+      cleanup()
+      reject(createAbortError())
+    }
+
+    const cleanup = () => {
+      signal.removeEventListener('abort', handleAbort)
+    }
+
+    signal.addEventListener('abort', handleAbort, { once: true })
+
+    promise.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error) => {
+        cleanup()
+        reject(error)
+      },
+    )
+  })
+}
+
+function createAbortError() {
+  return new DOMException('The operation was aborted.', 'AbortError')
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function normalizeTimeout(timeoutMs?: number) {
+  if (
+    typeof timeoutMs !== 'number'
+    || !Number.isFinite(timeoutMs)
+    || timeoutMs <= 0
+  ) {
+    return DEFAULT_REQUEST_TIMEOUT_MS
+  }
+
+  return timeoutMs
 }
 
 function isRefreshSessionResponse(data: unknown): data is RefreshSessionResponse {
