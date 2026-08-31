@@ -54,6 +54,10 @@ export type ChatSocketEvent =
     }
   | { event: 'error'; code: string; message: string }
 
+const CHAT_SOCKET_DEDUP_LIMIT = 1000
+const seenSocketMessageIds = new Set<string>()
+const seenSocketMessageOrder: string[] = []
+
 export function getChats(signal?: AbortSignal) {
   return apiRequest<ApiChatsResponse>('/api/chats?limit=100', { signal })
 }
@@ -148,7 +152,53 @@ export function createChatSocket() {
   if (!token) return null
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return new WebSocket(
-    `${protocol}//${window.location.host}/ws/chat?token=${encodeURIComponent(token)}`,
+  const socket = new WebSocket(
+    `${protocol}//${window.location.host}/ws/chat`,
+    ['Bearer', token],
   )
+
+  // Section 12 requires message-id deduplication even across reconnects. Keep the
+  // last 1000 incoming message_new ids at the transport boundary so duplicate WS
+  // delivery cannot increment unread counters before page-level reconciliation.
+  socket.addEventListener('message', (event) => {
+    const messageId = getSocketMessageId(event.data)
+    if (!messageId) {
+      return
+    }
+
+    if (seenSocketMessageIds.has(messageId)) {
+      event.stopImmediatePropagation()
+      return
+    }
+
+    seenSocketMessageIds.add(messageId)
+    seenSocketMessageOrder.push(messageId)
+
+    while (seenSocketMessageOrder.length > CHAT_SOCKET_DEDUP_LIMIT) {
+      const oldest = seenSocketMessageOrder.shift()
+      if (oldest) {
+        seenSocketMessageIds.delete(oldest)
+      }
+    }
+  })
+
+  return socket
+}
+
+function getSocketMessageId(rawData: unknown) {
+  if (typeof rawData !== 'string') {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(rawData) as {
+      event?: unknown
+      message?: { id?: unknown }
+    }
+    return parsed.event === 'message_new' && typeof parsed.message?.id === 'string'
+      ? parsed.message.id
+      : null
+  } catch {
+    return null
+  }
 }
