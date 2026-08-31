@@ -27,6 +27,11 @@ export type NotificationRealtimeEvent = {
   payload?: unknown
 }
 
+export type NotificationRealtimeEnvelope = {
+  sequence: number
+  event: NotificationRealtimeEvent
+}
+
 type UnreadCountResponse = {
   unread_count: number
 }
