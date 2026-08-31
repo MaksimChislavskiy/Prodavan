@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { deleteDeal } from '../../shared/api/dealsApi'
+import { showCrmToast } from '../../shared/crmToast'
 import { DeleteDealConfirmModal } from './DeleteDealConfirmModal'
 import { EditDealModal } from './EditDealModal'
 import { ViewDealModal } from './ViewDealModal'
@@ -145,6 +146,7 @@ export function DealCardMenu({
       setIsViewModalOpen(false)
       setIsEditModalOpen(false)
       onDeleted(dealId)
+      showCrmToast('Сделка успешно удалена')
     } catch (error) {
       setDeleteError(
         error instanceof Error ? error.message : 'Не удалось удалить сделку.',
