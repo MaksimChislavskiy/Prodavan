@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
@@ -7,7 +9,11 @@ from config.asgi import application
 from users.models import User
 from users.services import issue_token_pair
 
-from .realtime import user_group_name, workspace_group_name
+from .realtime import (
+    broadcast_workspace_event,
+    user_group_name,
+    workspace_group_name,
+)
 
 
 TEST_CHANNEL_LAYERS = {
@@ -138,3 +144,15 @@ class RealtimeChatTests(TransactionTestCase):
         self.assertEqual(response['event'], 'error')
         self.assertEqual(response['code'], 'unsupported_action')
         await communicator.disconnect()
+
+    @patch('messaging.realtime.get_channel_layer')
+    def test_workspace_broadcast_failure_is_logged_and_not_raised(self, get_layer):
+        layer = type('Layer', (), {})()
+        layer.group_send = AsyncMock(side_effect=RuntimeError('redis unavailable'))
+        get_layer.return_value = layer
+
+        with self.assertLogs('messaging.realtime', level='ERROR'):
+            broadcast_workspace_event(
+                self.user.workspace_id,
+                {'event': 'deal_stage_changed'},
+            )
