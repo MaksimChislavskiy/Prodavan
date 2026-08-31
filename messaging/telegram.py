@@ -321,6 +321,10 @@ def process_telegram_webhook_log(log_id):
             now=now,
         )
         if chat_created:
+            # События отправляются по порядку: сначала пустой новый чат, затем
+            # message_new. Если передать здесь уже обновлённый unread_count=1,
+            # клиент корректно прибавит входящее message_new ещё раз и получит 2.
+            # Контракт 12.10 задаёт для chat_created исходное состояние 0/null.
             chat_payload = {
                 'event': 'chat_created',
                 'chat': {
@@ -331,9 +335,9 @@ def process_telegram_webhook_log(log_id):
                         'company': contact.company,
                         'is_deleted': contact.is_deleted,
                     },
-                    'last_message': chat.last_message,
-                    'last_message_at': chat.last_message_at.isoformat(),
-                    'unread_count': chat.unread_count,
+                    'last_message': None,
+                    'last_message_at': None,
+                    'unread_count': 0,
                 },
             }
             transaction.on_commit(
