@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { refreshSession } from '../../shared/api/authApi'
+import { clearAccessToken } from '../../shared/api/authToken'
 import {
   createNotificationsSocket,
   getNotificationUnreadCount,
+  type NotificationRealtimeEnvelope,
   type NotificationRealtimeEvent,
 } from '../../shared/api/notificationsApi'
 import { readNotificationPreferences } from '../../shared/notificationPreferences'
@@ -97,7 +100,9 @@ export function NotificationCenterController() {
   )
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
-  const [realtimeVersion, setRealtimeVersion] = useState(0)
+  const [realtimeEnvelope, setRealtimeEnvelope] =
+    useState<NotificationRealtimeEnvelope | null>(null)
+  const realtimeSequenceRef = useRef(0)
 
   const refreshUnreadCount = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -197,6 +202,21 @@ export function NotificationCenterController() {
       reconnectTimerId = window.setTimeout(connect, delay)
     }
 
+    const reconnectAfterTokenRefresh = async () => {
+      try {
+        await refreshSession()
+      } catch {
+        clearAccessToken()
+        window.location.replace('/')
+        return
+      }
+
+      if (!isDisposed) {
+        reconnectAttempt = 0
+        connect()
+      }
+    }
+
     const connect = () => {
       if (isDisposed) {
         return
@@ -211,6 +231,9 @@ export function NotificationCenterController() {
 
       socket.onopen = () => {
         reconnectAttempt = 0
+        // REST reconciliation is deliberately performed on every successful
+        // reconnect. This is stronger than the section 14 requirement to do it
+        // after disconnects longer than one minute and avoids stale badges.
         void refreshUnreadCount()
       }
 
@@ -227,19 +250,36 @@ export function NotificationCenterController() {
 
         showBrowserNotification(event)
 
-        const nextUnreadCount = getUnreadCountFromEvent(event)
+        if (event.event === 'notification_created') {
+          // The following unread_count_updated event remains authoritative, but
+          // increment immediately so the badge reacts without waiting for it.
+          setUnreadCount((current) => current + 1)
+        }
 
+        const nextUnreadCount = getUnreadCountFromEvent(event)
         if (nextUnreadCount !== null) {
           setUnreadCount(nextUnreadCount)
-          setRealtimeVersion((version) => version + 1)
+        }
+
+        realtimeSequenceRef.current += 1
+        setRealtimeEnvelope({
+          sequence: realtimeSequenceRef.current,
+          event,
+        })
+      }
+
+      socket.onclose = (closeEvent) => {
+        socket = null
+
+        if (isDisposed) {
           return
         }
 
-        setRealtimeVersion((version) => version + 1)
-      }
+        if (closeEvent.code === 1008) {
+          void reconnectAfterTokenRefresh()
+          return
+        }
 
-      socket.onclose = () => {
-        socket = null
         scheduleReconnect()
       }
 
@@ -360,7 +400,7 @@ export function NotificationCenterController() {
     <div className="notification-center-portal">
       <FigmaNotificationsPage
         unreadCount={unreadCount}
-        realtimeVersion={realtimeVersion}
+        realtimeEnvelope={realtimeEnvelope}
         onUnreadCountChange={setUnreadCount}
         onNavigate={navigateFromNotification}
       />
