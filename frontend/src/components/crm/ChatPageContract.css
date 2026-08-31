@@ -12,6 +12,12 @@
   font-size: 12px;
 }
 
+.chat-message-status--failed::before {
+  content: '!';
+  margin-right: 3px;
+  font-weight: 700;
+}
+
 @media (max-width: 760px) {
   .chat-page {
     position: relative;
