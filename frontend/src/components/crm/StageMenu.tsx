@@ -6,11 +6,13 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
+import { ApiError } from '../../shared/api/apiClient'
 import {
   deleteSalesStage,
   updateSalesStage,
   type ApiSalesStage,
 } from '../../shared/api/dealsApi'
+import { showCrmToast } from '../../shared/crmToast'
 import './StageMenu.css'
 
 type StageMenuProps = {
@@ -32,7 +34,7 @@ export function StageMenu({
   const renameInputRef = useRef<HTMLInputElement | null>(null)
   const deleteCancelRef = useRef<HTMLButtonElement | null>(null)
   const [isOpen, setIsOpen] = useState(false)
-  const [isRenameOpen, setIsRenameOpen] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [draftName, setDraftName] = useState(stage.name)
   const [isSaving, setIsSaving] = useState(false)
@@ -49,7 +51,6 @@ export function StageMenu({
       if (!(event.target instanceof Node) || rootRef.current?.contains(event.target)) {
         return
       }
-
       setIsOpen(false)
     }
 
@@ -61,7 +62,6 @@ export function StageMenu({
 
     document.addEventListener('pointerdown', handlePointerDown, true)
     document.addEventListener('keydown', handleKeyDown)
-
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true)
       document.removeEventListener('keydown', handleKeyDown)
@@ -69,33 +69,46 @@ export function StageMenu({
   }, [isOpen])
 
   useEffect(() => {
-    if (!isRenameOpen && !isDeleteOpen) {
+    if (!isRenaming) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [isRenaming])
+
+  useEffect(() => {
+    if (!isDeleteOpen) {
       return
     }
 
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-
-    const timeoutId = window.setTimeout(() => {
-      if (isRenameOpen) {
-        renameInputRef.current?.focus()
-        renameInputRef.current?.select()
-      } else {
-        deleteCancelRef.current?.focus()
-      }
-    }, 0)
+    const timeoutId = window.setTimeout(() => deleteCancelRef.current?.focus(), 0)
 
     return () => {
       document.body.style.overflow = originalOverflow
       window.clearTimeout(timeoutId)
     }
-  }, [isDeleteOpen, isRenameOpen])
+  }, [isDeleteOpen])
 
   const openRename = () => {
     setIsOpen(false)
     setDraftName(stage.name)
     setRenameError('')
-    setIsRenameOpen(true)
+    setIsRenaming(true)
+  }
+
+  const cancelRename = () => {
+    if (isSaving) {
+      return
+    }
+    setDraftName(stage.name)
+    setRenameError('')
+    setIsRenaming(false)
   }
 
   const openDelete = () => {
@@ -104,78 +117,80 @@ export function StageMenu({
     setIsDeleteOpen(true)
   }
 
-  const closeRename = () => {
-    if (isSaving) {
-      return
-    }
-
-    setIsRenameOpen(false)
-    setRenameError('')
-  }
-
   const closeDelete = () => {
     if (isDeleting) {
       return
     }
-
     setIsDeleteOpen(false)
     setDeleteError('')
   }
 
   const handleRenameSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-
     if (isSaving) {
       return
     }
 
     const name = draftName.trim()
-
     if (!name) {
       setRenameError('Введите название этапа.')
       return
     }
-
     if (name.length > 100) {
       setRenameError('Название этапа должно содержать не больше 100 символов.')
       return
     }
 
     const normalizedName = normalizeStageName(name)
-    const isDuplicate = otherStageNames.some(
-      (stageName) => normalizeStageName(stageName) === normalizedName,
-    )
-
-    if (isDuplicate) {
+    if (
+      otherStageNames.some(
+        (stageName) => normalizeStageName(stageName) === normalizedName,
+      )
+    ) {
       setRenameError('Этап с таким названием уже существует.')
       return
     }
 
     if (name === stage.name) {
-      setIsRenameOpen(false)
+      setIsRenaming(false)
       return
     }
 
     try {
       setIsSaving(true)
       setRenameError('')
-
       const updatedStage = await updateSalesStage(stage.id, {
         version: stage.version,
         name,
       })
-
-      onRenamed({
-        ...updatedStage,
-        deal_count: stage.deal_count,
-      })
-      setIsRenameOpen(false)
+      onRenamed({ ...updatedStage, deal_count: stage.deal_count })
+      setIsRenaming(false)
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setIsRenaming(false)
+        showCrmToast('Этап был изменён другим пользователем. Данные обновлены.')
+        onDeleted(stage.id)
+        return
+      }
+      if (error instanceof ApiError && error.status === 404) {
+        setIsRenaming(false)
+        showCrmToast('Этап был удалён другим пользователем.')
+        onDeleted(stage.id)
+        return
+      }
       setRenameError(
         error instanceof Error ? error.message : 'Не удалось переименовать этап.',
       )
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleRenameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      cancelRename()
     }
   }
 
@@ -191,6 +206,18 @@ export function StageMenu({
       setIsDeleteOpen(false)
       onDeleted(stage.id)
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setIsDeleteOpen(false)
+        showCrmToast('Этап был изменён другим пользователем. Данные обновлены.')
+        onDeleted(stage.id)
+        return
+      }
+      if (error instanceof ApiError && error.status === 404) {
+        setIsDeleteOpen(false)
+        showCrmToast('Этап был удалён другим пользователем.')
+        onDeleted(stage.id)
+        return
+      }
       setDeleteError(
         error instanceof Error ? error.message : 'Не удалось удалить этап.',
       )
@@ -199,21 +226,9 @@ export function StageMenu({
     }
   }
 
-  const handleRenameOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (!isSaving && event.target === event.currentTarget) {
-      closeRename()
-    }
-  }
-
   const handleDeleteOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (!isDeleting && event.target === event.currentTarget) {
       closeDelete()
-    }
-  }
-
-  const handleRenameKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!isSaving && event.key === 'Escape') {
-      closeRename()
     }
   }
 
@@ -226,6 +241,33 @@ export function StageMenu({
   return (
     <>
       <div className="stage-menu" ref={rootRef}>
+        {isRenaming && (
+          <form
+            className="stage-menu__inline-rename"
+            aria-label={`Переименовать этап ${stage.name}`}
+            onSubmit={(event) => void handleRenameSubmit(event)}
+          >
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={draftName}
+              maxLength={100}
+              disabled={isSaving}
+              aria-invalid={Boolean(renameError)}
+              onChange={(event) => {
+                setDraftName(event.target.value)
+                setRenameError('')
+              }}
+              onKeyDown={handleRenameKeyDown}
+            />
+            {renameError && (
+              <span className="stage-menu__inline-error" role="alert">
+                {renameError}
+              </span>
+            )}
+          </form>
+        )}
+
         <button
           className="stage-menu__trigger"
           type="button"
@@ -233,6 +275,7 @@ export function StageMenu({
           aria-haspopup="menu"
           aria-expanded={isOpen}
           title="Управление этапом"
+          disabled={isSaving || isRenaming}
           onClick={() => setIsOpen((currentValue) => !currentValue)}
         >
           ⋮
@@ -264,67 +307,6 @@ export function StageMenu({
         )}
       </div>
 
-      {isRenameOpen && (
-        <div
-          className="stage-menu-modal-overlay"
-          role="presentation"
-          onMouseDown={handleRenameOverlayMouseDown}
-          onKeyDown={handleRenameKeyDown}
-        >
-          <div
-            className="stage-menu-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rename-stage-title"
-            aria-busy={isSaving}
-            tabIndex={-1}
-          >
-            <h2 id="rename-stage-title">Переименовать этап</h2>
-
-            <form onSubmit={(event) => void handleRenameSubmit(event)}>
-              <label className="stage-menu-modal__field">
-                <span>Название этапа</span>
-                <input
-                  ref={renameInputRef}
-                  type="text"
-                  value={draftName}
-                  maxLength={100}
-                  disabled={isSaving}
-                  onChange={(event) => {
-                    setDraftName(event.target.value)
-                    setRenameError('')
-                  }}
-                />
-              </label>
-
-              {renameError && (
-                <p className="stage-menu-modal__error" role="alert">
-                  {renameError}
-                </p>
-              )}
-
-              <div className="stage-menu-modal__actions">
-                <button
-                  className="stage-menu-modal__button stage-menu-modal__button--secondary"
-                  type="button"
-                  disabled={isSaving}
-                  onClick={closeRename}
-                >
-                  Отмена
-                </button>
-                <button
-                  className="stage-menu-modal__button stage-menu-modal__button--primary"
-                  type="submit"
-                  disabled={isSaving || !draftName.trim()}
-                >
-                  {isSaving ? 'Сохраняем…' : 'Сохранить'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {isDeleteOpen && (
         <div
           className="stage-menu-modal-overlay"
@@ -343,7 +325,7 @@ export function StageMenu({
           >
             <h2 id="delete-stage-title">Удалить этап «{stage.name}»?</h2>
             <p id="delete-stage-description">
-              Все сделки этого этапа будут перенесены в «{systemStageName}».
+              Все сделки на этом этапе будут перенесены в «{systemStageName}». Продолжить?
             </p>
 
             {deleteError && (
