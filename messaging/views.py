@@ -21,7 +21,7 @@ from .services import (
     request_audit_context,
     update_chat_autopilot,
 )
-from .throttles import ChatMessageThrottle, WorkspaceTelegramMessageThrottle
+from .throttles import ChatMessageThrottle
 
 
 class MessageRateLimitExceeded(APIException):
@@ -114,10 +114,11 @@ class ChatMessagesView(APIView):
 
     def get_throttles(self):
         if self.request.method == 'POST':
-            return [
-                ChatMessageThrottle(),
-                WorkspaceTelegramMessageThrottle(),
-            ]
+            # ТЗ 12.4.5: лимит применяется отдельно к каждому чату —
+            # не более 20 сообщений за 10 секунд. Дополнительный лимит на весь
+            # workspace здесь недопустим: активность в одном диалоге не должна
+            # блокировать отправку в другом.
+            return [ChatMessageThrottle()]
         return super().get_throttles()
 
     def throttled(self, request, wait):
