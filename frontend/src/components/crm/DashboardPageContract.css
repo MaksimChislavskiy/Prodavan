@@ -1,0 +1,30 @@
+.dashboard-today__footer {
+  margin-top: 28px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dashboard-hint--open > span {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .dashboard-hint:hover > span,
+  .dashboard-hint:focus-within > span {
+    opacity: 0;
+  }
+
+  .dashboard-hint--open > span {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .dashboard-today__footer {
+    justify-content: stretch;
+  }
+
+  .dashboard-today__footer .dashboard-today__show-all {
+    width: 100%;
+  }
+}
