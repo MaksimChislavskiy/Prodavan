@@ -11,7 +11,7 @@ export type ApiChatContact = {
 export type ApiChat = {
   id: string
   contact: ApiChatContact
-  last_message: string
+  last_message: string | null
   last_message_at: string | null
   unread_count: number
   ai_autopilot_enabled: boolean | null
@@ -140,7 +140,7 @@ function getDeepLinkedChatId() {
   return chatId || null
 }
 
-export function getChatMessages(
+export async function getChatMessages(
   chatId: string,
   cursor?: string | null,
   signal?: AbortSignal,
@@ -148,24 +148,28 @@ export function getChatMessages(
   const searchParams = new URLSearchParams({ limit: '50' })
   if (cursor) searchParams.set('cursor', cursor)
 
-  return apiRequest<ApiMessagesResponse>(
+  const response = await apiRequest<ApiMessagesResponse>(
     `/api/chats/${chatId}/messages?${searchParams.toString()}`,
     { signal },
   )
+  rememberSocketMessageIds(response.messages.map((message) => message.id))
+  return response
 }
 
-export function sendChatMessage(
+export async function sendChatMessage(
   chatId: string,
   text: string,
   idempotencyKey: string,
   signal?: AbortSignal,
 ) {
-  return apiRequest<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
+  const message = await apiRequest<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
     body: { text },
     signal,
   })
+  rememberSocketMessageIds([message.id])
+  return message
 }
 
 export function markChatRead(chatId: string, signal?: AbortSignal) {
@@ -219,9 +223,11 @@ export function createChatSocket() {
     ['Bearer', token],
   )
 
-  // Section 12 requires message-id deduplication even across reconnects. Keep the
-  // last 1000 incoming message_new ids at the transport boundary so duplicate WS
-  // delivery cannot increment unread counters before page-level reconciliation.
+  // Section 12 requires deduplication across every delivery path, not only
+  // repeated WebSocket frames. REST history pages and POST responses therefore
+  // populate the same 1000-id cache used here. A delayed/replayed message_new
+  // cannot increment unread counters after the message was already reconciled
+  // through HTTP.
   socket.addEventListener('message', (event) => {
     const messageId = getSocketMessageId(event.data)
     if (!messageId) {
@@ -233,18 +239,28 @@ export function createChatSocket() {
       return
     }
 
-    seenSocketMessageIds.add(messageId)
-    seenSocketMessageOrder.push(messageId)
-
-    while (seenSocketMessageOrder.length > CHAT_SOCKET_DEDUP_LIMIT) {
-      const oldest = seenSocketMessageOrder.shift()
-      if (oldest) {
-        seenSocketMessageIds.delete(oldest)
-      }
-    }
+    rememberSocketMessageIds([messageId])
   })
 
   return socket
+}
+
+function rememberSocketMessageIds(messageIds: string[]) {
+  messageIds.forEach((messageId) => {
+    if (seenSocketMessageIds.has(messageId)) {
+      return
+    }
+
+    seenSocketMessageIds.add(messageId)
+    seenSocketMessageOrder.push(messageId)
+  })
+
+  while (seenSocketMessageOrder.length > CHAT_SOCKET_DEDUP_LIMIT) {
+    const oldest = seenSocketMessageOrder.shift()
+    if (oldest) {
+      seenSocketMessageIds.delete(oldest)
+    }
+  }
 }
 
 function getSocketMessageId(rawData: unknown) {
