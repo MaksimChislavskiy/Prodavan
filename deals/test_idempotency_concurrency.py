@@ -2,7 +2,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from django.db import close_old_connections
+from django.db import connections
 from django.test import TransactionTestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -125,7 +125,7 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
         )
 
     def _create_deal_request(self, payload, key):
-        close_old_connections()
+        connections.close_all()
         try:
             user = User.objects.select_related('workspace').get(id=self.user.id)
             client = APIClient()
@@ -138,10 +138,10 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
             )
             return response.status_code, dict(response.data)
         finally:
-            close_old_connections()
+            connections.close_all()
 
     def _move_deal_request(self, deal_id, stage_id, version, key):
-        close_old_connections()
+        connections.close_all()
         try:
             user = User.objects.select_related('workspace').get(id=self.user.id)
             client = APIClient()
@@ -157,4 +157,4 @@ class DealIdempotencyConcurrencyTests(TransactionTestCase):
             )
             return response.status_code, dict(response.data)
         finally:
-            close_old_connections()
+            connections.close_all()
