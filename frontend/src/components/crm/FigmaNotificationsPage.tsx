@@ -1,1 +1,1 @@
-export { FigmaNotificationsPage } from './FigmaNotificationsPageV2'
+export { FigmaNotificationsPage } from './FigmaNotificationsPageV3'
