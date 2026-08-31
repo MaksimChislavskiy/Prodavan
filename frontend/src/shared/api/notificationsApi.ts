@@ -129,7 +129,7 @@ export function deleteAllNotifications(signal?: AbortSignal) {
 export function createNotificationsSocket() {
   const token = getAccessToken()
 
-  if (!token) {
+  if (!token || typeof WebSocket === 'undefined') {
     return null
   }
 
