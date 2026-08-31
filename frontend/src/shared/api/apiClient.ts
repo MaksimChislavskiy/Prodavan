@@ -11,6 +11,7 @@ type ApiRequestOptions = {
   headers?: HeadersInit
   signal?: AbortSignal
   timeoutMs?: number
+  suppressGlobalErrorToast?: boolean
 }
 
 type RefreshSessionResponse = {
@@ -65,12 +66,16 @@ export async function apiRequest<TResponse>(
     )
   } catch (error) {
     if (didTimeout && isAbortError(error)) {
-      showCrmToast(REQUEST_TIMEOUT_MESSAGE)
+      if (!options.suppressGlobalErrorToast) {
+        showCrmToast(REQUEST_TIMEOUT_MESSAGE)
+      }
       throw new Error(REQUEST_TIMEOUT_MESSAGE)
     }
 
     if (!sourceSignal?.aborted && isNetworkError(error)) {
-      showCrmToast(NETWORK_ERROR_MESSAGE)
+      if (!options.suppressGlobalErrorToast) {
+        showCrmToast(NETWORK_ERROR_MESSAGE)
+      }
       throw new Error(NETWORK_ERROR_MESSAGE)
     }
 
