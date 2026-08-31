@@ -14,6 +14,7 @@ import './FigmaNotificationsPage.css'
 
 const NOTIFICATIONS_PATH = '/app/notifications'
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000]
+const FALLBACK_POLL_INTERVAL_MS = 10_000
 
 type BrowserNotificationPayload = {
   id: string
@@ -102,6 +103,7 @@ export function NotificationCenterController() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [realtimeEnvelope, setRealtimeEnvelope] =
     useState<NotificationRealtimeEnvelope | null>(null)
+  const [fallbackRevision, setFallbackRevision] = useState(0)
   const realtimeSequenceRef = useRef(0)
 
   const refreshUnreadCount = useCallback(async (signal?: AbortSignal) => {
@@ -153,6 +155,7 @@ export function NotificationCenterController() {
     let isDisposed = false
     let reconnectAttempt = 0
     let reconnectTimerId: number | null = null
+    let fallbackTimerId: number | null = null
     let socket: WebSocket | null = null
 
     const showBrowserNotification = (event: NotificationRealtimeEvent) => {
@@ -190,6 +193,26 @@ export function NotificationCenterController() {
       }
     }
 
+    const startFallbackPolling = () => {
+      if (isDisposed || fallbackTimerId !== null) {
+        return
+      }
+
+      const poll = () => {
+        void refreshUnreadCount()
+
+        if (isNotificationsPath(window.location.pathname)) {
+          // Section 14 explicitly requires a 10-second polling fallback when
+          // WebSocket is unavailable. Remount the page only in that fallback
+          // mode so its first 50 notifications are reconciled through REST.
+          setFallbackRevision((revision) => revision + 1)
+        }
+      }
+
+      poll()
+      fallbackTimerId = window.setInterval(poll, FALLBACK_POLL_INTERVAL_MS)
+    }
+
     const scheduleReconnect = () => {
       if (isDisposed) {
         return
@@ -219,6 +242,11 @@ export function NotificationCenterController() {
 
     const connect = () => {
       if (isDisposed) {
+        return
+      }
+
+      if (typeof WebSocket === 'undefined') {
+        startFallbackPolling()
         return
       }
 
@@ -295,6 +323,10 @@ export function NotificationCenterController() {
 
       if (reconnectTimerId !== null) {
         window.clearTimeout(reconnectTimerId)
+      }
+
+      if (fallbackTimerId !== null) {
+        window.clearInterval(fallbackTimerId)
       }
 
       socket?.close()
@@ -399,6 +431,7 @@ export function NotificationCenterController() {
   return createPortal(
     <div className="notification-center-portal">
       <FigmaNotificationsPage
+        key={`notifications-${fallbackRevision}`}
         unreadCount={unreadCount}
         realtimeEnvelope={realtimeEnvelope}
         onUnreadCountChange={setUnreadCount}
