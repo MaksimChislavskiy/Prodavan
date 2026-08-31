@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AccountDeleteController } from '../components/crm/AccountDeleteController'
 import { CrmLayout } from '../components/crm/CrmLayout'
+import { CrmObjectDeepLinkController } from '../components/crm/CrmObjectDeepLinkController'
 import { NotificationCenterController } from '../components/crm/NotificationCenterController'
 import { SidebarAiChatController } from '../components/crm/SidebarAiChatController'
 import { UserMenu } from '../components/crm/UserMenu'
@@ -83,6 +84,7 @@ export function CrmAppPage() {
   return (
     <>
       <CrmLayout />
+      <CrmObjectDeepLinkController />
       <NotificationCenterController />
       <SidebarAiChatController />
       {currentPath === '/profile' && <ProfilePage />}
