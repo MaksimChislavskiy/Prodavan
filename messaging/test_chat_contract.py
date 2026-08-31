@@ -60,6 +60,36 @@ class ChatContractTests(TestCase):
             contact=contact,
         )
 
+    def test_chat_detail_returns_only_own_active_chat(self):
+        own_chat = self._chat(11)
+        other_user = User.objects.create_user(
+            email='chat-contract-other@example.com',
+            password='StrongPass2',
+            first_name='Пётр',
+            last_name='Петров',
+            is_confirmed=True,
+        )
+        other_contact = Contact.objects.create(
+            workspace=other_user.workspace,
+            name='Чужой клиент',
+        )
+        other_chat = Chat.objects.create(
+            workspace=other_user.workspace,
+            contact=other_contact,
+        )
+        deleted_chat = self._chat(12)
+        deleted_chat.is_deleted = True
+        deleted_chat.save(update_fields=('is_deleted', 'updated_at'))
+
+        own_response = self.client.get(f'/api/chats/{own_chat.id}')
+        foreign_response = self.client.get(f'/api/chats/{other_chat.id}')
+        deleted_response = self.client.get(f'/api/chats/{deleted_chat.id}')
+
+        self.assertEqual(own_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(own_response.data['id'], str(own_chat.id))
+        self.assertEqual(foreign_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(deleted_response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_message_rate_limit_is_per_chat_not_per_workspace(self):
         self._connect_telegram()
         first_chat = self._chat(1)
