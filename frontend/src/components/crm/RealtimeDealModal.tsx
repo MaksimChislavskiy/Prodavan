@@ -1,8 +1,5 @@
 import { useEffect, useRef } from 'react'
-import {
-  CRM_REALTIME_EVENT,
-  type CrmRealtimePayload,
-} from '../../shared/crmRealtime'
+import { CRM_REALTIME_EVENT } from '../../shared/crmRealtime'
 import { showCrmToast } from '../../shared/crmToast'
 import { EditDealModal as EditDealModalV2 } from './EditDealModalV2'
 
@@ -10,6 +7,14 @@ type RealtimeDealModalProps = {
   dealId: string
   dealName: string
   onClose: () => void
+}
+
+type RealtimePayload = {
+  event?: unknown
+  deal_id?: unknown
+  data?: {
+    deal_id?: unknown
+  }
 }
 
 export function RealtimeDealModal({
@@ -29,7 +34,7 @@ export function RealtimeDealModal({
         return
       }
 
-      const payload = event.detail as CrmRealtimePayload | null
+      const payload = event.detail as RealtimePayload | null
       const eventName = typeof payload?.event === 'string' ? payload.event : ''
       const eventDealId = getDealId(payload)
 
@@ -77,7 +82,7 @@ export function RealtimeDealModal({
   )
 }
 
-function getDealId(payload: CrmRealtimePayload | null) {
+function getDealId(payload: RealtimePayload | null) {
   if (typeof payload?.deal_id === 'string') {
     return payload.deal_id
   }
