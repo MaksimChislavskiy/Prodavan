@@ -22,6 +22,7 @@ type DashboardState = {
   totalCount: number
   isLoading: boolean
   hasLoaded: boolean
+  hasError: boolean
 }
 
 type DashboardDialog =
@@ -37,6 +38,7 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
     totalCount: 0,
     isLoading: true,
     hasLoaded: false,
+    hasError: false,
   })
   const [dialog, setDialog] = useState<DashboardDialog | null>(null)
   const [openMenuId, setOpenMenuId] = useState('')
@@ -59,6 +61,7 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
       ...current,
       isLoading: true,
       hasLoaded: initial ? false : current.hasLoaded,
+      hasError: false,
     }))
 
     try {
@@ -77,6 +80,7 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
         totalCount: dashboard.total_count,
         isLoading: false,
         hasLoaded: true,
+        hasError: false,
       })
       setToast((current) => current === DASHBOARD_LOAD_ERROR ? '' : current)
     } catch (error) {
@@ -88,6 +92,7 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
         ...current,
         isLoading: false,
         hasLoaded: true,
+        hasError: true,
       }))
       setToast(DASHBOARD_LOAD_ERROR)
     } finally {
@@ -221,12 +226,16 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
 
           {state.isLoading && !state.hasLoaded && <DashboardSkeleton />}
 
-          {state.hasLoaded && state.tasks.length === 0 && (
-            <div className="dashboard-state dashboard-state--empty">
-              <span aria-hidden="true">✓</span>
-              <strong>На сегодня задач нет. Отличная работа!</strong>
-            </div>
-          )}
+          {state.hasLoaded
+            && !state.isLoading
+            && !state.hasError
+            && state.tasks.length === 0
+            && (
+              <div className="dashboard-state dashboard-state--empty">
+                <span aria-hidden="true">✓</span>
+                <strong>На сегодня задач нет. Отличная работа!</strong>
+              </div>
+            )}
 
           {state.hasLoaded && state.tasks.length > 0 && (
             <>
