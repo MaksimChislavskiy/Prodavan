@@ -1,0 +1,169 @@
+.settings-timezone-search {
+  margin-bottom: 8px;
+}
+
+.settings-field--error > input,
+.settings-field--error > select {
+  border-bottom-color: #c51d28;
+}
+
+.settings-field > em {
+  margin-top: -2px;
+  color: #c51d28;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+.settings-page--state > p {
+  margin: 0 0 18px;
+}
+
+.settings-page--state > button {
+  min-height: 38px;
+  padding: 7px 20px;
+  border: 0;
+  border-radius: 20px;
+  background: #625cff;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.telegram-card.telegram-card--contract {
+  width: min(100%, 420px);
+  min-height: 220px;
+}
+
+.telegram-card__status {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.telegram-card__status strong {
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.telegram-card__status span {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
+.telegram-card__status small {
+  color: #66768a;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.telegram-card__actions {
+  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.telegram-card__actions .telegram-card__action {
+  margin: 0;
+}
+
+.settings-decision-overlay {
+  position: fixed;
+  z-index: 1300;
+  inset: 0;
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: rgba(11, 43, 85, 0.4);
+}
+
+.settings-decision-modal {
+  box-sizing: border-box;
+  width: min(480px, calc(100vw - 40px));
+  padding: 28px;
+  border-radius: 20px;
+  background: #fff;
+  color: #0b2b55;
+  box-shadow: 0 18px 48px rgba(11, 43, 85, 0.22);
+}
+
+.settings-decision-modal h2 {
+  margin: 0 0 12px;
+  font-size: 21px;
+}
+
+.settings-decision-modal p {
+  margin: 0;
+  color: #52657a;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.settings-decision-modal > div {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.settings-decision-modal button {
+  min-width: 120px;
+  min-height: 40px;
+  padding: 8px 20px;
+  border: 1px solid #625cff;
+  border-radius: 22px;
+  background: #fff;
+  color: #0b2b55;
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-decision-modal button:last-child {
+  background: #625cff;
+  color: #fff;
+}
+
+.settings-decision-modal button.is-danger {
+  border-color: #c51d28;
+  background: #c51d28;
+  color: #fff;
+}
+
+.settings-decision-modal button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .telegram-card.telegram-card--contract {
+    width: 100%;
+  }
+
+  .telegram-card__actions {
+    flex-direction: column;
+  }
+
+  .telegram-card__actions .telegram-card__action {
+    width: 100%;
+  }
+
+  .settings-decision-overlay {
+    padding: 12px;
+  }
+
+  .settings-decision-modal {
+    width: 100%;
+    padding: 24px 20px;
+  }
+
+  .settings-decision-modal > div {
+    flex-direction: column-reverse;
+  }
+
+  .settings-decision-modal button {
+    width: 100%;
+  }
+}
