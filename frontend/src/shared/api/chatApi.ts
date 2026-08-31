@@ -58,6 +58,22 @@ export function getChats(signal?: AbortSignal) {
   return apiRequest<ApiChatsResponse>('/api/chats?limit=100', { signal })
 }
 
+export function getChatsPage(
+  page = 1,
+  limit = 20,
+  signal?: AbortSignal,
+) {
+  const searchParams = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  })
+
+  return apiRequest<ApiChatsResponse>(
+    `/api/chats?${searchParams.toString()}`,
+    { signal },
+  )
+}
+
 export function getChatMessages(
   chatId: string,
   cursor?: string | null,
@@ -76,20 +92,55 @@ export function sendChatMessage(
   chatId: string,
   text: string,
   idempotencyKey: string,
+  signal?: AbortSignal,
 ) {
   return apiRequest<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
     body: { text },
+    signal,
   })
 }
 
-export function markChatRead(chatId: string) {
-  return apiRequest<void>(`/api/chats/${chatId}/read`, { method: 'POST' })
+export function markChatRead(chatId: string, signal?: AbortSignal) {
+  return apiRequest<void>(`/api/chats/${chatId}/read`, {
+    method: 'POST',
+    signal,
+  })
 }
 
-export function deleteChat(chatId: string) {
-  return apiRequest<void>(`/api/chats/${chatId}`, { method: 'DELETE' })
+export function deleteChat(chatId: string, signal?: AbortSignal) {
+  return apiRequest<void>(`/api/chats/${chatId}`, {
+    method: 'DELETE',
+    signal,
+  })
+}
+
+export function createChatMessageIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256)
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0'))
+  return [
+    hex.slice(0, 4).join(''),
+    hex.slice(4, 6).join(''),
+    hex.slice(6, 8).join(''),
+    hex.slice(8, 10).join(''),
+    hex.slice(10, 16).join(''),
+  ].join('-')
 }
 
 export function createChatSocket() {
