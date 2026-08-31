@@ -1,7 +1,9 @@
+import { showCrmToast } from '../crmToast'
 import { clearAccessToken, getAccessToken, setAccessToken } from './authToken'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const REQUEST_TIMEOUT_MESSAGE = 'Сервер не отвечает. Попробуйте позже.'
+const NETWORK_ERROR_MESSAGE = 'Проверьте подключение к интернету'
 
 type ApiRequestOptions = {
   method?: string
@@ -63,7 +65,13 @@ export async function apiRequest<TResponse>(
     )
   } catch (error) {
     if (didTimeout && isAbortError(error)) {
+      showCrmToast(REQUEST_TIMEOUT_MESSAGE)
       throw new Error(REQUEST_TIMEOUT_MESSAGE)
+    }
+
+    if (!sourceSignal?.aborted && isNetworkError(error)) {
+      showCrmToast(NETWORK_ERROR_MESSAGE)
+      throw new Error(NETWORK_ERROR_MESSAGE)
     }
 
     throw error
@@ -226,6 +234,10 @@ function createAbortError() {
 
 function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function isNetworkError(error: unknown) {
+  return error instanceof TypeError
 }
 
 function normalizeTimeout(timeoutMs?: number) {
