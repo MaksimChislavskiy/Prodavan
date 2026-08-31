@@ -197,6 +197,13 @@ class ChatReadView(APIView):
 class ChatDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get(self, request, chat_id):
+        try:
+            chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(ChatSerializer(chat).data)
+
     def patch(self, request, chat_id):
         return _update_chat_settings(request, chat_id)
 
