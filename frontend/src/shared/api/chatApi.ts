@@ -57,6 +57,11 @@ export type ChatSocketEvent =
 const CHAT_SOCKET_DEDUP_LIMIT = 1000
 const seenSocketMessageIds = new Set<string>()
 const seenSocketMessageOrder: string[] = []
+let currentChatContextId: string | null = null
+
+export function getCurrentChatContextId() {
+  return currentChatContextId
+}
 
 export function getChats(signal?: AbortSignal) {
   return apiRequest<ApiChatsResponse>('/api/chats?limit=100', { signal })
@@ -145,15 +150,27 @@ export async function getChatMessages(
   cursor?: string | null,
   signal?: AbortSignal,
 ) {
+  currentChatContextId = chatId
   const searchParams = new URLSearchParams({ limit: '50' })
   if (cursor) searchParams.set('cursor', cursor)
 
-  const response = await apiRequest<ApiMessagesResponse>(
-    `/api/chats/${chatId}/messages?${searchParams.toString()}`,
-    { signal },
-  )
-  rememberSocketMessageIds(response.messages.map((message) => message.id))
-  return response
+  try {
+    const response = await apiRequest<ApiMessagesResponse>(
+      `/api/chats/${chatId}/messages?${searchParams.toString()}`,
+      { signal },
+    )
+    rememberSocketMessageIds(response.messages.map((message) => message.id))
+    return response
+  } catch (error) {
+    if (
+      currentChatContextId === chatId
+      && error instanceof ApiError
+      && error.status === 404
+    ) {
+      currentChatContextId = null
+    }
+    throw error
+  }
 }
 
 export async function sendChatMessage(
@@ -179,11 +196,15 @@ export function markChatRead(chatId: string, signal?: AbortSignal) {
   })
 }
 
-export function deleteChat(chatId: string, signal?: AbortSignal) {
-  return apiRequest<void>(`/api/chats/${chatId}`, {
+export async function deleteChat(chatId: string, signal?: AbortSignal) {
+  const response = await apiRequest<void>(`/api/chats/${chatId}`, {
     method: 'DELETE',
     signal,
   })
+  if (currentChatContextId === chatId) {
+    currentChatContextId = null
+  }
+  return response
 }
 
 export function createChatMessageIdempotencyKey() {
