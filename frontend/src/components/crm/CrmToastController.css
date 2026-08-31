@@ -1,0 +1,62 @@
+.crm-global-toast {
+  position: fixed;
+  z-index: 1200;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(11, 43, 85, 0.14);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #0b2b55;
+  box-shadow: 0 16px 40px rgba(11, 43, 85, 0.18);
+}
+
+.crm-global-toast > span {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e8f9eb;
+  color: #218c31;
+  font-weight: 700;
+}
+
+.crm-global-toast p {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.crm-global-toast button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.crm-global-toast button:hover {
+  background: #ecf4ff;
+}
+
+@media (max-width: 640px) {
+  .crm-global-toast {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    max-width: none;
+  }
+}
