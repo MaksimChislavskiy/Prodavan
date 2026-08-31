@@ -2,22 +2,28 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ApiContact } from '../../shared/api/contactsApi'
 import { ContactFormModal } from './ContactFormModal'
 import { ContactViewModal } from './ContactViewModal'
+import { TaskFormModal } from './TaskFormModal'
+import { TaskViewModal } from './TaskViewModal'
 import { ViewDealModal } from './ViewDealModal'
 
 type DeepLinkTarget =
   | { kind: 'contact'; id: string; name: string }
   | { kind: 'deal'; id: string; name: string }
+  | { kind: 'task'; id: string; name: string }
   | null
 
 type EditingContact = Pick<ApiContact, 'id' | 'name'> | null
+type EditingTask = { id: string; title: string } | null
 
 export function CrmObjectDeepLinkController() {
   const [target, setTarget] = useState<DeepLinkTarget>(readDeepLinkTarget)
   const [editingContact, setEditingContact] = useState<EditingContact>(null)
+  const [editingTask, setEditingTask] = useState<EditingTask>(null)
 
   useEffect(() => {
     const handleLocationChange = () => {
       setEditingContact(null)
+      setEditingTask(null)
       setTarget(readDeepLinkTarget())
     }
 
@@ -31,11 +37,14 @@ export function CrmObjectDeepLinkController() {
     searchParams.delete('contact_name')
     searchParams.delete('deal_id')
     searchParams.delete('deal_name')
+    searchParams.delete('task_id')
+    searchParams.delete('task_title')
 
     const query = searchParams.toString()
     const href = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
     window.history.replaceState(null, '', href)
     setEditingContact(null)
+    setEditingTask(null)
     setTarget(null)
   }, [])
 
@@ -78,6 +87,34 @@ export function CrmObjectDeepLinkController() {
     )
   }
 
+  if (target.kind === 'task') {
+    if (editingTask) {
+      return (
+        <TaskFormModal
+          mode="edit"
+          taskId={editingTask.id}
+          taskTitle={editingTask.title}
+          onClose={() => setEditingTask(null)}
+          onCreated={() => setEditingTask(null)}
+          onUpdated={() => setEditingTask(null)}
+          onDeleted={closeTarget}
+          onNotFound={closeTarget}
+        />
+      )
+    }
+
+    return (
+      <TaskViewModal
+        taskId={target.id}
+        taskTitle={target.name}
+        onClose={closeTarget}
+        onEdit={(task) => setEditingTask({ id: task.id, title: task.title })}
+        onDelete={() => undefined}
+        onNotFound={closeTarget}
+      />
+    )
+  }
+
   return (
     <ViewDealModal
       dealId={target.id}
@@ -110,6 +147,18 @@ function readDeepLinkTarget(): DeepLinkTarget {
         kind: 'deal',
         id: dealId,
         name: searchParams.get('deal_name')?.trim() || 'Сделка',
+      }
+    }
+  }
+
+  if (window.location.pathname === '/app/tasks') {
+    const taskId = searchParams.get('task_id')?.trim()
+
+    if (taskId) {
+      return {
+        kind: 'task',
+        id: taskId,
+        name: searchParams.get('task_title')?.trim() || 'Задача',
       }
     }
   }
