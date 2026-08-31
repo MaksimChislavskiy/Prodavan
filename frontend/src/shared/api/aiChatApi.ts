@@ -1,4 +1,5 @@
 import { apiRequest } from './apiClient'
+import { getCurrentChatContextId } from './chatApi'
 
 export type AiChatContext = {
   page: 'dashboard' | 'deals' | 'contacts' | 'tasks' | 'chat' | 'reports' | 'settings'
@@ -43,7 +44,7 @@ export function createAiChatSession(context: AiChatContext) {
   return apiRequest<ApiAiChatSessionResponse>('/api/ai/chat/session', {
     method: 'POST',
     body: {
-      context,
+      context: resolveAiContext(context),
     },
   })
 }
@@ -70,8 +71,19 @@ export function sendAiChatMessage(params: {
     body: {
       client_message_id: crypto.randomUUID(),
       message: params.message,
-      context: params.context,
+      context: resolveAiContext(params.context),
       session_id: params.sessionId,
     },
   })
+}
+
+function resolveAiContext(context: AiChatContext): AiChatContext {
+  if (context.page !== 'chat' || context.entity_id) {
+    return context
+  }
+
+  return {
+    ...context,
+    entity_id: getCurrentChatContextId(),
+  }
 }
