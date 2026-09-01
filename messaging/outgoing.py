@@ -200,21 +200,19 @@ def enqueue_outgoing_message(
         chat.save(
             update_fields=('last_message', 'last_message_at', 'updated_at'),
         )
+        audit_details = {
+            'status': MessageStatus.SENT,
+            'sent_by_ai': False,
+        }
+        if attachment_metadata is not None:
+            audit_details['attachment_type'] = attachment_metadata['type']
         write_chat_audit(
             workspace=workspace,
             user=user,
             action=ChatAuditAction.MESSAGE_SENT,
             chat_id=chat.id,
             message_id=message.id,
-            details={
-                'status': MessageStatus.SENT,
-                'sent_by_ai': False,
-                'attachment_type': (
-                    attachment_metadata['type']
-                    if attachment_metadata is not None
-                    else None
-                ),
-            },
+            details=audit_details,
             context=audit_context,
         )
         payload = {
@@ -335,19 +333,21 @@ def process_outgoing_message(message_id, *, client=None, now=None):
                 audit_user = message.chat.workspace.users.filter(
                     id=message.sender_id,
                 ).first()
+            audit_details = {
+                'status': MessageStatus.DELIVERED,
+                'sent_by_ai': message.sent_by_ai,
+                'telegram_message_id': message.telegram_message_id,
+                'delivery_attempts': message.delivery_attempts,
+            }
+            if message.attachment_type:
+                audit_details['attachment_type'] = message.attachment_type
             write_chat_audit(
                 workspace=message.chat.workspace,
                 user=audit_user,
                 action=ChatAuditAction.TELEGRAM_MESSAGE_SENT,
                 chat_id=message.chat_id,
                 message_id=message.id,
-                details={
-                    'status': MessageStatus.DELIVERED,
-                    'sent_by_ai': message.sent_by_ai,
-                    'telegram_message_id': message.telegram_message_id,
-                    'delivery_attempts': message.delivery_attempts,
-                    'attachment_type': message.attachment_type,
-                },
+                details=audit_details,
             )
             payload = {
                 'event': 'message_status_updated',
