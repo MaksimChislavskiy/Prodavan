@@ -37,7 +37,7 @@ export function DashboardPage({ onShowAll }: DashboardPageProps) {
     setStatus(next)
 
     if (next.status !== 'completed') {
-      if (!initial || phase !== 'loading') setPhase('onboarding')
+      setPhase('onboarding')
       return
     }
 
@@ -53,7 +53,7 @@ export function DashboardPage({ onShowAll }: DashboardPageProps) {
       completionTimerRef.current = null
       setPhase('dashboard')
     }, 1500)
-  }, [phase])
+  }, [])
 
   useEffect(() => {
     let disposed = false
