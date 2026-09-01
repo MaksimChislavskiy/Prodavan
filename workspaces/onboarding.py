@@ -27,7 +27,14 @@ def request_audit_context(request):
     correlation_id = str(
         getattr(request, 'request_id', None) or uuid.uuid4(),
     )[:64]
-    raw_ip = request.META.get('REMOTE_ADDR') or ''
+    # Nginx overwrites X-Real-IP with the direct client address before proxying
+    # to the private backend network. REMOTE_ADDR therefore normally contains
+    # the proxy/container address in deployed environments.
+    raw_ip = (
+        request.META.get('HTTP_X_REAL_IP')
+        or request.META.get('REMOTE_ADDR')
+        or ''
+    )
     try:
         ip_address = str(ipaddress.ip_address(raw_ip)) if raw_ip else None
     except ValueError:
