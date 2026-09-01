@@ -14,6 +14,15 @@ type ApiRequestOptions = {
   suppressGlobalErrorToast?: boolean
 }
 
+type ApiUploadRequestOptions = {
+  method?: string
+  body: FormData
+  signal?: AbortSignal
+  timeoutMs?: number
+  onUploadProgress?: (percent: number) => void
+  suppressGlobalErrorToast?: boolean
+}
+
 type RefreshSessionResponse = {
   access_token: string
 }
@@ -86,6 +95,13 @@ export async function apiRequest<TResponse>(
   }
 }
 
+export function apiUploadRequest<TResponse>(
+  path: string,
+  options: ApiUploadRequestOptions,
+): Promise<TResponse> {
+  return makeUploadRequest<TResponse>(path, options, true)
+}
+
 async function makeApiRequest<TResponse>(
   path: string,
   options: ApiRequestOptions,
@@ -110,6 +126,117 @@ async function makeApiRequest<TResponse>(
   }
 
   return data as TResponse
+}
+
+function makeUploadRequest<TResponse>(
+  path: string,
+  options: ApiUploadRequestOptions,
+  canRefreshToken: boolean,
+): Promise<TResponse> {
+  return new Promise<TResponse>((resolve, reject) => {
+    const sourceSignal = options.signal
+    if (sourceSignal?.aborted) {
+      reject(createAbortError())
+      return
+    }
+
+    const xhr = new XMLHttpRequest()
+    let settled = false
+
+    const cleanup = () => {
+      sourceSignal?.removeEventListener('abort', handleSourceAbort)
+      xhr.upload.onprogress = null
+      xhr.onload = null
+      xhr.onerror = null
+      xhr.ontimeout = null
+      xhr.onabort = null
+    }
+
+    const finishResolve = (value: TResponse) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(value)
+    }
+
+    const finishReject = (error: unknown) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    const handleSourceAbort = () => xhr.abort()
+
+    xhr.open(options.method ?? 'POST', path)
+    xhr.withCredentials = true
+    xhr.timeout = normalizeTimeout(options.timeoutMs)
+    xhr.setRequestHeader('Accept', 'application/json')
+
+    const token = getAccessToken()
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return
+      const percent = Math.max(
+        0,
+        Math.min(100, Math.round((event.loaded / event.total) * 100)),
+      )
+      options.onUploadProgress?.(percent)
+    }
+
+    xhr.onload = () => {
+      const data = parseXhrResponse(xhr.responseText)
+
+      if (xhr.status === 401 && canRefreshToken && path !== '/api/auth/refresh') {
+        settled = true
+        cleanup()
+        void refreshAccessToken().then((isRefreshed) => {
+          if (!isRefreshed) {
+            reject(new ApiError(getApiErrorMessage(data, 401), 401, data))
+            return
+          }
+          makeUploadRequest<TResponse>(path, options, false).then(resolve, reject)
+        })
+        return
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        finishReject(
+          new ApiError(
+            getApiErrorMessage(data, xhr.status || 500),
+            xhr.status || 500,
+            data,
+          ),
+        )
+        return
+      }
+
+      options.onUploadProgress?.(100)
+      finishResolve(data as TResponse)
+    }
+
+    xhr.onerror = () => {
+      if (!options.suppressGlobalErrorToast) {
+        showCrmToast(NETWORK_ERROR_MESSAGE)
+      }
+      finishReject(new Error(NETWORK_ERROR_MESSAGE))
+    }
+
+    xhr.ontimeout = () => {
+      if (!options.suppressGlobalErrorToast) {
+        showCrmToast(REQUEST_TIMEOUT_MESSAGE)
+      }
+      finishReject(new Error(REQUEST_TIMEOUT_MESSAGE))
+    }
+
+    xhr.onabort = () => finishReject(createAbortError())
+
+    sourceSignal?.addEventListener('abort', handleSourceAbort, { once: true })
+    xhr.send(options.body)
+  })
 }
 
 async function fetchWithAuth(path: string, options: ApiRequestOptions) {
@@ -190,7 +317,7 @@ function handleExpiredSession() {
 
   if (
     typeof window !== 'undefined'
-    && window.location.pathname.startsWith('/app')
+    && (window.location.pathname.startsWith('/app') || window.location.pathname === '/settings/ai')
   ) {
     window.location.replace('/')
   }
@@ -264,6 +391,15 @@ function isRefreshSessionResponse(data: unknown): data is RefreshSessionResponse
     'access_token' in data &&
     typeof data.access_token === 'string'
   )
+}
+
+function parseXhrResponse(responseText: string): unknown {
+  if (!responseText) return null
+  try {
+    return JSON.parse(responseText)
+  } catch {
+    return responseText
+  }
 }
 
 function getApiErrorMessage(data: unknown, status: number) {
