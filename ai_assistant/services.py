@@ -32,7 +32,7 @@ def _change(old_value, new_value):
 def _audit_kwargs(audit_context):
     audit_context = audit_context or {}
     return {
-        'ip_address': audit_context.get('ip_address'),
+        'ip': audit_context.get('ip_address'),
         'user_agent': (audit_context.get('user_agent') or '')[:512],
     }
 
