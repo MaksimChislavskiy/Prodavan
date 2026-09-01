@@ -5,14 +5,22 @@ import { CrmObjectDeepLinkController } from '../components/crm/CrmObjectDeepLink
 import { NotificationCenterController } from '../components/crm/NotificationCenterController'
 import { SidebarAiChatController } from '../components/crm/SidebarAiChatController'
 import { UserMenu } from '../components/crm/UserMenu'
-import { refreshSession } from '../shared/api/authApi'
+import {
+  getCurrentUser,
+  refreshSession,
+  type CurrentUserRole,
+} from '../shared/api/authApi'
 import { ProfilePage } from './ProfilePage'
+import './CrmRoleAccess.css'
 
 type AuthStatus = 'checking' | 'authorized' | 'unauthorized'
+
+const AI_SETTINGS_PATH = '/app/settings/ai'
 
 export function CrmAppPage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
   const [currentPath, setCurrentPath] = useState(window.location.pathname)
+  const [currentRole, setCurrentRole] = useState<CurrentUserRole | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -20,10 +28,21 @@ export function CrmAppPage() {
     async function checkSession() {
       try {
         await refreshSession()
+        const currentUser = await getCurrentUser()
 
-        if (isMounted) {
-          setAuthStatus('authorized')
+        if (!isMounted) {
+          return
         }
+
+        setCurrentRole(currentUser.role)
+        document.documentElement.dataset.crmRole = currentUser.role
+
+        if (currentUser.role !== 'admin' && window.location.pathname === AI_SETTINGS_PATH) {
+          window.history.replaceState(null, '', '/app')
+          setCurrentPath('/app')
+        }
+
+        setAuthStatus('authorized')
       } catch {
         if (isMounted) {
           setAuthStatus('unauthorized')
@@ -36,6 +55,7 @@ export function CrmAppPage() {
 
     return () => {
       isMounted = false
+      delete document.documentElement.dataset.crmRole
     }
   }, [])
 
@@ -68,6 +88,21 @@ export function CrmAppPage() {
       document.removeEventListener('click', handleDocumentClick)
     }
   }, [])
+
+  useEffect(() => {
+    if (
+      authStatus !== 'authorized'
+      || currentRole === null
+      || currentRole === 'admin'
+      || currentPath !== AI_SETTINGS_PATH
+    ) {
+      return
+    }
+
+    window.history.replaceState(null, '', '/app')
+    setCurrentPath('/app')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, [authStatus, currentPath, currentRole])
 
   if (authStatus === 'checking') {
     return (
