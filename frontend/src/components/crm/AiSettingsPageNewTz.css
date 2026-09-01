@@ -86,6 +86,11 @@
   cursor: not-allowed;
 }
 
+.ai-settings-upload-box__button::before,
+.ai-settings-upload-box__button::after {
+  content: '"';
+}
+
 .ai-settings-knowledge-row--uploading {
   opacity: 0.85;
 }
