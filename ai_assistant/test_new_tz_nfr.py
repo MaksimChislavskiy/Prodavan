@@ -1,3 +1,4 @@
+import io
 import math
 import shutil
 import tempfile
@@ -6,6 +7,8 @@ from time import perf_counter
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, NameObject
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -13,6 +16,15 @@ from users.models import User
 
 from .knowledge import MAX_FILE_SIZE
 from .models import KnowledgeDocument, KnowledgeDocumentStatus
+from .processing import process_knowledge_document
+
+
+class FastEmbeddingClient:
+    def create_embeddings(self, texts):
+        return [
+            [1.0, float((len(text) % 997) + 1)]
+            for text in texts
+        ]
 
 
 @override_settings(
@@ -67,6 +79,26 @@ class NewTzAISettingsNfrRegressionTests(TestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         return self._p95(durations)
 
+    @staticmethod
+    def _make_100_page_pdf():
+        writer = PdfWriter()
+        page_text = ' '.join(
+            f'Prodavan knowledge sentence {index}.'
+            for index in range(180)
+        )
+        escaped_text = page_text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+        stream_data = f'BT 72 720 Td ({escaped_text}) Tj ET'.encode('latin-1')
+
+        for _ in range(100):
+            page = writer.add_blank_page(width=612, height=792)
+            stream = DecodedStreamObject()
+            stream.set_data(stream_data)
+            page[NameObject('/Contents')] = writer._add_object(stream)
+
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
     def test_settings_get_application_p95_is_within_500_ms(self):
         p95 = self._measure_get(self.settings_url)
 
@@ -117,8 +149,49 @@ class NewTzAISettingsNfrRegressionTests(TestCase):
         duration = perf_counter() - started
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data['files'][0]['size'], MAX_FILE_SIZE)
         self.assertLessEqual(
             duration,
             10.0,
             f'20 MiB upload application time is {duration:.3f}s',
+        )
+
+    def test_100_page_pdf_application_indexing_is_within_five_minutes(self):
+        pdf_data = self._make_100_page_pdf()
+        document = KnowledgeDocument(
+            workspace=self.user.workspace,
+            uploaded_by=self.user,
+            uploaded_by_identifier=self.user.id,
+            original_name='nfr-100-pages.pdf',
+            size_bytes=len(pdf_data),
+            mime_type='application/pdf',
+            sha256='f' * 64,
+            status=KnowledgeDocumentStatus.PROCESSING,
+        )
+        document.file.save(
+            document.original_name,
+            SimpleUploadedFile(
+                document.original_name,
+                pdf_data,
+                content_type='application/pdf',
+            ),
+            save=False,
+        )
+        document.save()
+
+        started = perf_counter()
+        result = process_knowledge_document(
+            document.id,
+            embedding_client=FastEmbeddingClient(),
+        )
+        duration = perf_counter() - started
+
+        document.refresh_from_db()
+        self.assertEqual(result, KnowledgeDocumentStatus.READY)
+        self.assertEqual(document.status, KnowledgeDocumentStatus.READY)
+        self.assertGreater(document.chunks.count(), 0)
+        self.assertLessEqual(
+            duration,
+            300.0,
+            f'100-page PDF application indexing time is {duration:.3f}s',
         )
