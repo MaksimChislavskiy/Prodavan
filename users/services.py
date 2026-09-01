@@ -313,6 +313,8 @@ def confirm_password_reset_code(*, email, code):
 
 
 def reset_password(*, email, new_password):
+    deferred_error = None
+
     with transaction.atomic():
         user = (
             User.objects.select_for_update()
@@ -339,20 +341,23 @@ def reset_password(*, email, new_password):
             token.used = True
             token.confirmed_at = None
             token.save(update_fields=('used', 'confirmed_at', 'updated_at'))
-            raise PasswordResetServiceError(
+            deferred_error = PasswordResetServiceError(
                 'Срок восстановления истёк. Пройдите процедуру восстановления заново.',
             )
+        else:
+            user.set_password(new_password)
+            user.token_version += 1
+            user.save(update_fields=('password', 'token_version', 'updated_at'))
+            RefreshToken.objects.filter(user=user, revoked=False).update(
+                revoked=True,
+                revoked_at=now,
+                updated_at=now,
+            )
+            token.used = True
+            token.save(update_fields=('used', 'updated_at'))
 
-        user.set_password(new_password)
-        user.token_version += 1
-        user.save(update_fields=('password', 'token_version', 'updated_at'))
-        RefreshToken.objects.filter(user=user, revoked=False).update(
-            revoked=True,
-            revoked_at=now,
-            updated_at=now,
-        )
-        token.used = True
-        token.save(update_fields=('used', 'updated_at'))
+    if deferred_error is not None:
+        raise deferred_error
 
 
 def _deliver_registration_code(*, email, code, code_expires_at):
