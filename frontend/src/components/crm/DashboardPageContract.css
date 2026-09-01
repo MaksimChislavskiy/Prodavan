@@ -1,5 +1,12 @@
+.dashboard-page__title {
+  display: none;
+}
+
 .dashboard-today__footer {
-  margin-top: 28px;
+  position: absolute;
+  top: 32px;
+  right: 32px;
+  margin: 0;
   display: flex;
   justify-content: flex-end;
 }
@@ -20,11 +27,17 @@
 }
 
 @media (max-width: 560px) {
-  .dashboard-today__footer {
-    justify-content: stretch;
+  .dashboard-today__header {
+    padding-right: 0;
   }
 
-  .dashboard-today__footer .dashboard-today__show-all {
-    width: 100%;
+  .dashboard-today__footer {
+    top: 32px;
+    right: 32px;
+  }
+
+  .dashboard-today__show-all {
+    min-width: 0;
+    padding-inline: 16px;
   }
 }
