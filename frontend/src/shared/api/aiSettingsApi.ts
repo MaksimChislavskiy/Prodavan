@@ -1,4 +1,4 @@
-import { ApiError, apiRequest } from './apiClient'
+import { ApiError, apiRequest, apiUploadRequest } from './apiClient'
 
 export type ApiAutopilotMode = 'always' | 'fallback'
 
@@ -187,7 +187,11 @@ export async function getKnowledgeFiles(
   }
 }
 
-export async function uploadKnowledgeFiles(files: File[], signal?: AbortSignal) {
+export async function uploadKnowledgeFiles(
+  files: File[],
+  signal?: AbortSignal,
+  onProgress?: (percent: number) => void,
+) {
   const formData = new FormData()
 
   files.forEach((file) => {
@@ -195,11 +199,15 @@ export async function uploadKnowledgeFiles(files: File[], signal?: AbortSignal) 
   })
 
   try {
-    return await apiRequest<ApiKnowledgeFilesUploadResponse>('/api/ai/knowledge-base/files', {
-      method: 'POST',
-      body: formData,
-      signal,
-    })
+    return await apiUploadRequest<ApiKnowledgeFilesUploadResponse>(
+      '/api/ai/knowledge-base/files',
+      {
+        method: 'POST',
+        body: formData,
+        signal,
+        onUploadProgress: onProgress,
+      },
+    )
   } catch (error) {
     if (signal?.aborted) {
       throw error
