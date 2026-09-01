@@ -187,7 +187,7 @@ export async function getKnowledgeFiles(
   }
 }
 
-export async function uploadKnowledgeFiles(files: File[]) {
+export async function uploadKnowledgeFiles(files: File[], signal?: AbortSignal) {
   const formData = new FormData()
 
   files.forEach((file) => {
@@ -198,8 +198,12 @@ export async function uploadKnowledgeFiles(files: File[]) {
     return await apiRequest<ApiKnowledgeFilesUploadResponse>('/api/ai/knowledge-base/files', {
       method: 'POST',
       body: formData,
+      signal,
     })
   } catch (error) {
+    if (signal?.aborted) {
+      throw error
+    }
     throw normalizeServerError(error, KNOWLEDGE_UPLOAD_ERROR)
   }
 }
