@@ -1,4 +1,19 @@
+import uuid
+
 from django.db import migrations, models
+
+
+def normalize_existing_correlation_ids(apps, schema_editor):
+    audit_model = apps.get_model('workspaces', 'WorkspaceOnboardingAuditLog')
+    for audit in audit_model.objects.only('id', 'correlation_id').iterator():
+        try:
+            normalized = uuid.UUID(str(audit.correlation_id))
+        except (TypeError, ValueError, AttributeError):
+            normalized = uuid.uuid4()
+        normalized_text = str(normalized)
+        if audit.correlation_id != normalized_text:
+            audit.correlation_id = normalized_text
+            audit.save(update_fields=('correlation_id',))
 
 
 class Migration(migrations.Migration):
@@ -54,5 +69,14 @@ class Migration(migrations.Migration):
                 db_column='onboarding_materials_viewed',
                 default=False,
             ),
+        ),
+        migrations.RunPython(
+            normalize_existing_correlation_ids,
+            migrations.RunPython.noop,
+        ),
+        migrations.AlterField(
+            model_name='workspaceonboardingauditlog',
+            name='correlation_id',
+            field=models.UUIDField(db_index=True),
         ),
     ]
