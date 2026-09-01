@@ -118,7 +118,7 @@ class WorkspaceOnboardingAuditLog(models.Model):
     details = models.JSONField(default=dict, blank=True)
     ip = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=512, blank=True, default='')
-    correlation_id = models.CharField(max_length=64, db_index=True)
+    correlation_id = models.UUIDField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -216,64 +216,5 @@ class TelegramWebhookLog(models.Model):
             models.UniqueConstraint(
                 fields=('workspace', 'update_id'),
                 name='unique_telegram_update_per_workspace',
-            ),
-        ]
-
-
-class WorkspaceAuditLog(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='workspace_audit_logs',
-    )
-    workspace = models.ForeignKey(
-        Workspace,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='audit_logs',
-    )
-    user_identifier = models.UUIDField(db_index=True)
-    workspace_identifier = models.UUIDField(db_index=True)
-    field = models.CharField(max_length=128)
-    old_value = models.TextField(null=True, blank=True)
-    new_value = models.TextField(null=True, blank=True)
-    changed_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    request_id = models.UUIDField(default=uuid.uuid4, db_index=True)
-
-    class Meta:
-        db_table = 'workspace_audit_log'
-        ordering = ('-changed_at',)
-
-
-class WorkspaceIdempotencyRecord(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    workspace = models.ForeignKey(
-        Workspace,
-        on_delete=models.CASCADE,
-        related_name='idempotency_records',
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='workspace_idempotency_records',
-    )
-    key = models.UUIDField()
-    request_hash = models.CharField(max_length=64)
-    response_body = models.JSONField()
-    response_status = models.PositiveSmallIntegerField(default=200)
-    response_etag = models.CharField(max_length=64)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(db_index=True)
-
-    class Meta:
-        db_table = 'workspace_idempotency_records'
-        constraints = [
-            models.UniqueConstraint(
-                fields=('workspace', 'key'),
-                name='unique_workspace_idempotency_key',
             ),
         ]
