@@ -51,6 +51,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
   const [isSendingCode, setIsSendingCode] = useState(false)
   const [isConfirmingCode, setIsConfirmingCode] = useState(false)
   const [isSavingPassword, setIsSavingPassword] = useState(false)
+  const [isCancellingReset, setIsCancellingReset] = useState(false)
   const [resendSeconds, setResendSeconds] = useState(0)
   const [codeExpiresSeconds, setCodeExpiresSeconds] = useState(0)
   const [isCodeBlocked, setIsCodeBlocked] = useState(false)
@@ -60,11 +61,12 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
   const isEmailValid = Boolean(normalizedEmail && normalizedEmail.length <= 255 && EMAIL_PATTERN.test(normalizedEmail))
   const passwordHasMinLength = newPassword.length >= 8
   const passwordHasRequiredCharacter = PASSWORD_HAS_DIGIT_OR_SPECIAL.test(newPassword)
+  const passwordsMatch = Boolean(newPassword && repeatPassword && newPassword === repeatPassword)
   const isPasswordFormValid = Boolean(
     newPassword && repeatPassword && newPassword.length <= 255 && passwordHasMinLength
-    && passwordHasRequiredCharacter && newPassword === repeatPassword,
+    && passwordHasRequiredCharacter && passwordsMatch,
   )
-  const isBusy = isSendingCode || isConfirmingCode || isSavingPassword
+  const isBusy = isSendingCode || isConfirmingCode || isSavingPassword || isCancellingReset
   const codeExpired = resetStep === 'code' && codeExpiresSeconds === 0
   const displayedCodeError = codeError || (codeExpired ? 'Срок действия кода истёк. Запросите новый код.' : '')
 
@@ -78,7 +80,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     const timeoutId = window.setTimeout(() => {
       if (resetStep === 'email') modalRef.current?.querySelector<HTMLInputElement>('input[type="email"]')?.focus()
       if (resetStep === 'code') codeInputRefs.current[0]?.focus()
-      if (resetStep === 'newPassword') modalRef.current?.querySelector<HTMLInputElement>('input[type="password"], input[type="text"]')?.focus()
+      if (resetStep === 'newPassword') modalRef.current?.querySelector<HTMLInputElement>('input[name="new-password"]')?.focus()
     }, 0)
     return () => window.clearTimeout(timeoutId)
   }, [resetStep])
@@ -103,6 +105,15 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     setCodeExpiresSeconds(CODE_LIFETIME_SECONDS)
   }
 
+  const cancelServerReset = async () => {
+    if (!normalizedEmail) return
+    await apiRequest('/api/auth/reset-password/cancel', {
+      method: 'POST',
+      body: { email: normalizedEmail },
+      suppressGlobalErrorToast: true,
+    })
+  }
+
   const shouldConfirmClose = () => {
     if (resetStep === 'email') return Boolean(email)
     if (resetStep === 'code') return true
@@ -114,6 +125,20 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     if (isBusy || resetStep === 'success') return
     if (shouldConfirmClose()) setIsCloseConfirmOpen(true)
     else onClose()
+  }
+
+  const handleConfirmedClose = async () => {
+    if (isCancellingReset) return
+    try {
+      setIsCancellingReset(true)
+      if (resetStep === 'newPassword') await cancelServerReset()
+      onClose()
+    } catch (error) {
+      setPasswordError(getRequestErrorMessage(error, 'Не удалось прервать восстановление пароля.'))
+      setIsCloseConfirmOpen(false)
+    } finally {
+      setIsCancellingReset(false)
+    }
   }
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
@@ -161,6 +186,12 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
 
   const handleEmailSubmit = async () => {
     if (!isEmailValid || isSendingCode) return
+
+    if (codeExpiresSeconds > 0 && email.trim().toLowerCase() === normalizedEmail) {
+      setResetStep('code')
+      return
+    }
+
     try {
       setIsSendingCode(true)
       setEmailError('')
@@ -227,7 +258,10 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
 
   const handleCodeKeyDown = (event: KeyboardEvent<HTMLInputElement>, index: number) => {
     if (event.key === 'Backspace' && !confirmationCode[index] && index > 0) codeInputRefs.current[index - 1]?.focus()
-    if (event.key === 'Enter' && confirmationCode.join('').length === 4) void handleCodeSubmit(confirmationCode.join(''))
+    if (event.key === 'Enter' && confirmationCode.join('').length === 4) {
+      event.preventDefault()
+      void handleCodeSubmit(confirmationCode.join(''))
+    }
   }
 
   const handleResendCode = async () => {
@@ -245,16 +279,24 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     } finally { setIsSendingCode(false) }
   }
 
-  const handleChangeEmail = () => {
+  const handleChangeEmail = async () => {
     if (isBusy) return
-    setEmail('')
-    setEmailError('')
-    setConfirmationCode(createEmptyCode())
-    setCodeError('')
-    setIsCodeBlocked(false)
-    setResendSeconds(0)
-    setCodeExpiresSeconds(0)
-    setResetStep('email')
+    try {
+      setIsCancellingReset(true)
+      await cancelServerReset()
+      setEmail('')
+      setEmailError('')
+      setConfirmationCode(createEmptyCode())
+      setCodeError('')
+      setIsCodeBlocked(false)
+      setResendSeconds(0)
+      setCodeExpiresSeconds(0)
+      setResetStep('email')
+    } catch (error) {
+      setCodeError(getRequestErrorMessage(error, 'Не удалось сменить e-mail. Попробуйте позже.'))
+    } finally {
+      setIsCancellingReset(false)
+    }
   }
 
   const handlePasswordSubmit = async () => {
@@ -273,6 +315,9 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
         setNewPassword('')
         setRepeatPassword('')
         setConfirmationCode(createEmptyCode())
+        setResendSeconds(0)
+        setCodeExpiresSeconds(0)
+        setEmailError(message)
         setResetStep('email')
       }
     } finally { setIsSavingPassword(false) }
@@ -288,12 +333,14 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     hasCodeError ? 'passwordResetModalCodeInvalid' : '',
   ].filter(Boolean).join(' ')
 
+  const closeTabIndex = resetStep === 'email' ? 3 : 8
+
   return (
     <div className="passwordResetOverlay" role="presentation" onMouseDown={handleOverlayMouseDown} onKeyDown={handleKeyDown}>
       <div className={modalClassName} ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="password-reset-modal-title">
         {resetStep !== 'success' && (
           <div className="passwordResetTop">
-            <button className="passwordResetClose" type="button" aria-label="Закрыть" disabled={isBusy} onClick={requestClose}><CloseIcon /></button>
+            <button className="passwordResetClose" tabIndex={closeTabIndex} type="button" aria-label="Закрыть" disabled={isBusy} onClick={requestClose}><CloseIcon /></button>
           </div>
         )}
 
@@ -348,7 +395,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
                   onClick={() => void handleResendCode()}>
                   {isSendingCode ? 'Отправка...' : resendSeconds > 0 && !codeExpired ? `Отправить снова через ${formatCountdown(resendSeconds)}` : 'Отправить код повторно'}
                 </button>
-                <button className="passwordResetChangeEmailButton" tabIndex={7} type="button" disabled={isBusy} onClick={handleChangeEmail}>Ввести другой адрес</button>
+                <button className="passwordResetChangeEmailButton" tabIndex={7} type="button" disabled={isBusy} onClick={() => void handleChangeEmail()}>Ввести другой адрес</button>
               </div>
             </div>
           </>
@@ -366,7 +413,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
                 <label className="passwordResetField passwordResetPasswordField">
                   <span>Новый пароль</span>
                   <div className="passwordResetPasswordInput">
-                    <input tabIndex={2} type={isNewPasswordVisible ? 'text' : 'password'} maxLength={255} placeholder="Введите новый пароль" value={newPassword}
+                    <input name="new-password" tabIndex={2} type={isNewPasswordVisible ? 'text' : 'password'} maxLength={255} placeholder="Введите новый пароль" value={newPassword}
                       disabled={isSavingPassword} onChange={(event) => { setNewPassword(event.target.value); setPasswordError('') }} />
                     <button className="passwordResetPasswordToggle" tabIndex={3} type="button" aria-label={isNewPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
                       disabled={isSavingPassword} onClick={() => setIsNewPasswordVisible((value) => !value)}>{isNewPasswordVisible ? <EyeIcon /> : <EyeSlashIcon />}</button>
@@ -386,6 +433,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
                     disabled={isSavingPassword} onClick={() => setIsRepeatPasswordVisible((value) => !value)}>{isRepeatPasswordVisible ? <EyeIcon /> : <EyeSlashIcon />}</button>
                 </div>
               </label>
+              {repeatPassword && !passwordsMatch && <p className="passwordResetPasswordErrorText" role="alert">Пароли не совпадают.</p>}
               {passwordError && <p className="passwordResetPasswordErrorText" role="alert">{passwordError}</p>}
               <button className="passwordResetSubmitButton" tabIndex={6} type="submit" disabled={!isPasswordFormValid || isSavingPassword}>
                 {isSavingPassword ? <><span className="passwordResetButtonSpinner" aria-hidden="true" />Сохранение...</> : 'Сохранить пароль'}
@@ -407,8 +455,8 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
           <div className="passwordResetCloseConfirm" ref={confirmRef} role="alertdialog" aria-modal="true" aria-labelledby="password-reset-close-title">
             <h3 id="password-reset-close-title">Введённые данные будут потеряны. Закрыть окно?</h3>
             <div className="passwordResetCloseConfirmActions">
-              <button type="button" onClick={onClose}>Закрыть</button>
-              <button type="button" autoFocus onClick={() => setIsCloseConfirmOpen(false)}>Остаться</button>
+              <button type="button" disabled={isCancellingReset} onClick={() => void handleConfirmedClose()}>Закрыть</button>
+              <button type="button" autoFocus disabled={isCancellingReset} onClick={() => setIsCloseConfirmOpen(false)}>Остаться</button>
             </div>
           </div>
         </div>
