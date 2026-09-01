@@ -44,6 +44,8 @@ class Workspace(TimestampMixin):
     language = models.CharField(max_length=8, default='ru')
     version = models.PositiveIntegerField(default=0)
     company = models.JSONField(default=default_company_details)
+    is_active = models.BooleanField(default=True, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'workspaces'
