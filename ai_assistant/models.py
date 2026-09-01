@@ -479,6 +479,7 @@ class KnowledgeDocument(TimestampMixin):
     size_bytes = models.PositiveBigIntegerField()
     mime_type = models.CharField(max_length=128)
     sha256 = models.CharField(max_length=64, db_index=True)
+    onboarding_correlation_id = models.CharField(max_length=64, blank=True, default='')
     status = models.CharField(
         max_length=16,
         choices=KnowledgeDocumentStatus.choices,
