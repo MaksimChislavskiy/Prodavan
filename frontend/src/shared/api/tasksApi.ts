@@ -205,6 +205,7 @@ export function bulkDeleteTasks(taskIds: string[], signal?: AbortSignal) {
 
 function showTaskMutationError(error: unknown) {
   if (error instanceof DOMException && error.name === 'AbortError') return
+  if (error instanceof ApiError && (error.status === 401 || error.status === 404)) return
 
   showCrmToast(
     error instanceof ApiError && error.status === 409
