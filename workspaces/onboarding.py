@@ -127,6 +127,20 @@ def _write_audit(
     )
 
 
+def _flow_request_metadata(correlation_id):
+    metadata = (
+        WorkspaceOnboardingAuditLog.objects
+        .filter(correlation_id=correlation_id)
+        .exclude(event=OnboardingAuditEvent.COMPLETED)
+        .order_by('created_at', 'id')
+        .values('ip', 'user_agent')
+        .first()
+    )
+    if metadata is None:
+        return None, ''
+    return metadata['ip'], metadata['user_agent'] or ''
+
+
 def _broadcast_status(workspace_id, payload, correlation_id):
     event = {
         'event': 'onboarding_status_updated',
@@ -271,6 +285,7 @@ def onboarding_knowledge_state_changed(
     if previous_has_ready == current_has_ready:
         return
     correlation_id = normalize_onboarding_correlation_id(correlation_id)
+    ip_address, user_agent = _flow_request_metadata(correlation_id)
     with transaction.atomic():
         state = _locked_state(workspace_id)
         if state.completed:
@@ -281,6 +296,8 @@ def onboarding_knowledge_state_changed(
             knowledge_base_completed=current_has_ready,
             user_id=user_id,
             correlation_id=correlation_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
             trigger_document_id=trigger_document_id,
         )
         payload = _status_payload(state, current_has_ready)
