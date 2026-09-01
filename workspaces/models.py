@@ -61,6 +61,8 @@ class OnboardingAuditEvent(models.TextChoices):
     UPLOAD_STARTED = 'onboarding_upload_started', 'Загрузка начата'
     UPLOAD_SUCCESS = 'onboarding_upload_success', 'Загрузка принята'
     UPLOAD_FAILED = 'onboarding_upload_failed', 'Ошибка загрузки'
+    VIDEO_OPENED = 'onboarding_video_opened', 'Видео открыто'
+    PDF_OPENED = 'onboarding_pdf_opened', 'PDF открыт'
     MATERIALS_VIEWED = 'onboarding_materials_viewed', 'Материалы просмотрены'
     COMPLETED = 'onboarding_completed', 'Онбординг завершён'
 
@@ -104,7 +106,7 @@ class WorkspaceOnboardingAuditLog(models.Model):
         db_index=True,
     )
     details = models.JSONField(default=dict, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=512, blank=True, default='')
     correlation_id = models.CharField(max_length=64, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
