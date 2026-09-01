@@ -3,9 +3,11 @@ import { ApiError, apiRequest } from './shared/api/apiClient'
 import { resendRegistrationCode } from './shared/api/authApi'
 import { setAccessToken } from './shared/api/authToken'
 import './LoginModal.css'
+import './LoginModal.notice.css'
 
 type LoginModalProps = {
   initialEmail?: string
+  notice?: string
   onClose: () => void
   onOpenRegister: () => void
   onOpenReset?: (email?: string) => void
@@ -30,7 +32,13 @@ type LoginFieldErrors = {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 let savedLoginDraft = { email: '', password: '' }
 
-function LoginModal({ initialEmail = '', onClose, onOpenRegister, onOpenReset }: LoginModalProps) {
+function LoginModal({
+  initialEmail = '',
+  notice = '',
+  onClose,
+  onOpenRegister,
+  onOpenReset,
+}: LoginModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null)
   const confirmRef = useRef<HTMLDivElement | null>(null)
 
@@ -221,6 +229,8 @@ function LoginModal({ initialEmail = '', onClose, onOpenRegister, onOpenReset }:
               Забыли пароль?
             </button>
           </div>
+
+          {notice && <p className="loginStatusMessage" role="status">{notice}</p>}
 
           {loginError && (
             <div className={isUnconfirmedEmail ? 'loginErrorBlock' : 'loginErrorBlock loginErrorBlockCompact'} role="alert">
