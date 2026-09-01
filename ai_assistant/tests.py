@@ -153,6 +153,8 @@ class AISettingsApiTests(TestCase):
             audit.changes['instruction']['new'],
             '<b>Отвечай кратко</b>',
         )
+        self.assertEqual(audit.old_value, '')
+        self.assertEqual(audit.new_value, '<b>Отвечай кратко</b>')
 
     def test_empty_instruction_removes_it(self):
         AISettings.objects.create(
@@ -171,7 +173,7 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['instruction'], '')
 
-    def test_patch_autopilot_fields_writes_settings_changed_audit(self):
+    def test_patch_autopilot_fields_writes_required_enabled_audit(self):
         access = self._login()
 
         response = self.client.patch(
@@ -191,12 +193,11 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(response.data['autopilot_mode'], 'always')
         self.assertEqual(response.data['autopilot_delay'], 3)
         audit = AIAuditLog.objects.get()
-        self.assertEqual(
-            audit.action,
-            AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
-        )
+        self.assertEqual(audit.action, AIAuditAction.AUTOPILOT_ENABLED)
         self.assertEqual(audit.user, self.user)
         self.assertEqual(audit.workspace, self.user.workspace)
+        self.assertEqual(audit.old_value, False)
+        self.assertEqual(audit.new_value, True)
         self.assertEqual(
             audit.changes,
             {
@@ -357,6 +358,12 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(response.data['autopilot_delay'], 5)
         self.assertEqual(response.data['storage']['files_count'], 1)
         self.assertTrue(KnowledgeDocument.objects.filter(id=document.id).exists())
+        self.assertTrue(
+            AIAuditLog.objects.filter(action=AIAuditAction.INSTRUCTION_UPDATED).exists(),
+        )
+        self.assertTrue(
+            AIAuditLog.objects.filter(action=AIAuditAction.AUTOPILOT_DISABLED).exists(),
+        )
 
         stale_response = self.client.post(
             self.reset_url,
