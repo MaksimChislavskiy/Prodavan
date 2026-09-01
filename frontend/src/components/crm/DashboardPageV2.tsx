@@ -12,8 +12,11 @@ import {
   type ApiTask,
 } from '../../shared/api/tasksApi'
 import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
+import { ContactFormModal } from './ContactFormModal'
+import { ContactViewModal } from './ContactViewModal'
 import { TaskFormModal } from './TaskFormModal'
 import { TaskViewModal } from './TaskViewModal'
+import { ViewDealModal } from './ViewDealModal'
 import './DashboardPage.css'
 import './DashboardPageContract.css'
 
@@ -29,6 +32,11 @@ type DashboardDialog =
   | { mode: 'view'; task: ApiDashboardTask }
   | { mode: 'edit'; task: ApiDashboardTask }
 
+type RelatedDialog =
+  | { kind: 'contact-view'; id: string; name: string }
+  | { kind: 'contact-edit'; id: string; name: string }
+  | { kind: 'deal-view'; id: string; name: string }
+
 const DASHBOARD_LOAD_ERROR = 'Не удалось загрузить задачи. Обновите страницу.'
 const DASHBOARD_DELETE_ERROR = 'Не удалось удалить задачу. Попробуйте позже.'
 
@@ -41,6 +49,7 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
     hasError: false,
   })
   const [dialog, setDialog] = useState<DashboardDialog | null>(null)
+  const [relatedDialog, setRelatedDialog] = useState<RelatedDialog | null>(null)
   const [openMenuId, setOpenMenuId] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<ApiDashboardTask | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -194,8 +203,6 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
   return (
     <>
       <main className="dashboard-page">
-        <h1 className="dashboard-page__title">Рабочий стол</h1>
-
         <section
           className="dashboard-today"
           aria-labelledby="dashboard-today-title"
@@ -222,6 +229,16 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
                 </span>
               </span>
             </div>
+
+            {state.totalCount > 10 && (
+              <button
+                className="dashboard-today__show-all"
+                type="button"
+                onClick={onShowAll}
+              >
+                Показать все
+              </button>
+            )}
           </header>
 
           {state.isLoading && !state.hasLoaded && <DashboardSkeleton />}
@@ -230,6 +247,7 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
             && !state.isLoading
             && !state.hasError
             && state.tasks.length === 0
+            && state.totalCount === 0
             && (
               <div className="dashboard-state dashboard-state--empty">
                 <span aria-hidden="true">✓</span>
@@ -238,44 +256,46 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
             )}
 
           {state.hasLoaded && state.tasks.length > 0 && (
-            <>
-              <div className="dashboard-task-grid">
-                {state.tasks.map((task) => (
-                  <DashboardTaskCard
-                    key={task.id}
-                    task={task}
-                    timezone={workspaceTimezone}
-                    isMenuOpen={openMenuId === task.id}
-                    onOpen={() => setDialog({ mode: 'view', task })}
-                    onEdit={() => {
-                      setOpenMenuId('')
-                      setDialog({ mode: 'edit', task })
-                    }}
-                    onDelete={() => {
-                      setOpenMenuId('')
-                      setDeleteTarget(task)
-                    }}
-                    onToggleMenu={() =>
-                      setOpenMenuId((currentId) =>
-                        currentId === task.id ? '' : task.id,
-                      )
-                    }
-                  />
-                ))}
-              </div>
-
-              {state.totalCount > 10 && (
-                <div className="dashboard-today__footer">
-                  <button
-                    className="dashboard-today__show-all"
-                    type="button"
-                    onClick={onShowAll}
-                  >
-                    Показать все
-                  </button>
-                </div>
-              )}
-            </>
+            <div className="dashboard-task-grid">
+              {state.tasks.map((task) => (
+                <DashboardTaskCard
+                  key={task.id}
+                  task={task}
+                  timezone={workspaceTimezone}
+                  isMenuOpen={openMenuId === task.id}
+                  onOpen={() => setDialog({ mode: 'view', task })}
+                  onOpenContact={() => {
+                    if (!task.contact?.id) return
+                    setRelatedDialog({
+                      kind: 'contact-view',
+                      id: task.contact.id,
+                      name: getTaskClientName(task),
+                    })
+                  }}
+                  onOpenDeal={() => {
+                    if (!task.deal?.id) return
+                    setRelatedDialog({
+                      kind: 'deal-view',
+                      id: task.deal.id,
+                      name: task.deal.title,
+                    })
+                  }}
+                  onEdit={() => {
+                    setOpenMenuId('')
+                    setDialog({ mode: 'edit', task })
+                  }}
+                  onDelete={() => {
+                    setOpenMenuId('')
+                    setDeleteTarget(task)
+                  }}
+                  onToggleMenu={() =>
+                    setOpenMenuId((currentId) =>
+                      currentId === task.id ? '' : task.id,
+                    )
+                  }
+                />
+              ))}
+            </div>
           )}
         </section>
       </main>
@@ -304,6 +324,49 @@ export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
           onUpdated={refreshDashboard}
           onDeleted={refreshDashboard}
           onNotFound={refreshDashboard}
+        />
+      )}
+
+      {relatedDialog?.kind === 'contact-view' && (
+        <ContactViewModal
+          contactId={relatedDialog.id}
+          contactName={relatedDialog.name}
+          onClose={() => setRelatedDialog(null)}
+          onEdit={(contact) =>
+            setRelatedDialog({
+              kind: 'contact-edit',
+              id: contact.id,
+              name: contact.name,
+            })
+          }
+          onNotFound={() => setRelatedDialog(null)}
+          onOpenRelatedDeals={(contact) => {
+            const params = new URLSearchParams({
+              contact_id: contact.id,
+              contact_name: contact.name,
+            })
+            window.location.assign(`/app/deals?${params.toString()}`)
+          }}
+        />
+      )}
+
+      {relatedDialog?.kind === 'contact-edit' && (
+        <ContactFormModal
+          mode="edit"
+          contactId={relatedDialog.id}
+          contactName={relatedDialog.name}
+          onClose={() => setRelatedDialog(null)}
+          onCreated={() => setRelatedDialog(null)}
+          onUpdated={() => setRelatedDialog(null)}
+          onNotFound={() => setRelatedDialog(null)}
+        />
+      )}
+
+      {relatedDialog?.kind === 'deal-view' && (
+        <ViewDealModal
+          dealId={relatedDialog.id}
+          dealName={relatedDialog.name}
+          onClose={() => setRelatedDialog(null)}
         />
       )}
 
@@ -367,6 +430,8 @@ function DashboardTaskCard({
   timezone,
   isMenuOpen,
   onOpen,
+  onOpenContact,
+  onOpenDeal,
   onEdit,
   onDelete,
   onToggleMenu,
@@ -375,6 +440,8 @@ function DashboardTaskCard({
   timezone: string
   isMenuOpen: boolean
   onOpen: () => void
+  onOpenContact: () => void
+  onOpenDeal: () => void
   onEdit: () => void
   onDelete: () => void
   onToggleMenu: () => void
@@ -424,7 +491,13 @@ function DashboardTaskCard({
           <dt>Клиент:</dt>
           <dd>
             {task.contact?.id ? (
-              <a href={`/app/contacts?contact_id=${encodeURIComponent(task.contact.id)}`}>
+              <a
+                href={`/app/contacts?contact_id=${encodeURIComponent(task.contact.id)}`}
+                onClick={(event) => {
+                  event.preventDefault()
+                  onOpenContact()
+                }}
+              >
                 {contactName}
               </a>
             ) : (
@@ -449,7 +522,13 @@ function DashboardTaskCard({
           <div>
             <dt>Сделка:</dt>
             <dd>
-              <a href={`/app/deals?deal_id=${encodeURIComponent(task.deal.id)}`}>
+              <a
+                href={`/app/deals?deal_id=${encodeURIComponent(task.deal.id)}`}
+                onClick={(event) => {
+                  event.preventDefault()
+                  onOpenDeal()
+                }}
+              >
                 {task.deal.title}
               </a>
             </dd>
