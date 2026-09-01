@@ -48,24 +48,24 @@ export function OnboardingDashboard({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadControllerRef = useRef<AbortController | null>(null)
   const allowUnloadRef = useRef(false)
+  const isFilesRefreshingRef = useRef(false)
   const [files, setFiles] = useState<ApiKnowledgeDocument[]>(initialFiles)
-  const [isFilesRefreshing, setIsFilesRefreshing] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isVideoOpen, setIsVideoOpen] = useState(false)
   const [leaveWarning, setLeaveWarning] = useState<LeaveWarning>(null)
 
   const refreshFiles = useCallback(async () => {
-    if (isFilesRefreshing) return
-    setIsFilesRefreshing(true)
+    if (isFilesRefreshingRef.current) return
+    isFilesRefreshingRef.current = true
     try {
       setFiles(await getAllOnboardingKnowledgeFiles())
     } catch {
       // Current server state remains visible; reconnect or the next event retries sync.
     } finally {
-      setIsFilesRefreshing(false)
+      isFilesRefreshingRef.current = false
     }
-  }, [isFilesRefreshing])
+  }, [])
 
   useEffect(() => {
     const handleRealtime = (event: Event) => {
@@ -239,11 +239,11 @@ export function OnboardingDashboard({
 
       <section className="onboarding-progress" aria-label="Прогресс онбординга">
         <div className={status.steps.knowledge_base_completed ? 'onboarding-step onboarding-step--done' : 'onboarding-step'}>
-          <span aria-hidden="true">{status.steps.knowledge_base_completed ? '✓' : '○'}</span>
+          <span aria-hidden="true">{status.steps.knowledge_base_completed ? '[✓]' : '[ ]'}</span>
           <span>База знаний загружена</span>
         </div>
         <div className={status.steps.materials_viewed ? 'onboarding-step onboarding-step--done' : 'onboarding-step'}>
-          <span aria-hidden="true">{status.steps.materials_viewed ? '✓' : '○'}</span>
+          <span aria-hidden="true">{status.steps.materials_viewed ? '[✓]' : '[ ]'}</span>
           <span>Обучающие материалы просмотрены</span>
         </div>
       </section>
