@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .attachment_views import MessageAttachmentView
 from .views import (
     ChatDetailView,
     ChatMessagesView,
@@ -30,5 +31,10 @@ urlpatterns = [
         'chats/<uuid:chat_id>',
         ChatDetailView.as_view(),
         name='chat-detail',
+    ),
+    path(
+        'messages/<uuid:message_id>/attachment',
+        MessageAttachmentView.as_view(),
+        name='message-attachment',
     ),
 ]

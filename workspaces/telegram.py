@@ -54,9 +54,10 @@ class TelegramBotApiClient:
             'sendMessage',
             'sendPhoto',
             'sendDocument',
+            'getFile',
         }:
             raise TelegramMessageRejected(
-                'Telegram отклонил сообщение.',
+                'Telegram отклонил сообщение или файл.',
             )
         if response.status_code == 400:
             raise TelegramWebhookRejected(
@@ -193,3 +194,34 @@ class TelegramBotApiClient:
             content_type=content_type,
             caption=caption,
         )
+
+    def get_file(self, token, *, file_id):
+        result = self._call(
+            token,
+            'getFile',
+            data={'file_id': file_id},
+        )
+        if not isinstance(result, dict):
+            raise TelegramApiUnavailable(
+                'Telegram вернул некорректные данные файла.',
+            )
+        file_path = result.get('file_path')
+        if not isinstance(file_path, str) or not file_path:
+            raise TelegramApiUnavailable(
+                'Telegram не вернул путь к файлу.',
+            )
+        return result
+
+    def download_file(self, token, *, file_path):
+        url = f'{settings.TELEGRAM_API_BASE_URL}/file/bot{token}/{file_path}'
+        try:
+            response = self.session.get(
+                url,
+                timeout=settings.TELEGRAM_REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            raise TelegramApiUnavailable(
+                'Не удалось скачать файл из Telegram.',
+            ) from None
+        return response.content

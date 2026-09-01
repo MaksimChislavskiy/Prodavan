@@ -5,3 +5,6 @@ class MessagingConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'messaging'
     verbose_name = 'Чаты и сообщения'
+
+    def ready(self):
+        from . import attachment_ingest  # noqa: F401

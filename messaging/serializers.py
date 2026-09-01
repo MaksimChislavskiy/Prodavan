@@ -1,7 +1,10 @@
+from urllib.parse import quote
+
 from rest_framework import serializers
 
 from contacts.models import Contact
 
+from .attachment_tokens import create_attachment_token
 from .models import Chat, Message, MessageAttachmentType
 
 
@@ -37,12 +40,19 @@ class MessageSerializer(serializers.ModelSerializer):
         )
 
     def get_attachment(self, obj):
-        if not obj.attachment_file:
+        if not obj.attachment_type:
             return None
-        try:
-            url = obj.attachment_file.url
-        except (ValueError, NotImplementedError):
-            url = None
+
+        url = None
+        if obj.attachment_file:
+            try:
+                url = obj.attachment_file.url
+            except (ValueError, NotImplementedError):
+                url = None
+        elif obj.attachment_external_id:
+            token = quote(create_attachment_token(obj), safe='')
+            url = f'/api/messages/{obj.id}/attachment?token={token}'
+
         return {
             'type': obj.attachment_type,
             'name': obj.attachment_name,

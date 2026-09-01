@@ -12,11 +12,13 @@ from workspaces.crypto import encrypt_integration_secret
 from workspaces.models import (
     IntegrationStatus,
     IntegrationType,
+    TelegramWebhookLog,
     WorkspaceIntegration,
 )
 
 from .models import Chat, Message, MessageAttachmentType, MessageStatus
 from .outgoing import process_outgoing_message
+from .telegram import process_telegram_webhook_log
 
 
 @override_settings(
@@ -51,13 +53,13 @@ class ChatAttachmentContractTests(TestCase):
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
-        token = '123456789:AAExample_bot_token-with-safe_chars'
+        self.telegram_token = '123456789:AAExample_bot_token-with-safe_chars'
         WorkspaceIntegration.objects.create(
             workspace=self.user.workspace,
             type=IntegrationType.TELEGRAM,
             status=IntegrationStatus.CONNECTED,
             config=encrypt_integration_secret(
-                secret=token,
+                secret=self.telegram_token,
                 workspace_id=self.user.workspace_id,
                 integration_type=IntegrationType.TELEGRAM,
             ),
@@ -200,3 +202,82 @@ class ChatAttachmentContractTests(TestCase):
         message.refresh_from_db()
         self.assertEqual(message.attachment_type, MessageAttachmentType.DOCUMENT)
         self.assertEqual(message.status, MessageStatus.DELIVERED)
+
+    @patch('messaging.attachment_views.TelegramBotApiClient')
+    def test_incoming_photo_is_exposed_through_signed_attachment_url(
+        self,
+        telegram_client_class,
+    ):
+        webhook_log = TelegramWebhookLog.objects.create(
+            workspace=self.user.workspace,
+            update_id=9001,
+            payload={
+                'update_id': 9001,
+                'message': {
+                    'message_id': 9001,
+                    'from': {
+                        'id': self.contact.telegram_user_id,
+                        'is_bot': False,
+                        'first_name': 'Клиент',
+                    },
+                    'chat': {
+                        'id': self.contact.telegram_chat_id,
+                        'type': 'private',
+                    },
+                    'photo': [
+                        {
+                            'file_id': 'photo-small',
+                            'file_size': 3,
+                            'width': 90,
+                            'height': 90,
+                        },
+                        {
+                            'file_id': 'photo-large',
+                            'file_size': 10,
+                            'width': 800,
+                            'height': 600,
+                        },
+                    ],
+                    'caption': 'Прайс',
+                },
+            },
+        )
+
+        processed = process_telegram_webhook_log(webhook_log.id)
+
+        self.assertTrue(processed)
+        message = Message.objects.get(source_update_id=9001)
+        self.assertEqual(message.attachment_type, MessageAttachmentType.IMAGE)
+        self.assertEqual(message.attachment_external_id, 'photo-large')
+        self.assertEqual(message.attachment_name, 'photo_9001.jpg')
+        self.assertEqual(message.attachment_size, 10)
+        self.assertEqual(message.attachment_mime_type, 'image/jpeg')
+
+        messages_response = self.client.get(
+            f'/api/chats/{self.chat.id}/messages',
+        )
+        self.assertEqual(messages_response.status_code, status.HTTP_200_OK)
+        attachment = messages_response.data['messages'][0]['attachment']
+        self.assertEqual(attachment['type'], 'image')
+        self.assertIn('/api/messages/', attachment['url'])
+        self.assertIn('token=', attachment['url'])
+        self.assertEqual(attachment['preview_url'], attachment['url'])
+
+        telegram = telegram_client_class.return_value
+        telegram.get_file.return_value = {'file_path': 'photos/file.jpg'}
+        telegram.download_file.return_value = b'jpeg-bytes'
+        anonymous_client = APIClient()
+
+        file_response = anonymous_client.get(attachment['url'])
+
+        self.assertEqual(file_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(file_response.content, b'jpeg-bytes')
+        self.assertEqual(file_response['Content-Type'], 'image/jpeg')
+        telegram.get_file.assert_called_once_with(
+            self.telegram_token,
+            file_id='photo-large',
+        )
+        telegram.download_file.assert_called_once_with(
+            self.telegram_token,
+            file_path='photos/file.jpg',
+        )
