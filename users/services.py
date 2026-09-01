@@ -25,6 +25,7 @@ from .models import (
 
 REGISTRATION_CODE_TTL = timedelta(minutes=10)
 PASSWORD_RESET_CODE_TTL = timedelta(minutes=10)
+PASSWORD_RESET_CONFIRM_TTL = timedelta(minutes=15)
 EMAIL_REUSE_DELAY = timedelta(days=30)
 LOGIN_FAILURE_LIMIT = 10
 LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
@@ -248,11 +249,10 @@ def start_password_reset(*, email):
         deliver_or_enqueue_auth_email(
             recipient=email,
             purpose=AuthEmailPurpose.PASSWORD_RESET,
-            subject='Код восстановления пароля в «Продаван»',
+            subject='Восстановление пароля в CRM Продаван',
             message=(
-                f'Ваш код восстановления: {code}\n\n'
-                'Код действует 10 минут. Если вы не запрашивали восстановление, '
-                'просто проигнорируйте это письмо.'
+                f'Ваш код для восстановления пароля: {code}. '
+                'Код действителен в течение 10 минут.'
             ),
             expires_at=code_expires_at,
         )
@@ -302,7 +302,7 @@ def confirm_password_reset_code(*, email, code):
                 )
             else:
                 deferred_error = PasswordResetServiceError(
-                    'Неверный код подтверждения.',
+                    'Проверьте правильность ввода или отправьте новый код.',
                 )
         elif token is not None:
             token.confirmed_at = timezone.now()
@@ -333,12 +333,16 @@ def reset_password(*, email, new_password):
         )
         if token is None or token.confirmed_at is None:
             raise PasswordResetServiceError('Код восстановления не подтверждён.')
-        if token.is_expired:
-            raise PasswordResetServiceError(
-                'Срок действия кода истёк. Запросите новый код.',
-            )
 
         now = timezone.now()
+        if token.confirmed_at + PASSWORD_RESET_CONFIRM_TTL <= now:
+            token.used = True
+            token.confirmed_at = None
+            token.save(update_fields=('used', 'confirmed_at', 'updated_at'))
+            raise PasswordResetServiceError(
+                'Срок восстановления истёк. Пройдите процедуру восстановления заново.',
+            )
+
         user.set_password(new_password)
         user.token_version += 1
         user.save(update_fields=('password', 'token_version', 'updated_at'))
@@ -351,12 +355,45 @@ def reset_password(*, email, new_password):
         token.save(update_fields=('used', 'updated_at'))
 
 
-def start_registration(*, name, surname, email, password):
-    code = str(secrets.randbelow(9000) + 1000)
+def _deliver_registration_code(*, email, code, code_expires_at):
+    deliver_or_enqueue_auth_email(
+        recipient=email,
+        purpose=AuthEmailPurpose.REGISTRATION,
+        subject='Подтверждение регистрации в CRM Продаван',
+        message=(
+            f'Ваш код подтверждения: {code}. '
+            'Код действителен в течение 10 минут.'
+        ),
+        expires_at=code_expires_at,
+    )
 
+
+def start_registration(*, name, surname, email, password):
     with transaction.atomic():
         _release_or_reject_existing_user(email)
-        code_expires_at = timezone.now() + REGISTRATION_CODE_TTL
+        now = timezone.now()
+        registration = (
+            RegistrationToken.objects.select_for_update()
+            .filter(email=email)
+            .first()
+        )
+
+        if (
+            registration is not None
+            and not registration.used
+            and not registration.is_confirmed
+            and not registration.is_expired
+        ):
+            registration.name = name
+            registration.surname = surname
+            registration.password_hash = make_password(password)
+            registration.save(
+                update_fields=('name', 'surname', 'password_hash', 'updated_at'),
+            )
+            return email
+
+        code = str(secrets.randbelow(9000) + 1000)
+        code_expires_at = now + REGISTRATION_CODE_TTL
         RegistrationToken.objects.update_or_create(
             email=email,
             defaults={
@@ -367,21 +404,75 @@ def start_registration(*, name, surname, email, password):
                 'code_expires_at': code_expires_at,
                 'attempts': 0,
                 'expired': False,
+                'used': False,
+                'is_confirmed': False,
             },
         )
-        deliver_or_enqueue_auth_email(
-            recipient=email,
-            purpose=AuthEmailPurpose.REGISTRATION,
-            subject='Код подтверждения регистрации в «Продаван»',
-            message=(
-                f'Ваш код подтверждения: {code}\n\n'
-                'Код действует 10 минут. Если вы не регистрировались, '
-                'просто проигнорируйте это письмо.'
-            ),
-            expires_at=code_expires_at,
+        _deliver_registration_code(
+            email=email,
+            code=code,
+            code_expires_at=code_expires_at,
         )
 
     return email
+
+
+def resend_registration_code(*, email):
+    code = str(secrets.randbelow(9000) + 1000)
+    with transaction.atomic():
+        registration = (
+            RegistrationToken.objects.select_for_update()
+            .filter(email=email)
+            .first()
+        )
+        if registration is None:
+            raise RegistrationServiceError(
+                'Временная регистрационная запись не найдена.',
+                status_code=404,
+            )
+        if registration.used or registration.is_confirmed:
+            raise RegistrationServiceError(
+                'Регистрация уже подтверждена.',
+                status_code=409,
+            )
+
+        code_expires_at = timezone.now() + REGISTRATION_CODE_TTL
+        registration.confirmation_code_hash = make_password(code)
+        registration.code_expires_at = code_expires_at
+        registration.attempts = 0
+        registration.expired = False
+        registration.save(
+            update_fields=(
+                'confirmation_code_hash',
+                'code_expires_at',
+                'attempts',
+                'expired',
+                'updated_at',
+            ),
+        )
+        _deliver_registration_code(
+            email=email,
+            code=code,
+            code_expires_at=code_expires_at,
+        )
+
+    return email
+
+
+def expire_registration(*, email):
+    with transaction.atomic():
+        registration = (
+            RegistrationToken.objects.select_for_update()
+            .filter(email=email)
+            .first()
+        )
+        if registration is None:
+            return
+        if registration.used or registration.is_confirmed:
+            return
+        registration.expired = True
+        registration.used = False
+        registration.save(update_fields=('expired', 'used', 'updated_at'))
 
 
 def confirm_registration(*, email, code):
@@ -398,6 +489,11 @@ def confirm_registration(*, email, code):
             deferred_error = RegistrationServiceError(
                 'Временная регистрационная запись не найдена.',
                 status_code=404,
+            )
+        elif registration.used or registration.is_confirmed:
+            deferred_error = RegistrationServiceError(
+                'Регистрация уже подтверждена.',
+                status_code=409,
             )
         elif registration.is_expired:
             if not registration.expired:
@@ -419,7 +515,7 @@ def confirm_registration(*, email, code):
                 )
             else:
                 deferred_error = RegistrationServiceError(
-                    'Неверный код подтверждения.',
+                    'Проверьте правильность ввода или отправьте новый код.',
                 )
         else:
             _release_or_reject_existing_user(email)
@@ -438,7 +534,12 @@ def confirm_registration(*, email, code):
             )
             user.save(force_insert=True)
             access_value, refresh_value, refresh_expires_at, _ = issue_token_pair(user)
-            registration.delete()
+            registration.is_confirmed = True
+            registration.used = True
+            registration.expired = True
+            registration.save(
+                update_fields=('is_confirmed', 'used', 'expired', 'updated_at'),
+            )
             result = user, access_value, refresh_value, refresh_expires_at
 
     if deferred_error is not None:
