@@ -79,6 +79,16 @@ export type ApiKnowledgeFilesUploadResponse = {
   accepted: number
 }
 
+export type ApiKnowledgeSort =
+  | 'uploaded_at:desc'
+  | 'uploaded_at:asc'
+  | 'name:asc'
+  | 'name:desc'
+  | 'size:asc'
+  | 'size:desc'
+  | 'status:asc'
+  | 'status:desc'
+
 const SETTINGS_TIMEOUT_MS = 10_000
 const SETTINGS_LOAD_ERROR = 'Не удалось загрузить настройки. Обновите страницу.'
 const INSTRUCTION_SAVE_ERROR = 'Не удалось сохранить инструкцию. Попробуйте позже.'
@@ -151,11 +161,22 @@ export async function resetAiSettings(version: number) {
   }
 }
 
-export async function getKnowledgeFiles(page = 1, pageSize = 50) {
+export async function getKnowledgeFiles(
+  page = 1,
+  pageSize = 50,
+  search = '',
+  sort: ApiKnowledgeSort = 'uploaded_at:desc',
+) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
+    sort,
   })
+
+  const normalizedSearch = search.trim()
+  if (normalizedSearch) {
+    params.set('search', normalizedSearch)
+  }
 
   try {
     return await apiRequest<ApiKnowledgeFilesResponse>(
