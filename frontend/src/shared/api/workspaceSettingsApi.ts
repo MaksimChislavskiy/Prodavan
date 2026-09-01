@@ -72,19 +72,17 @@ export async function updateWorkspaceSettings(
       signal,
       suppressGlobalErrorToast: true,
     })
-    showCrmToast({ kind: 'success', message: 'Настройки сохранены' })
+    showCrmToast('Настройки сохранены')
     return settings
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
-      showCrmToast({
-        kind: 'error',
-        message:
-          error instanceof ApiError && error.status === 409
-            ? SETTINGS_CONFLICT_MESSAGE
-            : error instanceof Error
-              ? error.message
-              : 'Не удалось сохранить настройки.',
-      })
+      showCrmToast(
+        error instanceof ApiError && error.status === 409
+          ? SETTINGS_CONFLICT_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : 'Не удалось сохранить настройки.',
+      )
     }
     throw error
   }
