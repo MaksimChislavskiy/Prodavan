@@ -9,7 +9,7 @@ from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken as JWTRefreshToken
 
-from workspaces.models import Workspace
+from workspaces.models import Workspace, WorkspaceOnboarding
 
 from .email_delivery import deliver_or_enqueue_auth_email
 from .models import (
@@ -527,6 +527,7 @@ def confirm_registration(*, email, code):
             workspace = Workspace.objects.create(
                 name=f'Компания {registration.name} {registration.surname}'[:255],
             )
+            WorkspaceOnboarding.objects.create(workspace=workspace)
             user = User(
                 email=email,
                 first_name=registration.name,
