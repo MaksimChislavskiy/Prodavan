@@ -118,8 +118,12 @@ def _write_audit(
     )
 
 
-def _broadcast_status(workspace_id, payload):
-    event = {'event': 'onboarding_status_updated', 'data': payload}
+def _broadcast_status(workspace_id, payload, correlation_id):
+    event = {
+        'event': 'onboarding_status_updated',
+        'correlation_id': str(correlation_id or uuid.uuid4())[:64],
+        'data': payload,
+    }
     transaction.on_commit(
         lambda: broadcast_workspace_event(workspace_id, event),
         robust=True,
@@ -188,7 +192,7 @@ def get_onboarding_status(
         )
         payload = _status_payload(state, knowledge_base_completed)
         if completed_now:
-            _broadcast_status(workspace_id, payload)
+            _broadcast_status(workspace_id, payload, correlation_id)
     return payload
 
 
@@ -240,7 +244,7 @@ def mark_materials_viewed(
         )
         payload = _status_payload(state, knowledge_base_completed)
         if payload != before:
-            _broadcast_status(workspace_id, payload)
+            _broadcast_status(workspace_id, payload, correlation_id)
     return payload
 
 
@@ -272,7 +276,7 @@ def onboarding_knowledge_state_changed(
         )
         payload = _status_payload(state, current_has_ready)
         if payload != before:
-            _broadcast_status(workspace_id, payload)
+            _broadcast_status(workspace_id, payload, correlation_id)
 
 
 def record_onboarding_upload_event(
