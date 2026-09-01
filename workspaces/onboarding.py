@@ -21,6 +21,10 @@ UPLOAD_AUDIT_EVENTS = {
     OnboardingAuditEvent.UPLOAD_SUCCESS,
     OnboardingAuditEvent.UPLOAD_FAILED,
 }
+MATERIAL_AUDIT_EVENTS = {
+    'video': OnboardingAuditEvent.VIDEO_OPENED,
+    'pdf': OnboardingAuditEvent.PDF_OPENED,
+}
 
 
 def request_audit_context(request):
@@ -108,7 +112,7 @@ def _write_audit(
         user_identifier=user_id,
         event=event,
         details=details,
-        ip_address=ip_address,
+        ip=ip_address,
         user_agent=user_agent,
         correlation_id=str(correlation_id or uuid.uuid4())[:64],
     )
@@ -195,11 +199,25 @@ def mark_materials_viewed(
     correlation_id,
     ip_address=None,
     user_agent='',
+    material=None,
 ):
     with transaction.atomic():
         state = _locked_state(workspace_id)
         knowledge_base_completed = _has_ready_document(workspace_id)
         before = _status_payload(state, knowledge_base_completed)
+
+        material_event = MATERIAL_AUDIT_EVENTS.get(material)
+        if material_event is not None and not state.completed:
+            _write_audit(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                event=material_event,
+                details={},
+                correlation_id=correlation_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+
         if not state.completed and not state.materials_viewed:
             state.materials_viewed = True
             state.save(update_fields=('materials_viewed', 'updated_at'))
