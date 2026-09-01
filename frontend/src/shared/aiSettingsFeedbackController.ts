@@ -5,6 +5,8 @@ const AI_SETTINGS_FEEDBACK_SELECTOR = [
   '.ai-settings-autopilot-message',
   '.ai-settings-upload-message',
 ].join(', ')
+const AI_SETTINGS_INSTRUCTION_SELECTOR = '.ai-settings-instruction-input'
+const AI_SETTINGS_INSTRUCTION_MAX_LENGTH = 5000
 
 const lastMessages = new WeakMap<Element, string>()
 
@@ -14,6 +16,19 @@ export function installAiSettingsFeedbackController() {
   }
 
   document.documentElement.dataset.aiSettingsFeedbackController = 'installed'
+
+  const normalizeInstructionInput = (root: ParentNode = document) => {
+    if (
+      root instanceof HTMLTextAreaElement
+      && root.matches(AI_SETTINGS_INSTRUCTION_SELECTOR)
+    ) {
+      root.maxLength = AI_SETTINGS_INSTRUCTION_MAX_LENGTH
+    }
+
+    root.querySelectorAll<HTMLTextAreaElement>(AI_SETTINGS_INSTRUCTION_SELECTOR).forEach((element) => {
+      element.maxLength = AI_SETTINGS_INSTRUCTION_MAX_LENGTH
+    })
+  }
 
   const flushFeedback = (root: ParentNode = document) => {
     root.querySelectorAll(AI_SETTINGS_FEEDBACK_SELECTOR).forEach((element) => {
@@ -42,6 +57,8 @@ export function installAiSettingsFeedbackController() {
           return
         }
 
+        normalizeInstructionInput(node)
+
         if (node.matches(AI_SETTINGS_FEEDBACK_SELECTOR)) {
           const message = node.textContent?.trim() ?? ''
           if (message && lastMessages.get(node) !== message) {
@@ -61,5 +78,6 @@ export function installAiSettingsFeedbackController() {
     characterData: true,
   })
 
+  normalizeInstructionInput()
   flushFeedback()
 }
