@@ -1,0 +1,10 @@
+.loginStatusMessage {
+  width: 420px;
+  min-height: 20px;
+  margin: 0;
+  color: #18794e;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
