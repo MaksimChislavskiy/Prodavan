@@ -13,6 +13,17 @@ export type ConfirmRegistrationRequest = {
   code: string
 }
 
+export type CurrentUserRole = 'admin' | 'user'
+
+export type CurrentUser = {
+  id: string
+  name: string
+  surname: string
+  email: string
+  role: CurrentUserRole
+  workspace_id: string | null
+}
+
 type ConfirmRegistrationResponse = {
   access_token: string
 }
@@ -71,6 +82,10 @@ export function refreshSession() {
   }
 
   return refreshSessionPromise
+}
+
+export function getCurrentUser() {
+  return apiRequest<CurrentUser>('/api/auth/me')
 }
 
 export function logoutSession() {
