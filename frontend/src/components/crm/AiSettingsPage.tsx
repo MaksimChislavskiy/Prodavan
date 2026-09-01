@@ -13,6 +13,7 @@ import {
   type ApiKnowledgeSort,
   type ApiKnowledgeStorage,
 } from '../../shared/api/aiSettingsApi'
+import { AiSetupVideoModal } from './AiSetupVideoModal'
 import './AiSettingsPage.css'
 import './AiSettingsPageRefresh.css'
 import './AiSettingsPageFixes.css'
@@ -26,6 +27,7 @@ const MAX_KNOWLEDGE_FILE_NAME_LENGTH = 255
 const ALLOWED_KNOWLEDGE_FILE_EXTENSIONS = ['pdf', 'txt', 'docx', 'csv']
 const KNOWLEDGE_FILE_ACCEPT = '.pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const AI_SETUP_GUIDE_URL = '/static/ai_setup_guide.pdf'
+const AI_SETUP_VIDEO_URL = (import.meta.env.VITE_AI_SETUP_VIDEO_URL ?? '').trim()
 const KNOWLEDGE_STORAGE_FULL_MESSAGE = 'Достигнут лимит хранилища. Удалите часть документов для продолжения работы.'
 
 type AiSettingsState = {
@@ -51,14 +53,22 @@ type PendingKnowledgeUpload = {
 
 type SaveStatus = 'idle' | 'success' | 'error'
 
-type LeaveWarningState = {
-  href: string
-  message: string
-} | null
+type LeaveWarningState =
+  | {
+      action: 'navigate'
+      href: string
+      message: string
+    }
+  | {
+      action: 'reload'
+      message: string
+    }
+  | null
 
 export function AiSettingsPage() {
   const knowledgeFileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadControllerRef = useRef<AbortController | null>(null)
+  const allowUnloadRef = useRef(false)
   const [state, setState] = useState<AiSettingsState>({ settings: null, isLoading: true, error: '' })
   const [knowledgeState, setKnowledgeState] = useState<KnowledgeFilesState>({
     files: [],
@@ -94,6 +104,7 @@ export function AiSettingsPage() {
   const [resetStatus, setResetStatus] = useState<SaveStatus>('idle')
   const [resetMessage, setResetMessage] = useState('')
   const [leaveWarning, setLeaveWarning] = useState<LeaveWarningState>(null)
+  const [isSetupVideoOpen, setIsSetupVideoOpen] = useState(false)
 
   const hasUnsavedInstruction = instruction !== initialInstruction
   const hasPendingKnowledgeDocuments = knowledgeState.files.some(
@@ -196,7 +207,12 @@ export function AiSettingsPage() {
     const shouldWarn = isKnowledgeUploading || hasUnsavedInstruction
     if (!shouldWarn) return
 
+    const warningMessage = isKnowledgeUploading
+      ? 'Идёт загрузка документов. Покинуть страницу?'
+      : 'У вас есть несохранённые изменения. Покинуть страницу без сохранения?'
+
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowUnloadRef.current) return
       event.preventDefault()
       event.returnValue = ''
     }
@@ -219,19 +235,35 @@ export function AiSettingsPage() {
       event.preventDefault()
       event.stopPropagation()
       setLeaveWarning({
+        action: 'navigate',
         href: `${url.pathname}${url.search}${url.hash}`,
-        message: isKnowledgeUploading
-          ? 'Идёт загрузка документов. Покинуть страницу?'
-          : 'У вас есть несохранённые изменения. Покинуть страницу без сохранения?',
+        message: warningMessage,
+      })
+    }
+
+    const handleReloadKeyDown = (event: KeyboardEvent) => {
+      const isReloadShortcut = (
+        event.key === 'F5'
+        || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r')
+      )
+      if (!isReloadShortcut) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      setLeaveWarning({
+        action: 'reload',
+        message: warningMessage,
       })
     }
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     document.addEventListener('click', handleInternalLinkClick, true)
+    window.addEventListener('keydown', handleReloadKeyDown, true)
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('click', handleInternalLinkClick, true)
+      window.removeEventListener('keydown', handleReloadKeyDown, true)
     }
   }, [hasUnsavedInstruction, isKnowledgeUploading])
 
@@ -658,13 +690,22 @@ export function AiSettingsPage() {
 
   const confirmLeavePage = () => {
     if (!leaveWarning) return
-    const href = leaveWarning.href
+    const warning = leaveWarning
+
     if (isKnowledgeUploading) {
       uploadControllerRef.current?.abort()
       setPendingKnowledgeUploads([])
     }
+
     setLeaveWarning(null)
-    window.history.pushState(null, '', href)
+
+    if (warning.action === 'reload') {
+      allowUnloadRef.current = true
+      window.location.reload()
+      return
+    }
+
+    window.history.pushState(null, '', warning.href)
     window.dispatchEvent(new PopStateEvent('popstate'))
   }
 
@@ -981,7 +1022,11 @@ export function AiSettingsPage() {
       <section className="ai-settings-card ai-settings-card--materials">
         <h2 className="ai-settings-card__title">Полезные материалы</h2>
         <div className="ai-settings-materials">
-          <button className="ai-settings-video-button" type="button">
+          <button
+            className="ai-settings-video-button"
+            type="button"
+            onClick={() => setIsSetupVideoOpen(true)}
+          >
             <span aria-hidden="true">▶</span>
             Смотреть обучающее видео
           </button>
@@ -1010,6 +1055,12 @@ export function AiSettingsPage() {
           {resetMessage}
         </div>
       )}
+
+      <AiSetupVideoModal
+        isOpen={isSetupVideoOpen}
+        videoUrl={AI_SETUP_VIDEO_URL}
+        onClose={() => setIsSetupVideoOpen(false)}
+      />
 
       {isAutopilotConfirmOpen && (
         <div className="ai-settings-modal-backdrop" role="presentation">
