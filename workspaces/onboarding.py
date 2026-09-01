@@ -139,6 +139,15 @@ def _flow_request_metadata(correlation_id):
         .first()
     )
     if metadata is None:
+        ai_audit_log = apps.get_model('ai_assistant', 'AIAuditLog')
+        metadata = (
+            ai_audit_log.objects
+            .filter(request_id=correlation_id)
+            .order_by('created_at', 'id')
+            .values('ip', 'user_agent')
+            .first()
+        )
+    if metadata is None:
         return None, ''
     return metadata['ip'], metadata['user_agent'] or ''
 
