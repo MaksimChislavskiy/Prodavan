@@ -46,6 +46,7 @@ type PendingKnowledgeUpload = {
   id: string
   name: string
   size: number
+  progress: number
 }
 
 type SaveStatus = 'idle' | 'success' | 'error'
@@ -504,6 +505,7 @@ export function AiSettingsPage() {
       id: `upload-${Date.now()}-${index}`,
       name: file.name,
       size: file.size,
+      progress: 0,
     }))
     const controller = new AbortController()
     uploadControllerRef.current = controller
@@ -514,7 +516,16 @@ export function AiSettingsPage() {
     setKnowledgeUploadMessage('')
 
     try {
-      const uploadResponse = await uploadKnowledgeFiles(files, controller.signal)
+      const uploadResponse = await uploadKnowledgeFiles(
+        files,
+        controller.signal,
+        (progress) => {
+          setPendingKnowledgeUploads((current) => current.map((file) => ({
+            ...file,
+            progress,
+          })))
+        },
+      )
       if (controller.signal.aborted) return
       setPendingKnowledgeUploads([])
       await refreshKnowledgeFiles(1)
@@ -811,9 +822,21 @@ export function AiSettingsPage() {
                       <td>—</td>
                       <td>
                         <div className="ai-settings-status-cell">
-                          <span className="ai-settings-status-badge ai-settings-status-badge--uploading">Загружается</span>
-                          <span className="ai-settings-status-progress" role="progressbar" aria-label={`Загрузка файла ${file.name}`}>
-                            <span className="ai-settings-status-progress__bar" />
+                          <span className="ai-settings-status-badge ai-settings-status-badge--uploading">
+                            Загружается {file.progress}%
+                          </span>
+                          <span
+                            className="ai-settings-status-progress ai-settings-status-progress--determinate"
+                            role="progressbar"
+                            aria-label={`Загрузка файла ${file.name}`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={file.progress}
+                          >
+                            <span
+                              className="ai-settings-status-progress__bar"
+                              style={{ width: `${file.progress}%` }}
+                            />
                           </span>
                         </div>
                       </td>
