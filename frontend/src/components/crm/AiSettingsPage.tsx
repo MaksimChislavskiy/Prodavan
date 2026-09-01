@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import {
   deleteKnowledgeFile,
   getAiSettings,
@@ -10,6 +10,7 @@ import {
   type ApiAiSettings,
   type ApiKnowledgeDocument,
   type ApiKnowledgeFilesResponse,
+  type ApiKnowledgeSort,
   type ApiKnowledgeStorage,
 } from '../../shared/api/aiSettingsApi'
 import './AiSettingsPage.css'
@@ -25,6 +26,7 @@ const MAX_KNOWLEDGE_FILE_NAME_LENGTH = 255
 const ALLOWED_KNOWLEDGE_FILE_EXTENSIONS = ['pdf', 'txt', 'docx', 'csv']
 const KNOWLEDGE_FILE_ACCEPT = '.pdf,.txt,.docx,.csv,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const AI_SETUP_GUIDE_URL = '/static/ai_setup_guide.pdf'
+const KNOWLEDGE_STORAGE_FULL_MESSAGE = 'Достигнут лимит хранилища. Удалите часть документов для продолжения работы.'
 
 type AiSettingsState = {
   settings: ApiAiSettings | null
@@ -40,6 +42,12 @@ type KnowledgeFilesState = {
   error: string
 }
 
+type PendingKnowledgeUpload = {
+  id: string
+  name: string
+  size: number
+}
+
 type SaveStatus = 'idle' | 'success' | 'error'
 
 type LeaveWarningState = {
@@ -49,6 +57,7 @@ type LeaveWarningState = {
 
 export function AiSettingsPage() {
   const knowledgeFileInputRef = useRef<HTMLInputElement | null>(null)
+  const uploadControllerRef = useRef<AbortController | null>(null)
   const [state, setState] = useState<AiSettingsState>({ settings: null, isLoading: true, error: '' })
   const [knowledgeState, setKnowledgeState] = useState<KnowledgeFilesState>({
     files: [],
@@ -58,6 +67,9 @@ export function AiSettingsPage() {
     error: '',
   })
   const [knowledgePage, setKnowledgePage] = useState(1)
+  const [knowledgeSearchDraft, setKnowledgeSearchDraft] = useState('')
+  const [knowledgeSearch, setKnowledgeSearch] = useState('')
+  const [knowledgeSort, setKnowledgeSort] = useState<ApiKnowledgeSort>('uploaded_at:desc')
   const [instruction, setInstruction] = useState('')
   const [initialInstruction, setInitialInstruction] = useState('')
   const [isInstructionSaving, setIsInstructionSaving] = useState(false)
@@ -68,10 +80,12 @@ export function AiSettingsPage() {
   const [autopilotMessage, setAutopilotMessage] = useState('')
   const [isAutopilotConfirmOpen, setIsAutopilotConfirmOpen] = useState(false)
   const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false)
+  const [pendingKnowledgeUploads, setPendingKnowledgeUploads] = useState<PendingKnowledgeUpload[]>([])
   const [isKnowledgeRefreshing, setIsKnowledgeRefreshing] = useState(false)
   const [isKnowledgeDragActive, setIsKnowledgeDragActive] = useState(false)
   const [knowledgeUploadStatus, setKnowledgeUploadStatus] = useState<SaveStatus>('idle')
   const [knowledgeUploadMessage, setKnowledgeUploadMessage] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<ApiKnowledgeDocument | null>(null)
   const [deletingKnowledgeFileId, setDeletingKnowledgeFileId] = useState<string | null>(null)
   const [retryingKnowledgeFileId, setRetryingKnowledgeFileId] = useState<string | null>(null)
   const [isResetSaving, setIsResetSaving] = useState(false)
@@ -140,6 +154,7 @@ export function AiSettingsPage() {
 
     return () => {
       isMounted = false
+      uploadControllerRef.current?.abort()
     }
   }, [])
 
@@ -150,7 +165,12 @@ export function AiSettingsPage() {
     const intervalId = window.setInterval(() => {
       void (async () => {
         try {
-          const response = await getKnowledgeFiles(knowledgePage, KNOWLEDGE_PAGE_SIZE)
+          const response = await getKnowledgeFiles(
+            knowledgePage,
+            KNOWLEDGE_PAGE_SIZE,
+            knowledgeSearch,
+            knowledgeSort,
+          )
           if (isDisposed) return
           setKnowledgeState({
             files: response.files,
@@ -169,7 +189,7 @@ export function AiSettingsPage() {
       isDisposed = true
       window.clearInterval(intervalId)
     }
-  }, [hasPendingKnowledgeDocuments, knowledgePage])
+  }, [hasPendingKnowledgeDocuments, knowledgePage, knowledgeSearch, knowledgeSort])
 
   useEffect(() => {
     const shouldWarn = isKnowledgeUploading || hasUnsavedInstruction
@@ -262,9 +282,18 @@ export function AiSettingsPage() {
     files_count: settings.storage.files_count,
     files_limit: settings.storage.max_files,
   }
+  const isKnowledgeStorageFull = (
+    currentStorage.used_bytes >= currentStorage.limit_bytes
+    || currentStorage.files_count >= currentStorage.files_limit
+  )
+  const hasKnowledgeRows = knowledgeState.files.length > 0 || pendingKnowledgeUploads.length > 0
 
-  const refreshKnowledgeFiles = async (page = knowledgePage) => {
-    const response = await getKnowledgeFiles(page, KNOWLEDGE_PAGE_SIZE)
+  const refreshKnowledgeFiles = async (
+    page = knowledgePage,
+    search = knowledgeSearch,
+    sort = knowledgeSort,
+  ) => {
+    const response = await getKnowledgeFiles(page, KNOWLEDGE_PAGE_SIZE, search, sort)
     setKnowledgePage(response.page)
     setKnowledgeState({
       files: response.files,
@@ -278,7 +307,6 @@ export function AiSettingsPage() {
   const handleInstructionSave = async () => {
     if (!canSaveInstruction) return
 
-    const wasEmpty = initialInstruction.length === 0
     setIsInstructionSaving(true)
     setSaveStatus('idle')
     setSaveMessage('')
@@ -291,7 +319,7 @@ export function AiSettingsPage() {
       setInstruction(updatedSettings.instruction)
       setInitialInstruction(updatedSettings.instruction)
       setSaveStatus('success')
-      setSaveMessage(wasEmpty && updatedSettings.instruction ? 'Инструкция сохранена' : 'Изменения сохранены')
+      setSaveMessage('Изменения сохранены')
     } catch (error) {
       setSaveStatus('error')
       setSaveMessage(
@@ -365,6 +393,69 @@ export function AiSettingsPage() {
     }
   }
 
+  const handleKnowledgeSearchSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (isKnowledgeRefreshing) return
+
+    const nextSearch = knowledgeSearchDraft.trim()
+    setKnowledgeSearch(nextSearch)
+    setIsKnowledgeRefreshing(true)
+    setKnowledgeUploadStatus('idle')
+    setKnowledgeUploadMessage('')
+
+    try {
+      await refreshKnowledgeFiles(1, nextSearch, knowledgeSort)
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить список документов. Обновите страницу.',
+      )
+    } finally {
+      setIsKnowledgeRefreshing(false)
+    }
+  }
+
+  const handleKnowledgeSearchClear = async () => {
+    if (isKnowledgeRefreshing) return
+    setKnowledgeSearchDraft('')
+    setKnowledgeSearch('')
+    setIsKnowledgeRefreshing(true)
+
+    try {
+      await refreshKnowledgeFiles(1, '', knowledgeSort)
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить список документов. Обновите страницу.',
+      )
+    } finally {
+      setIsKnowledgeRefreshing(false)
+    }
+  }
+
+  const handleKnowledgeSortChange = async (nextSort: ApiKnowledgeSort) => {
+    if (isKnowledgeRefreshing || nextSort === knowledgeSort) return
+    setKnowledgeSort(nextSort)
+    setIsKnowledgeRefreshing(true)
+
+    try {
+      await refreshKnowledgeFiles(1, knowledgeSearch, nextSort)
+    } catch (error) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось загрузить список документов. Обновите страницу.',
+      )
+    } finally {
+      setIsKnowledgeRefreshing(false)
+    }
+  }
+
   const handleKnowledgePageChange = async (page: number) => {
     if (
       isKnowledgeRefreshing
@@ -394,6 +485,12 @@ export function AiSettingsPage() {
   const handleKnowledgeFilesUpload = async (files: File[]) => {
     if (files.length === 0 || isKnowledgeUploading) return
 
+    if (isKnowledgeStorageFull) {
+      setKnowledgeUploadStatus('error')
+      setKnowledgeUploadMessage(KNOWLEDGE_STORAGE_FULL_MESSAGE)
+      return
+    }
+
     const validationError = validateKnowledgeFiles(files)
     if (validationError) {
       setIsKnowledgeDragActive(false)
@@ -403,17 +500,29 @@ export function AiSettingsPage() {
       return
     }
 
+    const pending = files.map((file, index) => ({
+      id: `upload-${Date.now()}-${index}`,
+      name: file.name,
+      size: file.size,
+    }))
+    const controller = new AbortController()
+    uploadControllerRef.current = controller
+    setPendingKnowledgeUploads(pending)
     setIsKnowledgeUploading(true)
     setIsKnowledgeDragActive(false)
     setKnowledgeUploadStatus('idle')
     setKnowledgeUploadMessage('')
 
     try {
-      const uploadResponse = await uploadKnowledgeFiles(files)
+      const uploadResponse = await uploadKnowledgeFiles(files, controller.signal)
+      if (controller.signal.aborted) return
+      setPendingKnowledgeUploads([])
       await refreshKnowledgeFiles(1)
       setKnowledgeUploadStatus('success')
       setKnowledgeUploadMessage(`Загружено файлов: ${uploadResponse.accepted}`)
     } catch (error) {
+      setPendingKnowledgeUploads([])
+      if (controller.signal.aborted) return
       setKnowledgeUploadStatus('error')
       setKnowledgeUploadMessage(
         error instanceof Error
@@ -421,6 +530,9 @@ export function AiSettingsPage() {
           : 'Не удалось загрузить файл. Попробуйте позже.',
       )
     } finally {
+      if (uploadControllerRef.current === controller) {
+        uploadControllerRef.current = null
+      }
       setIsKnowledgeUploading(false)
       setIsKnowledgeDragActive(false)
       if (knowledgeFileInputRef.current) knowledgeFileInputRef.current.value = ''
@@ -429,8 +541,8 @@ export function AiSettingsPage() {
 
   const handleKnowledgeDragOver = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
-    event.dataTransfer.dropEffect = isKnowledgeUploading ? 'none' : 'copy'
-    if (!isKnowledgeUploading) setIsKnowledgeDragActive(true)
+    event.dataTransfer.dropEffect = isKnowledgeUploading || isKnowledgeStorageFull ? 'none' : 'copy'
+    if (!isKnowledgeUploading && !isKnowledgeStorageFull) setIsKnowledgeDragActive(true)
   }
 
   const handleKnowledgeDragLeave = (event: DragEvent<HTMLDivElement>) => {
@@ -442,22 +554,31 @@ export function AiSettingsPage() {
   const handleKnowledgeDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setIsKnowledgeDragActive(false)
-    if (!isKnowledgeUploading) {
+    if (!isKnowledgeUploading && !isKnowledgeStorageFull) {
       void handleKnowledgeFilesUpload(Array.from(event.dataTransfer.files))
     }
   }
 
-  const handleKnowledgeFileDelete = async (file: ApiKnowledgeDocument) => {
+  const requestKnowledgeFileDelete = (file: ApiKnowledgeDocument) => {
     if (deletingKnowledgeFileId || retryingKnowledgeFileId) return
-    if (!window.confirm(`Удалить файл «${file.name}» из базы знаний?`)) return
+    setDeleteTarget(file)
+  }
 
+  const confirmKnowledgeFileDelete = async () => {
+    if (!deleteTarget || deletingKnowledgeFileId || retryingKnowledgeFileId) return
+
+    const file = deleteTarget
     setDeletingKnowledgeFileId(file.id)
     setKnowledgeUploadStatus('idle')
     setKnowledgeUploadMessage('')
 
     try {
       await deleteKnowledgeFile(file.id)
-      await refreshKnowledgeFiles()
+      setDeleteTarget(null)
+      const nextPage = knowledgeState.files.length === 1 && knowledgePage > 1
+        ? knowledgePage - 1
+        : knowledgePage
+      await refreshKnowledgeFiles(nextPage)
       setKnowledgeUploadStatus('success')
       setKnowledgeUploadMessage('Файл удалён')
     } catch (error) {
@@ -527,6 +648,10 @@ export function AiSettingsPage() {
   const confirmLeavePage = () => {
     if (!leaveWarning) return
     const href = leaveWarning.href
+    if (isKnowledgeUploading) {
+      uploadControllerRef.current?.abort()
+      setPendingKnowledgeUploads([])
+    }
     setLeaveWarning(null)
     window.history.pushState(null, '', href)
     window.dispatchEvent(new PopStateEvent('popstate'))
@@ -625,11 +750,47 @@ export function AiSettingsPage() {
           </div>
         </div>
 
+        <div className="ai-settings-knowledge-toolbar">
+          <form className="ai-settings-knowledge-search" onSubmit={(event) => void handleKnowledgeSearchSubmit(event)}>
+            <input
+              type="search"
+              value={knowledgeSearchDraft}
+              maxLength={255}
+              placeholder="Поиск документов"
+              aria-label="Поиск документов базы знаний"
+              onChange={(event) => setKnowledgeSearchDraft(event.target.value)}
+            />
+            <button type="submit" disabled={isKnowledgeRefreshing}>Найти</button>
+            {(knowledgeSearch || knowledgeSearchDraft) && (
+              <button type="button" disabled={isKnowledgeRefreshing} onClick={() => void handleKnowledgeSearchClear()}>
+                Сбросить
+              </button>
+            )}
+          </form>
+          <label className="ai-settings-knowledge-sort">
+            <span>Сортировка</span>
+            <select
+              value={knowledgeSort}
+              disabled={isKnowledgeRefreshing}
+              onChange={(event) => void handleKnowledgeSortChange(event.target.value as ApiKnowledgeSort)}
+            >
+              <option value="uploaded_at:desc">Сначала новые</option>
+              <option value="uploaded_at:asc">Сначала старые</option>
+              <option value="name:asc">Название А–Я</option>
+              <option value="name:desc">Название Я–А</option>
+              <option value="size:asc">Размер по возрастанию</option>
+              <option value="size:desc">Размер по убыванию</option>
+              <option value="status:asc">Статус А–Я</option>
+              <option value="status:desc">Статус Я–А</option>
+            </select>
+          </label>
+        </div>
+
         {knowledgeState.error && (
           <p className="ai-settings-knowledge-error">{knowledgeState.error}</p>
         )}
 
-        {!knowledgeState.error && knowledgeState.files.length > 0 && (
+        {!knowledgeState.error && hasKnowledgeRows && (
           <div className="ai-settings-knowledge-list">
             <div className="ai-settings-knowledge-table-wrapper">
               <table className="ai-settings-knowledge-table">
@@ -643,6 +804,22 @@ export function AiSettingsPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {pendingKnowledgeUploads.map((file) => (
+                    <tr key={file.id} className="ai-settings-knowledge-row--uploading">
+                      <td>{file.name}</td>
+                      <td>{formatFileSize(file.size)}</td>
+                      <td>—</td>
+                      <td>
+                        <div className="ai-settings-status-cell">
+                          <span className="ai-settings-status-badge ai-settings-status-badge--uploading">Загружается</span>
+                          <span className="ai-settings-status-progress" role="progressbar" aria-label={`Загрузка файла ${file.name}`}>
+                            <span className="ai-settings-status-progress__bar" />
+                          </span>
+                        </div>
+                      </td>
+                      <td>—</td>
+                    </tr>
+                  ))}
                   {knowledgeState.files.map((file) => (
                     <tr key={file.id}>
                       <td>{file.name}</td>
@@ -686,7 +863,7 @@ export function AiSettingsPage() {
                             className="ai-settings-table-action-button"
                             type="button"
                             disabled={deletingKnowledgeFileId === file.id || retryingKnowledgeFileId === file.id}
-                            onClick={() => void handleKnowledgeFileDelete(file)}
+                            onClick={() => requestKnowledgeFileDelete(file)}
                           >
                             {deletingKnowledgeFileId === file.id ? 'Удаляем...' : 'Удалить'}
                           </button>
@@ -723,33 +900,45 @@ export function AiSettingsPage() {
           </div>
         )}
 
+        {!knowledgeState.error && knowledgeSearch && knowledgeState.files.length === 0 && pendingKnowledgeUploads.length === 0 && (
+          <p className="ai-settings-knowledge-search-empty">По вашему запросу документы не найдены.</p>
+        )}
+
         <div
           className={isKnowledgeDragActive
             ? 'ai-settings-upload-box ai-settings-upload-box--drag-active'
             : 'ai-settings-upload-box'}
+          aria-disabled={isKnowledgeStorageFull || isKnowledgeUploading}
           onDragOver={handleKnowledgeDragOver}
           onDragLeave={handleKnowledgeDragLeave}
           onDrop={handleKnowledgeDrop}
         >
           <span className="ai-settings-upload-box__icon" aria-hidden="true">↥</span>
-          <span>Чтобы загрузить документ, перетащите его сюда или нажмите </span>
+          <span>Чтобы загрузить документ, перетащите его сюда или нажмите</span>
           <input
             className="ai-settings-file-input"
             ref={knowledgeFileInputRef}
             type="file"
             accept={KNOWLEDGE_FILE_ACCEPT}
             multiple
+            disabled={isKnowledgeStorageFull || isKnowledgeUploading}
             onChange={(event) => void handleKnowledgeFilesUpload(Array.from(event.target.files ?? []))}
           />
           <button
             className="ai-settings-upload-box__button"
             type="button"
-            disabled={isKnowledgeUploading}
+            disabled={isKnowledgeStorageFull || isKnowledgeUploading}
             onClick={() => knowledgeFileInputRef.current?.click()}
           >
             {isKnowledgeUploading ? 'Загрузка...' : 'Загрузить'}
           </button>
         </div>
+
+        {isKnowledgeStorageFull && (
+          <p className="ai-settings-upload-message ai-settings-upload-message--error">
+            {KNOWLEDGE_STORAGE_FULL_MESSAGE}
+          </p>
+        )}
 
         {isKnowledgeUploading && (
           <div className="ai-settings-upload-progress" role="progressbar" aria-label="Загрузка документов">
@@ -818,6 +1007,35 @@ export function AiSettingsPage() {
                 }}
               >
                 Включить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="ai-settings-modal-backdrop" role="presentation">
+          <div className="ai-settings-modal" role="alertdialog" aria-modal="true" aria-labelledby="ai-knowledge-delete-title">
+            <h2 className="ai-settings-modal__title" id="ai-knowledge-delete-title">Удалить документ?</h2>
+            <p className="ai-settings-modal__text">
+              Вы уверены, что хотите удалить файл «{deleteTarget.name}» из базы знаний?
+            </p>
+            <div className="ai-settings-modal__actions">
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--secondary"
+                type="button"
+                disabled={Boolean(deletingKnowledgeFileId)}
+                onClick={() => setDeleteTarget(null)}
+              >
+                Отмена
+              </button>
+              <button
+                className="ai-settings-modal__button ai-settings-modal__button--primary"
+                type="button"
+                disabled={Boolean(deletingKnowledgeFileId)}
+                onClick={() => void confirmKnowledgeFileDelete()}
+              >
+                {deletingKnowledgeFileId ? 'Удаление...' : 'Удалить'}
               </button>
             </div>
           </div>
