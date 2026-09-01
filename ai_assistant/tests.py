@@ -6,7 +6,13 @@ from rest_framework.test import APIClient
 
 from users.models import User, UserRole
 
-from .models import AIAuditAction, AIAuditLog, AISettings, AIUsageDaily
+from .models import (
+    AIAuditAction,
+    AIAuditLog,
+    AISettings,
+    AIUsageDaily,
+    KnowledgeDocument,
+)
 
 
 @override_settings(
@@ -14,6 +20,7 @@ from .models import AIAuditAction, AIAuditLog, AISettings, AIUsageDaily
 )
 class AISettingsApiTests(TestCase):
     url = '/api/ai/settings'
+    reset_url = '/api/ai/settings/reset'
     login_url = '/api/auth/login'
 
     def setUp(self):
@@ -81,7 +88,7 @@ class AISettingsApiTests(TestCase):
                 'daily_task_creation': 100,
                 'daily_contact_updates': 50,
                 'daily_autopilot_replies': 50,
-                'hourly_autopilot_replies_per_chat': 10,
+                'hourly_auto_replies_per_chat': 10,
                 'max_consecutive_ai_replies': 5,
                 'tasks_per_chat_24h': 5,
             },
@@ -89,6 +96,15 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(
             response.data['current_usage']['autopilot_replies_today'],
             0,
+        )
+        self.assertEqual(
+            response.data['storage'],
+            {
+                'used_bytes': 0,
+                'max_bytes': 5 * 1024 * 1024 * 1024,
+                'files_count': 0,
+                'max_files': 1000,
+            },
         )
 
     def test_get_returns_persisted_daily_usage(self):
@@ -304,3 +320,52 @@ class AISettingsApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['instruction'], '')
         self.assertEqual(AISettings.objects.count(), 2)
+
+    def test_reset_restores_defaults_without_deleting_knowledge(self):
+        settings_object = AISettings.objects.create(
+            workspace=self.user.workspace,
+            version=4,
+            instruction='Отвечай очень кратко',
+            autopilot_enabled=True,
+            autopilot_mode='always',
+            autopilot_delay=12,
+        )
+        document = KnowledgeDocument.objects.create(
+            workspace=self.user.workspace,
+            uploaded_by=self.user,
+            uploaded_by_identifier=self.user.id,
+            original_name='knowledge.txt',
+            file='knowledge_base/test/knowledge.txt',
+            size_bytes=128,
+            mime_type='text/plain',
+            sha256='a' * 64,
+        )
+        access = self._login()
+
+        response = self.client.post(
+            self.reset_url,
+            {'version': settings_object.version},
+            format='json',
+            **self._auth(access),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['version'], 5)
+        self.assertEqual(response.data['instruction'], '')
+        self.assertFalse(response.data['autopilot_enabled'])
+        self.assertEqual(response.data['autopilot_mode'], 'fallback')
+        self.assertEqual(response.data['autopilot_delay'], 5)
+        self.assertEqual(response.data['storage']['files_count'], 1)
+        self.assertTrue(KnowledgeDocument.objects.filter(id=document.id).exists())
+
+        stale_response = self.client.post(
+            self.reset_url,
+            {'version': 4},
+            format='json',
+            **self._auth(access),
+        )
+        self.assertEqual(stale_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            stale_response.data['error']['code'],
+            'VERSION_CONFLICT',
+        )
