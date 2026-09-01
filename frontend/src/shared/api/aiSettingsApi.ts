@@ -19,6 +19,13 @@ export type ApiAiSettingsCurrentUsage = {
   autopilot_replies_today: number
 }
 
+export type ApiAiSettingsStorage = {
+  used_bytes: number
+  max_bytes: number
+  files_count: number
+  max_files: number
+}
+
 export type ApiAiSettings = {
   version: number
   instruction: string
@@ -27,6 +34,7 @@ export type ApiAiSettings = {
   autopilot_delay: number
   limits: ApiAiSettingsLimits
   current_usage: ApiAiSettingsCurrentUsage
+  storage: ApiAiSettingsStorage
 }
 
 export type UpdateAiSettingsPayload = {
@@ -76,6 +84,7 @@ const SETTINGS_LOAD_ERROR = 'Не удалось загрузить настро
 const INSTRUCTION_SAVE_ERROR = 'Не удалось сохранить инструкцию. Попробуйте позже.'
 const SETTINGS_CONFLICT_ERROR = 'Настройки были изменены другим пользователем или в другой вкладке. Обновите страницу.'
 const AUTOPILOT_SAVE_ERROR = 'Не удалось изменить состояние автопилота. Попробуйте позже.'
+const SETTINGS_RESET_ERROR = 'Не удалось сбросить настройки AI. Попробуйте позже.'
 const KNOWLEDGE_LIST_ERROR = 'Не удалось загрузить список документов. Обновите страницу.'
 const KNOWLEDGE_UPLOAD_ERROR = 'Не удалось загрузить файл. Попробуйте позже.'
 const KNOWLEDGE_DELETE_ERROR = 'Не удалось удалить файл. Попробуйте позже.'
@@ -120,7 +129,25 @@ export async function updateAiSettings(payload: UpdateAiSettingsPayload) {
       throw normalizeServerError(error, AUTOPILOT_SAVE_ERROR)
     }
 
-    throw normalizeServerError(error, 'Не удалось сбросить настройки. Попробуйте позже.')
+    throw normalizeServerError(error, SETTINGS_RESET_ERROR)
+  }
+}
+
+export async function resetAiSettings(version: number) {
+  try {
+    return await withTimeout(
+      (signal) => apiRequest<ApiAiSettings>('/api/ai/settings/reset', {
+        method: 'POST',
+        body: { version },
+        signal,
+      }),
+      SETTINGS_TIMEOUT_MS,
+    )
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      throw new Error(SETTINGS_CONFLICT_ERROR)
+    }
+    throw normalizeServerError(error, SETTINGS_RESET_ERROR)
   }
 }
 
