@@ -59,12 +59,29 @@ def request_audit_context(request):
     }
 
 
+def _knowledge_document_model():
+    return apps.get_model('ai_assistant', 'KnowledgeDocument')
+
+
 def _has_ready_document(workspace_id):
-    knowledge_document = apps.get_model('ai_assistant', 'KnowledgeDocument')
-    return knowledge_document.objects.filter(
+    return _knowledge_document_model().objects.filter(
         workspace_id=workspace_id,
         status='ready',
         is_deleted=False,
+    ).exists()
+
+
+def _knowledge_step_was_completed(state):
+    # knowledge_base_completed is intentionally dynamic. To honour the separate
+    # state-machine rule that in_progress must never regress to not_started, a
+    # ready document deleted after this onboarding record was created is enough
+    # to prove that the workspace already reached in_progress. Deleted legacy
+    # documents from before onboarding was introduced do not count.
+    return _knowledge_document_model().objects.filter(
+        workspace_id=state.workspace_id,
+        status='ready',
+        is_deleted=True,
+        deleted_at__gte=state.created_at,
     ).exists()
 
 
@@ -83,11 +100,10 @@ def _status_payload(state, knowledge_base_completed):
         materials_viewed = True
     else:
         materials_viewed = state.materials_viewed
-        status_name = (
-            'in_progress'
-            if knowledge_base_completed or materials_viewed
-            else 'not_started'
-        )
+        has_progress = knowledge_base_completed or materials_viewed
+        if not has_progress:
+            has_progress = _knowledge_step_was_completed(state)
+        status_name = 'in_progress' if has_progress else 'not_started'
     completed_at = state.completed_at
     return {
         'version': ONBOARDING_CONTRACT_VERSION,
