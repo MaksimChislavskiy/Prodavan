@@ -157,7 +157,7 @@ class AIAuditLog(models.Model):
     changes = models.JSONField(default=dict, blank=True)
     old_value = models.JSONField(null=True, blank=True)
     new_value = models.JSONField(null=True, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=512, blank=True, default='')
     request_id = models.UUIDField(default=uuid.uuid4, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
