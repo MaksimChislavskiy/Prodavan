@@ -68,11 +68,14 @@ def _attachment_metadata(attachment):
 
 
 def _request_hash(chat_id, text, attachment_metadata=None):
-    payload = {
-        'chat_id': str(chat_id),
-        'text': text,
-        'attachment': attachment_metadata,
-    }
+    if attachment_metadata is None:
+        payload = {'chat_id': str(chat_id), 'text': text}
+    else:
+        payload = {
+            'chat_id': str(chat_id),
+            'text': text,
+            'attachment': attachment_metadata,
+        }
     encoded = json.dumps(
         payload,
         ensure_ascii=False,

@@ -67,8 +67,14 @@ class OutgoingMessageSerializer(serializers.Serializer):
     )
     attachment = serializers.FileField(required=False, allow_null=True)
 
+    def validate_text(self, value):
+        stripped = value.strip()
+        if value and not stripped:
+            raise serializers.ValidationError('Сообщение не может быть пустым.')
+        return stripped
+
     def validate(self, attrs):
-        text = (attrs.get('text') or '').strip()
+        text = attrs.get('text') or ''
         attachment = attrs.get('attachment')
         if not text and attachment is None:
             raise serializers.ValidationError(
