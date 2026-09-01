@@ -24,6 +24,17 @@ installCrmRealtime()
 installTasksTouchDnd()
 installDealsTouchDnd()
 
+const AI_SETTINGS_SPEC_PATH = '/settings/ai'
+const AI_SETTINGS_APP_PATH = '/app/settings/ai'
+
+if (window.location.pathname === AI_SETTINGS_SPEC_PATH) {
+  window.history.replaceState(
+    null,
+    '',
+    `${AI_SETTINGS_APP_PATH}${window.location.search}${window.location.hash}`,
+  )
+}
+
 const root = createRoot(document.getElementById('root')!)
 let appRevision = 0
 let pendingRealtimeRefresh = false
