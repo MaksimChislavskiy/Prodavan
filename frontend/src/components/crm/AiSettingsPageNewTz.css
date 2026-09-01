@@ -90,6 +90,12 @@
   opacity: 0.85;
 }
 
+.ai-settings-status-progress--determinate .ai-settings-status-progress__bar {
+  left: 0;
+  animation: none;
+  transition: width 0.15s ease-out;
+}
+
 .ai-settings-reset-toast {
   position: fixed;
   z-index: 1100;
