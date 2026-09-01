@@ -250,11 +250,14 @@ def onboarding_knowledge_state_changed(
     previous_has_ready,
     current_has_ready,
     user_id=None,
+    correlation_id=None,
     trigger_document_id=None,
 ):
     if previous_has_ready == current_has_ready:
         return
-    correlation_id = str(trigger_document_id or uuid.uuid4())
+    correlation_id = str(
+        correlation_id or trigger_document_id or uuid.uuid4(),
+    )[:64]
     with transaction.atomic():
         state = _locked_state(workspace_id)
         if state.completed:
