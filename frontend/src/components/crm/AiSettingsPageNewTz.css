@@ -1,0 +1,37 @@
+.ai-settings-card--instruction .ai-settings-save-button {
+  align-self: flex-end;
+}
+
+.ai-settings-storage-summary {
+  white-space: nowrap;
+}
+
+.ai-settings-reset-toast {
+  position: fixed;
+  z-index: 1100;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #118a3b;
+  box-shadow: 0 12px 36px rgba(11, 43, 85, 0.18);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ai-settings-reset-toast--error {
+  color: #e20f0f;
+}
+
+@media (max-width: 700px) {
+  .ai-settings-storage-summary {
+    white-space: normal;
+  }
+
+  .ai-settings-reset-toast {
+    right: 16px;
+    bottom: 16px;
+  }
+}
