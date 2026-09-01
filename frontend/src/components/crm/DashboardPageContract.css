@@ -1,16 +1,3 @@
-.dashboard-page__title {
-  display: none;
-}
-
-.dashboard-today__footer {
-  position: absolute;
-  top: 32px;
-  right: 32px;
-  margin: 0;
-  display: flex;
-  justify-content: flex-end;
-}
-
 .dashboard-hint--open > span {
   opacity: 1;
 }
@@ -27,15 +14,6 @@
 }
 
 @media (max-width: 560px) {
-  .dashboard-today__header {
-    padding-right: 0;
-  }
-
-  .dashboard-today__footer {
-    top: 32px;
-    right: 32px;
-  }
-
   .dashboard-today__show-all {
     min-width: 0;
     padding-inline: 16px;
