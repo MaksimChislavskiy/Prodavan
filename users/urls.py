@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .registration_views import ExpireRegistrationView, ResendRegistrationCodeView
 from .views import (
     ConfirmRegistrationView,
     ConfirmPasswordResetView,
@@ -15,6 +16,16 @@ from .views import (
 
 urlpatterns = [
     path('register', RegisterView.as_view(), name='register'),
+    path(
+        'register/resend',
+        ResendRegistrationCodeView.as_view(),
+        name='resend-registration-code',
+    ),
+    path(
+        'register/expire',
+        ExpireRegistrationView.as_view(),
+        name='expire-registration',
+    ),
     path('confirm', ConfirmRegistrationView.as_view(), name='confirm-registration'),
     path('login', LoginView.as_view(), name='login'),
     path('refresh', RefreshSessionView.as_view(), name='refresh-session'),
