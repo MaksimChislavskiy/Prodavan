@@ -96,6 +96,20 @@
   transition: width 0.15s ease-out;
 }
 
+.ai-settings-table-action-button::before {
+  display: inline-block;
+  margin-right: 6px;
+  line-height: 1;
+}
+
+.ai-settings-table-action-button:not(.ai-settings-table-action-button--retry)::before {
+  content: '🗑️';
+}
+
+.ai-settings-table-action-button--retry::before {
+  content: '🔄';
+}
+
 .ai-settings-reset-toast {
   position: fixed;
   z-index: 1100;
