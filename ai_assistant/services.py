@@ -49,12 +49,22 @@ def _write_audit_logs(*, settings_object, user, changes, request_id):
         if key.startswith('autopilot_')
     }
     if autopilot_changes:
+        if set(autopilot_changes) == {'autopilot_enabled'}:
+            enabled = autopilot_changes['autopilot_enabled']['new']
+            action = (
+                AIAuditAction.AUTOPILOT_ENABLED
+                if enabled
+                else AIAuditAction.AUTOPILOT_DISABLED
+            )
+        else:
+            action = AIAuditAction.AUTOPILOT_SETTINGS_CHANGED
+
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
-                action=AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
+                action=action,
                 changes=autopilot_changes,
                 request_id=request_id,
             ),
@@ -78,7 +88,7 @@ def update_ai_settings(*, workspace_id, user, validated_data):
             raise AISettingsServiceError(
                 'VERSION_CONFLICT',
                 'Настройки были изменены другим пользователем или в другой '
-                'вкладке. Обновите страницу.',
+                'вкладке. Обновите страницу и повторите попытку.',
                 status_code=409,
                 extra={'current_version': settings_object.version},
             )
