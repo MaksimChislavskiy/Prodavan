@@ -187,7 +187,11 @@ class NewTzAISettingsNfrRegressionTests(TestCase):
         duration = perf_counter() - started
 
         document.refresh_from_db()
-        self.assertEqual(result, KnowledgeDocumentStatus.READY)
+        self.assertEqual(
+            result,
+            KnowledgeDocumentStatus.READY,
+            document.error_reason,
+        )
         self.assertEqual(document.status, KnowledgeDocumentStatus.READY)
         self.assertGreater(document.chunks.count(), 0)
         self.assertLessEqual(
