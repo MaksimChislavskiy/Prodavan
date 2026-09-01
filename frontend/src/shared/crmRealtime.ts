@@ -8,7 +8,7 @@ import {
 export const CRM_REALTIME_EVENT = 'prodavan:crm-realtime'
 export const CRM_REALTIME_RECONNECTED_EVENT = 'prodavan:crm-realtime-reconnected'
 
-const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000]
+const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 30000]
 const TOKEN_REFRESH_MARGIN_MS = 15_000
 
 let socket: WebSocket | null = null
