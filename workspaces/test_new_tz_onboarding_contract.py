@@ -202,6 +202,8 @@ class NewTzOnboardingContractTests(TestCase):
             event=OnboardingAuditEvent.COMPLETED,
         )
         self.assertEqual(completed.correlation_id, self.upload_correlation)
+        self.assertEqual(completed.ip, '203.0.113.24')
+        self.assertEqual(completed.user_agent, 'ProdavanOnboardingContract/1.0')
         self.assertEqual(
             completed.details['reason']['trigger_document_id'],
             str(document.id),
