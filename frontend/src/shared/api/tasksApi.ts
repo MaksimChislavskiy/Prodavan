@@ -1,4 +1,5 @@
-import { apiRequest } from './apiClient'
+import { showCrmToast } from '../crmToast'
+import { ApiError, apiRequest } from './apiClient'
 
 export type TaskStatus = 'new' | 'in_progress' | 'done'
 export type TaskDueDateType = 'none' | 'date' | 'datetime'
@@ -87,6 +88,9 @@ export type BulkDeleteTasksResponse = {
   }[]
 }
 
+const TASK_EDIT_ERROR = 'Не удалось сохранить изменения. Попробуйте позже.'
+const TASK_CONFLICT_ERROR = 'Задача была изменена другим пользователем. Обновите данные.'
+
 export function getTasksDashboard(signal?: AbortSignal) {
   return apiRequest<TasksDashboardResponse>('/api/tasks/dashboard', { signal })
 }
@@ -144,32 +148,42 @@ export function createTaskIdempotencyKey() {
   return createUuidV4()
 }
 
-export function updateTask(
+export async function updateTask(
   taskId: string,
   data: UpdateTaskRequest,
   signal?: AbortSignal,
 ) {
-  return apiRequest<ApiTaskDetail>(`/api/tasks/${taskId}`, {
-    method: 'PATCH',
-    body: data,
-    signal,
-  })
+  try {
+    return await apiRequest<ApiTaskDetail>(`/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: data,
+      signal,
+    })
+  } catch (error) {
+    showTaskMutationError(error)
+    throw error
+  }
 }
 
-export function updateTaskStatus(
+export async function updateTaskStatus(
   taskId: string,
   status: TaskStatus,
   version: number,
   signal?: AbortSignal,
 ) {
-  return apiRequest<ApiTaskDetail>(`/api/tasks/${taskId}/status`, {
-    method: 'PATCH',
-    body: {
-      status,
-      version,
-    },
-    signal,
-  })
+  try {
+    return await apiRequest<ApiTaskDetail>(`/api/tasks/${taskId}/status`, {
+      method: 'PATCH',
+      body: {
+        status,
+        version,
+      },
+      signal,
+    })
+  } catch (error) {
+    showTaskMutationError(error)
+    throw error
+  }
 }
 
 export function deleteTask(taskId: string, signal?: AbortSignal) {
@@ -187,6 +201,16 @@ export function bulkDeleteTasks(taskIds: string[], signal?: AbortSignal) {
     },
     signal,
   })
+}
+
+function showTaskMutationError(error: unknown) {
+  if (error instanceof DOMException && error.name === 'AbortError') return
+
+  showCrmToast(
+    error instanceof ApiError && error.status === 409
+      ? TASK_CONFLICT_ERROR
+      : TASK_EDIT_ERROR,
+  )
 }
 
 function createUuidV4() {
