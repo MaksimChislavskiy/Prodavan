@@ -53,7 +53,7 @@ class NewTzAISettingsAuditTests(TestCase):
     def _assert_request_metadata(self, audit):
         self.assertEqual(audit.user_identifier, self.user.id)
         self.assertEqual(audit.workspace_id, self.user.workspace_id)
-        self.assertEqual(audit.ip_address, '203.0.113.15')
+        self.assertEqual(audit.ip, '203.0.113.15')
         self.assertEqual(audit.user_agent, 'ProdavanAuditContract/1.0')
         self.assertIsNotNone(audit.created_at)
 
