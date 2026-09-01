@@ -40,13 +40,36 @@ export type ApiAiChatHistoryResponse = {
   has_more: boolean
 }
 
-export function createAiChatSession(context: AiChatContext) {
-  return apiRequest<ApiAiChatSessionResponse>('/api/ai/chat/session', {
+let currentAiChatSessionId: string | null = null
+
+export async function createAiChatSession(context: AiChatContext) {
+  const response = await apiRequest<ApiAiChatSessionResponse>('/api/ai/chat/session', {
     method: 'POST',
     body: {
       context: resolveAiContext(context),
     },
   })
+
+  currentAiChatSessionId = response.session_id
+  return response
+}
+
+export async function closeCurrentAiChatSession() {
+  const sessionId = currentAiChatSessionId
+
+  if (!sessionId) {
+    return
+  }
+
+  try {
+    await apiRequest<null>(`/api/ai/chat/session/${sessionId}/close`, {
+      method: 'POST',
+    })
+  } finally {
+    if (currentAiChatSessionId === sessionId) {
+      currentAiChatSessionId = null
+    }
+  }
 }
 
 export function getAiChatHistory(limit = 20, cursor?: string | null) {
