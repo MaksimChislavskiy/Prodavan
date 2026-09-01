@@ -7,6 +7,7 @@ import { AccountDeletedNotice } from './components/AccountDeletedNotice'
 import { CrmToastController } from './components/crm/CrmToastController'
 import { CrmAppPage } from './pages/CrmAppPage'
 import { installAiMaterialsController } from './shared/aiMaterialsController'
+import { installAiSettingsFeedbackController } from './shared/aiSettingsFeedbackController'
 import {
   CRM_REALTIME_EVENT,
   CRM_REALTIME_RECONNECTED_EVENT,
@@ -18,6 +19,7 @@ import { installTasksTouchDnd } from './shared/tasksTouchDnd'
 
 installNotificationDeepLinks()
 installAiMaterialsController()
+installAiSettingsFeedbackController()
 installCrmRealtime()
 installTasksTouchDnd()
 installDealsTouchDnd()
