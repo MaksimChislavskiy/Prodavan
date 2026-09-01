@@ -190,6 +190,7 @@ class AISettingsView(APIView):
                 workspace_id=workspace.id,
                 user=request.user,
                 validated_data=serializer.validated_data,
+                audit_context=request_audit_context(request),
             )
         except AISettingsServiceError as error:
             return Response(error.response_data, status=error.status_code)
@@ -373,6 +374,7 @@ class KnowledgeFilesView(APIView):
                 workspace=workspace,
                 user=request.user,
                 uploaded_files=uploaded_files,
+                audit_context=audit_context,
             )
         except KnowledgeServiceError as error:
             record_onboarding_upload_event(
@@ -436,6 +438,7 @@ class KnowledgeFileDetailView(APIView):
                 workspace=workspace,
                 user=request.user,
                 document_id=document_id,
+                audit_context=request_audit_context(request),
             )
         except KnowledgeServiceError as error:
             return Response(error.response_data, status=error.status_code)
@@ -454,6 +457,7 @@ class KnowledgeFileRetryView(APIView):
                 workspace=workspace,
                 user=request.user,
                 document_id=document_id,
+                audit_context=request_audit_context(request),
             )
         except KnowledgeServiceError as error:
             return Response(error.response_data, status=error.status_code)
