@@ -27,10 +27,19 @@ MATERIAL_AUDIT_EVENTS = {
 }
 
 
+def normalize_onboarding_correlation_id(value=None):
+    if value:
+        try:
+            return uuid.UUID(str(value))
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return uuid.uuid4()
+
+
 def request_audit_context(request):
-    correlation_id = str(
-        getattr(request, 'request_id', None) or uuid.uuid4(),
-    )[:64]
+    correlation_id = normalize_onboarding_correlation_id(
+        getattr(request, 'request_id', None),
+    )
     # Nginx overwrites X-Real-IP with the direct client address before proxying
     # to the private backend network. REMOTE_ADDR therefore normally contains
     # the proxy/container address in deployed environments.
@@ -114,14 +123,14 @@ def _write_audit(
         details=details,
         ip=ip_address,
         user_agent=user_agent,
-        correlation_id=str(correlation_id or uuid.uuid4())[:64],
+        correlation_id=correlation_id,
     )
 
 
 def _broadcast_status(workspace_id, payload, correlation_id):
     event = {
         'event': 'onboarding_status_updated',
-        'correlation_id': str(correlation_id or uuid.uuid4())[:64],
+        'correlation_id': str(correlation_id),
         'data': payload,
     }
     transaction.on_commit(
@@ -179,6 +188,7 @@ def get_onboarding_status(
     ip_address=None,
     user_agent='',
 ):
+    correlation_id = normalize_onboarding_correlation_id(correlation_id)
     with transaction.atomic():
         state = _locked_state(workspace_id)
         knowledge_base_completed = _has_ready_document(workspace_id)
@@ -205,6 +215,7 @@ def mark_materials_viewed(
     user_agent='',
     material=None,
 ):
+    correlation_id = normalize_onboarding_correlation_id(correlation_id)
     with transaction.atomic():
         state = _locked_state(workspace_id)
         knowledge_base_completed = _has_ready_document(workspace_id)
@@ -259,9 +270,7 @@ def onboarding_knowledge_state_changed(
 ):
     if previous_has_ready == current_has_ready:
         return
-    correlation_id = str(
-        correlation_id or trigger_document_id or uuid.uuid4(),
-    )[:64]
+    correlation_id = normalize_onboarding_correlation_id(correlation_id)
     with transaction.atomic():
         state = _locked_state(workspace_id)
         if state.completed:
@@ -296,6 +305,7 @@ def record_onboarding_upload_event(
         completed=True,
     ).exists():
         return
+    correlation_id = normalize_onboarding_correlation_id(correlation_id)
     _write_audit(
         workspace_id=workspace_id,
         user_id=user_id,
