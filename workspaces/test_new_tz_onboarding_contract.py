@@ -1,6 +1,7 @@
 import math
 import tempfile
 from time import perf_counter
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -16,6 +17,7 @@ from .models import (
     Workspace,
     WorkspaceOnboardingAuditLog,
 )
+from .onboarding import onboarding_knowledge_state_changed
 
 
 class FastEmbeddingClient:
@@ -173,6 +175,38 @@ class NewTzOnboardingContractTests(TestCase):
             completed.details['reason']['trigger_document_id'],
             str(document.id),
         )
+
+    @patch('workspaces.onboarding.broadcast_workspace_event')
+    def test_onboarding_status_websocket_contains_flow_correlation(self, broadcast):
+        self.client.post(self.materials_url)
+        broadcast.reset_mock()
+        document = KnowledgeDocument.objects.create(
+            workspace=self.workspace,
+            uploaded_by=self.user,
+            uploaded_by_identifier=self.user.id,
+            original_name='База.txt',
+            file='knowledge_base/test/correlation.txt',
+            size_bytes=10,
+            mime_type='text/plain',
+            sha256='a' * 64,
+            status=KnowledgeDocumentStatus.READY,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            onboarding_knowledge_state_changed(
+                workspace_id=self.workspace.id,
+                previous_has_ready=False,
+                current_has_ready=True,
+                user_id=self.user.id,
+                correlation_id='onboarding-worker-flow-1',
+                trigger_document_id=document.id,
+            )
+
+        broadcast.assert_called_once()
+        payload = broadcast.call_args.args[1]
+        self.assertEqual(payload['event'], 'onboarding_status_updated')
+        self.assertEqual(payload['correlation_id'], 'onboarding-worker-flow-1')
+        self.assertEqual(payload['data']['status'], 'completed')
 
     def test_status_application_p95_is_within_300_ms(self):
         samples = []
