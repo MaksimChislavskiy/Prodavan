@@ -40,9 +40,6 @@ def request_audit_context(request):
     correlation_id = normalize_onboarding_correlation_id(
         getattr(request, 'request_id', None),
     )
-    # Nginx overwrites X-Real-IP with the direct client address before proxying
-    # to the private backend network. REMOTE_ADDR therefore normally contains
-    # the proxy/container address in deployed environments.
     raw_ip = (
         request.META.get('HTTP_X_REAL_IP')
         or request.META.get('REMOTE_ADDR')
@@ -63,20 +60,17 @@ def _knowledge_document_model():
     return apps.get_model('ai_assistant', 'KnowledgeDocument')
 
 
-def _has_ready_document(workspace_id):
-    return _knowledge_document_model().objects.filter(
-        workspace_id=workspace_id,
-        status='ready',
-        is_deleted=False,
-    ).exists()
+def _ready_document_id(workspace_id):
+    return (
+        _knowledge_document_model().objects
+        .filter(workspace_id=workspace_id, status='ready', is_deleted=False)
+        .order_by('created_at', 'id')
+        .values_list('id', flat=True)
+        .first()
+    )
 
 
 def _knowledge_step_was_completed(state):
-    # knowledge_base_completed is intentionally dynamic. To honour the separate
-    # state-machine rule that in_progress must never regress to not_started, a
-    # ready document deleted after this onboarding record was created is enough
-    # to prove that the workspace already reached in_progress. Deleted legacy
-    # documents from before onboarding was introduced do not count.
     return _knowledge_document_model().objects.filter(
         workspace_id=state.workspace_id,
         status='ready',
@@ -87,9 +81,7 @@ def _knowledge_step_was_completed(state):
 
 def _locked_state(workspace_id):
     Workspace.objects.select_for_update().only('id').get(id=workspace_id)
-    state, _ = WorkspaceOnboarding.objects.get_or_create(
-        workspace_id=workspace_id,
-    )
+    state, _ = WorkspaceOnboarding.objects.get_or_create(workspace_id=workspace_id)
     return state
 
 
@@ -121,14 +113,8 @@ def _status_payload(state, knowledge_base_completed):
 
 
 def _write_audit(
-    *,
-    workspace_id,
-    user_id,
-    event,
-    details,
-    correlation_id,
-    ip_address=None,
-    user_agent='',
+    *, workspace_id, user_id, event, details, correlation_id,
+    ip_address=None, user_agent='',
 ):
     WorkspaceOnboardingAuditLog.objects.create(
         workspace_id=workspace_id,
@@ -179,11 +165,7 @@ def _complete_if_ready(
     user_agent='',
     trigger_document_id=None,
 ):
-    if (
-        state.completed
-        or not knowledge_base_completed
-        or not state.materials_viewed
-    ):
+    if state.completed or not knowledge_base_completed or not state.materials_viewed:
         return False
     state.completed = True
     state.completed_at = timezone.now()
@@ -211,17 +193,13 @@ def _complete_if_ready(
 
 
 def get_onboarding_status(
-    *,
-    workspace_id,
-    user_id,
-    correlation_id,
-    ip_address=None,
-    user_agent='',
+    *, workspace_id, user_id, correlation_id, ip_address=None, user_agent='',
 ):
     correlation_id = normalize_onboarding_correlation_id(correlation_id)
     with transaction.atomic():
         state = _locked_state(workspace_id)
-        knowledge_base_completed = _has_ready_document(workspace_id)
+        ready_document_id = _ready_document_id(workspace_id)
+        knowledge_base_completed = ready_document_id is not None
         completed_now = _complete_if_ready(
             state,
             knowledge_base_completed=knowledge_base_completed,
@@ -229,6 +207,7 @@ def get_onboarding_status(
             correlation_id=correlation_id,
             ip_address=ip_address,
             user_agent=user_agent,
+            trigger_document_id=ready_document_id,
         )
         payload = _status_payload(state, knowledge_base_completed)
         if completed_now:
@@ -237,18 +216,14 @@ def get_onboarding_status(
 
 
 def mark_materials_viewed(
-    *,
-    workspace_id,
-    user_id,
-    correlation_id,
-    ip_address=None,
-    user_agent='',
-    material=None,
+    *, workspace_id, user_id, correlation_id, ip_address=None,
+    user_agent='', material=None,
 ):
     correlation_id = normalize_onboarding_correlation_id(correlation_id)
     with transaction.atomic():
         state = _locked_state(workspace_id)
-        knowledge_base_completed = _has_ready_document(workspace_id)
+        ready_document_id = _ready_document_id(workspace_id)
+        knowledge_base_completed = ready_document_id is not None
         before = _status_payload(state, knowledge_base_completed)
 
         material_event = MATERIAL_AUDIT_EVENTS.get(material)
@@ -282,6 +257,7 @@ def mark_materials_viewed(
             correlation_id=correlation_id,
             ip_address=ip_address,
             user_agent=user_agent,
+            trigger_document_id=ready_document_id,
         )
         payload = _status_payload(state, knowledge_base_completed)
         if payload != before:
@@ -290,13 +266,8 @@ def mark_materials_viewed(
 
 
 def onboarding_knowledge_state_changed(
-    *,
-    workspace_id,
-    previous_has_ready,
-    current_has_ready,
-    user_id=None,
-    correlation_id=None,
-    trigger_document_id=None,
+    *, workspace_id, previous_has_ready, current_has_ready, user_id=None,
+    correlation_id=None, trigger_document_id=None,
 ):
     if previous_has_ready == current_has_ready:
         return
@@ -322,14 +293,8 @@ def onboarding_knowledge_state_changed(
 
 
 def record_onboarding_upload_event(
-    *,
-    workspace_id,
-    user_id,
-    event,
-    details,
-    correlation_id,
-    ip_address=None,
-    user_agent='',
+    *, workspace_id, user_id, event, details, correlation_id,
+    ip_address=None, user_agent='',
 ):
     if event not in UPLOAD_AUDIT_EVENTS:
         raise ValueError('Недопустимое событие загрузки онбординга.')
