@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from pypdf import PdfWriter
-from pypdf.generic import DecodedStreamObject, NameObject
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -86,11 +86,30 @@ class NewTzAISettingsNfrRegressionTests(TestCase):
             f'Prodavan knowledge sentence {index}.'
             for index in range(180)
         )
-        escaped_text = page_text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
-        stream_data = f'BT 72 720 Td ({escaped_text}) Tj ET'.encode('latin-1')
+        escaped_text = (
+            page_text
+            .replace('\\', '\\\\')
+            .replace('(', '\\(')
+            .replace(')', '\\)')
+        )
+        stream_data = (
+            f'BT /F1 10 Tf 72 720 Td ({escaped_text}) Tj ET'
+        ).encode('latin-1')
+
+        font = DictionaryObject({
+            NameObject('/Type'): NameObject('/Font'),
+            NameObject('/Subtype'): NameObject('/Type1'),
+            NameObject('/BaseFont'): NameObject('/Helvetica'),
+        })
+        font_ref = writer._add_object(font)
 
         for _ in range(100):
             page = writer.add_blank_page(width=612, height=792)
+            page[NameObject('/Resources')] = DictionaryObject({
+                NameObject('/Font'): DictionaryObject({
+                    NameObject('/F1'): font_ref,
+                }),
+            })
             stream = DecodedStreamObject()
             stream.set_data(stream_data)
             page[NameObject('/Contents')] = writer._add_object(stream)
