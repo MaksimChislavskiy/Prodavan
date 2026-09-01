@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -65,6 +66,21 @@ class NewTzOnboardingContractTests(TestCase):
             'REMOTE_ADDR': '172.18.0.5',
             'HTTP_USER_AGENT': 'ProdavanOnboardingContract/1.0',
         }
+
+    def _ready_document(self, **overrides):
+        data = {
+            'workspace': self.workspace,
+            'uploaded_by': self.user,
+            'uploaded_by_identifier': self.user.id,
+            'original_name': 'База.txt',
+            'file': f'knowledge_base/test/{uuid.uuid4()}.txt',
+            'size_bytes': 10,
+            'mime_type': 'text/plain',
+            'sha256': 'a' * 64,
+            'status': KnowledgeDocumentStatus.READY,
+        }
+        data.update(overrides)
+        return KnowledgeDocument.objects.create(**data)
 
     def test_video_open_records_specific_and_generic_audit_with_metadata(self):
         response = self.client.post(
@@ -163,6 +179,36 @@ class NewTzOnboardingContractTests(TestCase):
         )
         self.assertIsInstance(audit.correlation_id, uuid.UUID)
 
+    def test_in_progress_does_not_regress_after_last_ready_document_is_deleted(self):
+        document = self._ready_document()
+        initial = self.client.get(self.status_url)
+        self.assertEqual(initial.status_code, status.HTTP_200_OK)
+        self.assertEqual(initial.data['status'], 'in_progress')
+        self.assertTrue(initial.data['steps']['knowledge_base_completed'])
+
+        document.is_deleted = True
+        document.deleted_at = timezone.now()
+        document.save(update_fields=('is_deleted', 'deleted_at', 'updated_at'))
+
+        after_delete = self.client.get(self.status_url)
+        self.assertEqual(after_delete.status_code, status.HTTP_200_OK)
+        self.assertEqual(after_delete.data['status'], 'in_progress')
+        self.assertFalse(after_delete.data['steps']['knowledge_base_completed'])
+        self.assertFalse(after_delete.data['steps']['materials_viewed'])
+
+    def test_legacy_deleted_ready_document_does_not_start_onboarding(self):
+        self._ready_document(
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+
+        response = self.client.get(self.status_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'not_started')
+        self.assertFalse(response.data['steps']['knowledge_base_completed'])
+        self.assertFalse(response.data['steps']['materials_viewed'])
+
     def test_upload_correlation_survives_background_processing_to_completion(self):
         materials = self.client.post(
             self.materials_url,
@@ -213,16 +259,8 @@ class NewTzOnboardingContractTests(TestCase):
     def test_onboarding_status_websocket_contains_flow_correlation(self, broadcast):
         self.client.post(self.materials_url)
         broadcast.reset_mock()
-        document = KnowledgeDocument.objects.create(
-            workspace=self.workspace,
-            uploaded_by=self.user,
-            uploaded_by_identifier=self.user.id,
-            original_name='База.txt',
+        document = self._ready_document(
             file='knowledge_base/test/correlation.txt',
-            size_bytes=10,
-            mime_type='text/plain',
-            sha256='a' * 64,
-            status=KnowledgeDocumentStatus.READY,
         )
 
         with self.captureOnCommitCallbacks(execute=True):
