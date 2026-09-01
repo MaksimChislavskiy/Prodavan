@@ -221,14 +221,13 @@ export function OnboardingDashboard({
   }
 
   const hasReady = status.steps.knowledge_base_completed
-  const hasProcessing = !hasReady && (
-    isUploading
-    || files.some((file) => file.status === 'uploading' || file.status === 'processing')
-  )
+  const hasServerProcessing = !hasReady
+    && files.some((file) => file.status === 'uploading' || file.status === 'processing')
+  const hasProcessing = !hasReady && (isUploading || hasServerProcessing)
   const allFailed = !hasReady
     && files.length > 0
     && files.every((file) => file.status === 'failed')
-  const showUploadButton = !hasReady && !hasProcessing
+  const showUploadButton = !hasReady && (isUploading || !hasServerProcessing)
 
   return (
     <div className="onboarding-dashboard">
