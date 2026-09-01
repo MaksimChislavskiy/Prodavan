@@ -15,6 +15,7 @@ import type { ApiKnowledgeDocument } from '../../shared/api/aiSettingsApi'
 import './OnboardingDashboard.css'
 
 type DashboardPhase = 'loading' | 'onboarding' | 'completing' | 'dashboard' | 'error'
+type CompletionSource = 'initial' | 'onboarding' | null
 
 type DashboardPageProps = {
   onShowAll: () => void
@@ -23,6 +24,7 @@ type DashboardPageProps = {
 export function DashboardPage({ onShowAll }: DashboardPageProps) {
   const statusRef = useRef<ApiOnboardingStatus | null>(null)
   const completionTimerRef = useRef<number | null>(null)
+  const completionSourceRef = useRef<CompletionSource>(null)
   const [phase, setPhase] = useState<DashboardPhase>('loading')
   const [status, setStatus] = useState<ApiOnboardingStatus | null>(null)
   const [initialFiles, setInitialFiles] = useState<ApiKnowledgeDocument[]>([])
@@ -37,20 +39,23 @@ export function DashboardPage({ onShowAll }: DashboardPageProps) {
     setStatus(next)
 
     if (next.status !== 'completed') {
+      completionSourceRef.current = null
       setPhase('onboarding')
       return
     }
 
-    if (initial || previous?.status === 'completed') {
+    if (previous?.status === 'completed') {
       setPhase('dashboard')
       return
     }
 
     if (completionTimerRef.current !== null) return
+    completionSourceRef.current = initial ? 'initial' : 'onboarding'
     setPhase('completing')
     showCrmToast('Онбординг завершён!')
     completionTimerRef.current = window.setTimeout(() => {
       completionTimerRef.current = null
+      completionSourceRef.current = null
       setPhase('dashboard')
     }, 1500)
   }, [])
@@ -133,7 +138,11 @@ export function DashboardPage({ onShowAll }: DashboardPageProps) {
     )
   }
 
-  if (phase === 'loading' || !status) {
+  if (
+    phase === 'loading'
+    || !status
+    || (phase === 'completing' && completionSourceRef.current === 'initial')
+  ) {
     return <DashboardSkeleton />
   }
 
