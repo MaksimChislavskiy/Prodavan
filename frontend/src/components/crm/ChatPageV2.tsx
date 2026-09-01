@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
@@ -27,6 +28,13 @@ import {
   type ApiContact,
 } from '../../shared/api/contactsApi'
 import { showCrmToast } from '../../shared/crmToast'
+import {
+  ChatMessageAttachment,
+  getMessagePreview,
+  MAX_CHAT_ATTACHMENT_SIZE,
+  PaperclipIcon,
+  PendingChatAttachment,
+} from './ChatAttachment'
 import { ContactFormModal } from './ContactFormModal'
 import './ChatPage.css'
 import './ChatPageContract.css'
@@ -43,6 +51,7 @@ type MessagesState = {
 type PendingSend = {
   chatId: string
   text: string
+  attachment: File | null
   key: string
 }
 
@@ -66,6 +75,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<MessagesState>(emptyMessages)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState('')
+  const [attachment, setAttachment] = useState<File | null>(null)
   const [isChatsLoading, setIsChatsLoading] = useState(true)
   const [isChatsLoadingMore, setIsChatsLoadingMore] = useState(false)
   const [hasMoreChats, setHasMoreChats] = useState(false)
@@ -83,6 +93,7 @@ export function ChatPage() {
   const messagesRef = useRef<HTMLDivElement>(null)
   const chatListEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const socketEventHandlerRef = useRef<(event: ChatSocketEvent) => void>(() => undefined)
   const reconnectAttemptRef = useRef(0)
@@ -372,6 +383,11 @@ export function ChatPage() {
     setIsMenuOpen(false)
     setSendError('')
     setIsMobileListOpen(false)
+    setAttachment(null)
+    pendingSendRef.current = null
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
 
     if (!activeChatId) {
       setMessages(emptyMessages)
@@ -552,7 +568,7 @@ export function ChatPage() {
 
       return {
         ...chat,
-        last_message: message.text,
+        last_message: getMessagePreview(message.text, message.attachment),
         last_message_at: message.created_at,
         unread_count: shouldIncrement
           ? chat.unread_count + 1
@@ -651,16 +667,50 @@ export function ChatPage() {
       && (
         pending.chatId !== activeChatIdRef.current
         || pending.text !== value.trim()
+        || pending.attachment !== attachment
       )
     ) {
       pendingSendRef.current = null
     }
   }
 
+  const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    if (!file) {
+      return
+    }
+    if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
+      setSendError('Размер вложения не должен превышать 20 МБ.')
+      event.target.value = ''
+      return
+    }
+
+    setAttachment(file)
+    setSendError('')
+    pendingSendRef.current = null
+  }
+
+  const removeAttachment = () => {
+    if (isSending) {
+      return
+    }
+    setAttachment(null)
+    pendingSendRef.current = null
+    setSendError('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
   const submitMessage = async () => {
     const chatId = activeChatIdRef.current
     const text = draft.trim()
-    if (!chatId || !text || text.length > 4096 || isSending) {
+    if (
+      !chatId
+      || (!text && !attachment)
+      || text.length > 4096
+      || isSending
+    ) {
       return
     }
 
@@ -669,11 +719,13 @@ export function ChatPage() {
       previousPending
       && previousPending.chatId === chatId
       && previousPending.text === text
+      && previousPending.attachment === attachment
     )
       ? previousPending
       : {
           chatId,
           text,
+          attachment,
           key: createChatMessageIdempotencyKey(),
         }
 
@@ -691,6 +743,7 @@ export function ChatPage() {
         text,
         pending.key,
         controller.signal,
+        pending.attachment,
       )
       if (controller.signal.aborted) {
         return
@@ -698,6 +751,10 @@ export function ChatPage() {
 
       if (pendingSendRef.current?.key === pending.key) {
         pendingSendRef.current = null
+      }
+      setAttachment(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
       }
       rememberMessageIds(
         [message],
@@ -716,7 +773,7 @@ export function ChatPage() {
         chat.id === chatId
           ? {
               ...chat,
-              last_message: message.text,
+              last_message: getMessagePreview(message.text, message.attachment),
               last_message_at: message.created_at,
             }
           : chat,
@@ -1002,6 +1059,30 @@ export function ChatPage() {
             </div>
 
             <footer className="chat-composer">
+              {attachment && (
+                <PendingChatAttachment
+                  file={attachment}
+                  disabled={isSending}
+                  onRemove={removeAttachment}
+                />
+              )}
+              <input
+                ref={fileInputRef}
+                className="chat-composer__file-input"
+                type="file"
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.rtf,.odt,.ods"
+                disabled={isSending}
+                onChange={handleAttachmentChange}
+              />
+              <button
+                className="chat-composer__attach"
+                type="button"
+                aria-label="Прикрепить файл"
+                disabled={isSending}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <PaperclipIcon />
+              </button>
               <textarea
                 ref={inputRef}
                 value={draft}
@@ -1019,7 +1100,7 @@ export function ChatPage() {
               <button
                 type="button"
                 aria-label="Отправить сообщение"
-                disabled={!draft.trim() || isSending}
+                disabled={(!draft.trim() && !attachment) || isSending}
                 onClick={() => void submitMessage()}
               >
                 <SendIcon />
@@ -1081,6 +1162,9 @@ function MessageBubble({ message }: { message: ApiChatMessage }) {
   return (
     <div className={`chat-message-row chat-message-row--${message.sender_type}`}>
       <div className="chat-message">
+        {message.attachment && (
+          <ChatMessageAttachment attachment={message.attachment} />
+        )}
         <p>
           {parts.map((part, index) => (
             part.match(/^https?:\/\//)

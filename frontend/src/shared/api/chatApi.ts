@@ -17,12 +17,22 @@ export type ApiChat = {
   ai_autopilot_enabled: boolean | null
 }
 
+export type ApiChatAttachment = {
+  type: 'image' | 'document'
+  name: string | null
+  size: number | null
+  mime_type: string | null
+  url: string | null
+  preview_url: string | null
+}
+
 export type ApiChatMessage = {
   id: string
   chat_id: string
   sender_type: 'user' | 'contact'
   sender_id: string | null
   text: string
+  attachment: ApiChatAttachment | null
   status: 'sent' | 'delivered' | 'failed' | null
   read_at: string | null
   sent_by_ai: boolean
@@ -178,11 +188,21 @@ export async function sendChatMessage(
   text: string,
   idempotencyKey: string,
   signal?: AbortSignal,
+  attachment?: File | null,
 ) {
+  let body: { text: string } | FormData = { text }
+
+  if (attachment) {
+    const formData = new FormData()
+    formData.append('text', text)
+    formData.append('attachment', attachment, attachment.name)
+    body = formData
+  }
+
   const message = await apiRequest<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
-    body: { text },
+    body,
     signal,
   })
   rememberSocketMessageIds([message.id])
