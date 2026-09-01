@@ -86,8 +86,8 @@
   cursor: not-allowed;
 }
 
-.ai-settings-upload-box__button::before,
-.ai-settings-upload-box__button::after {
+.ai-settings-upload-box__button:not(:disabled)::before,
+.ai-settings-upload-box__button:not(:disabled)::after {
   content: '"';
 }
 
