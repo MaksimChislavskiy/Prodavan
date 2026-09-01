@@ -74,9 +74,19 @@ class WorkspaceOnboarding(TimestampMixin):
         primary_key=True,
         related_name='onboarding',
     )
-    completed = models.BooleanField(default=False)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    materials_viewed = models.BooleanField(default=False)
+    completed = models.BooleanField(
+        default=False,
+        db_column='onboarding_completed',
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_column='onboarding_completed_at',
+    )
+    materials_viewed = models.BooleanField(
+        default=False,
+        db_column='onboarding_materials_viewed',
+    )
 
     class Meta:
         db_table = 'workspace_onboarding'
