@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from workspaces.onboarding import request_audit_context
 
 from .serializers import (
     AISettingsResetSerializer,
@@ -39,6 +40,7 @@ class AISettingsResetView(APIView):
                     'autopilot_mode': 'fallback',
                     'autopilot_delay': 5,
                 },
+                audit_context=request_audit_context(request),
             )
         except AISettingsServiceError as error:
             return Response(error.response_data, status=error.status_code)
