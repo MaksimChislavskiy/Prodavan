@@ -545,6 +545,10 @@ export function ChatPage() {
 
     const message = event.message
     const alreadySeen = seenMessageIdsRef.current.has(message.id)
+    const shouldAutoScroll = (
+      activeChatIdRef.current === event.chat_id
+      && isChatAtBottom(messagesRef.current)
+    )
     rememberMessageIds(
       [message],
       seenMessageIdsRef.current,
@@ -585,7 +589,9 @@ export function ChatPage() {
         ...current,
         items: sortMessages(uniqueMessages([...current.items, message])),
       }))
-      window.setTimeout(scrollToBottom, 0)
+      if (shouldAutoScroll) {
+        window.setTimeout(scrollToBottom, 0)
+      }
     }
 
     if (
@@ -1189,6 +1195,13 @@ function MessageBubble({ message }: { message: ApiChatMessage }) {
               sentByAi={message.sent_by_ai}
             />
           )}
+          {message.sender_type === 'contact' && (
+            <small>
+              {message.read_at
+                ? `Прочитано ${formatTime(message.read_at)}`
+                : 'Не прочитано'}
+            </small>
+          )}
         </span>
       </div>
     </div>
@@ -1536,6 +1549,13 @@ function scrollToBottom() {
   if (container) {
     container.scrollTop = container.scrollHeight
   }
+}
+
+function isChatAtBottom(container: HTMLElement | null) {
+  if (!container) {
+    return true
+  }
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= 80
 }
 
 function isAbortError(error: unknown) {
