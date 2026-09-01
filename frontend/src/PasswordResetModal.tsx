@@ -40,6 +40,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
 
   const [resetStep, setResetStep] = useState<PasswordResetStep>('email')
   const [email, setEmail] = useState(initialEmail)
+  const [codeEmail, setCodeEmail] = useState('')
   const [emailError, setEmailError] = useState('')
   const [confirmationCode, setConfirmationCode] = useState(createEmptyCode)
   const [codeError, setCodeError] = useState('')
@@ -58,6 +59,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
   const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false)
 
   const normalizedEmail = email.trim().toLowerCase()
+  const activeResetEmail = codeEmail || normalizedEmail
   const isEmailValid = Boolean(normalizedEmail && normalizedEmail.length <= 255 && EMAIL_PATTERN.test(normalizedEmail))
   const passwordHasMinLength = newPassword.length >= 8
   const passwordHasRequiredCharacter = PASSWORD_HAS_DIGIT_OR_SPECIAL.test(newPassword)
@@ -96,20 +98,21 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
 
   useEffect(() => {
     if (resetStep !== 'success') return
-    const timeoutId = window.setTimeout(() => onOpenLogin(email), SUCCESS_REDIRECT_DELAY_MS)
+    const timeoutId = window.setTimeout(() => onOpenLogin(activeResetEmail), SUCCESS_REDIRECT_DELAY_MS)
     return () => window.clearTimeout(timeoutId)
-  }, [email, onOpenLogin, resetStep])
+  }, [activeResetEmail, onOpenLogin, resetStep])
 
   const startCodeTimers = () => {
     setResendSeconds(RESEND_DELAY_SECONDS)
     setCodeExpiresSeconds(CODE_LIFETIME_SECONDS)
   }
 
-  const cancelServerReset = async () => {
-    if (!normalizedEmail) return
+  const cancelServerReset = async (targetEmail = activeResetEmail) => {
+    const normalizedTarget = targetEmail.trim().toLowerCase()
+    if (!normalizedTarget) return
     await apiRequest('/api/auth/reset-password/cancel', {
       method: 'POST',
-      body: { email: normalizedEmail },
+      body: { email: normalizedTarget },
       suppressGlobalErrorToast: true,
     })
   }
@@ -121,17 +124,11 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     return false
   }
 
-  const requestClose = () => {
-    if (isBusy || resetStep === 'success') return
-    if (shouldConfirmClose()) setIsCloseConfirmOpen(true)
-    else onClose()
-  }
-
-  const handleConfirmedClose = async () => {
+  const cancelConfirmedResetAndClose = async () => {
     if (isCancellingReset) return
     try {
       setIsCancellingReset(true)
-      if (resetStep === 'newPassword') await cancelServerReset()
+      await cancelServerReset()
       onClose()
     } catch (error) {
       setPasswordError(getRequestErrorMessage(error, 'Не удалось прервать восстановление пароля.'))
@@ -139,6 +136,26 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     } finally {
       setIsCancellingReset(false)
     }
+  }
+
+  const requestClose = () => {
+    if (isBusy || resetStep === 'success') return
+
+    if (resetStep === 'newPassword' && !shouldConfirmClose()) {
+      void cancelConfirmedResetAndClose()
+      return
+    }
+
+    if (shouldConfirmClose()) setIsCloseConfirmOpen(true)
+    else onClose()
+  }
+
+  const handleConfirmedClose = async () => {
+    if (resetStep === 'newPassword') {
+      await cancelConfirmedResetAndClose()
+      return
+    }
+    onClose()
   }
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
@@ -173,6 +190,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     if (isBusy) return
     if (resetStep === 'code') {
       setCodeError('')
+      setEmail(activeResetEmail)
       setResetStep('email')
       return
     }
@@ -187,7 +205,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
   const handleEmailSubmit = async () => {
     if (!isEmailValid || isSendingCode) return
 
-    if (codeExpiresSeconds > 0 && email.trim().toLowerCase() === normalizedEmail) {
+    if (codeExpiresSeconds > 0 && codeEmail === normalizedEmail) {
       setResetStep('code')
       return
     }
@@ -195,10 +213,21 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     try {
       setIsSendingCode(true)
       setEmailError('')
+
+      if (codeEmail && codeEmail !== normalizedEmail) {
+        await cancelServerReset(codeEmail)
+        setConfirmationCode(createEmptyCode())
+        setCodeError('')
+        setIsCodeBlocked(false)
+        setResendSeconds(0)
+        setCodeExpiresSeconds(0)
+      }
+
       await apiRequest<PasswordResetResponse>('/api/auth/forgot-password', {
         method: 'POST', timeoutMs: 10_000, body: { email: normalizedEmail },
       })
       setEmail(normalizedEmail)
+      setCodeEmail(normalizedEmail)
       setConfirmationCode(createEmptyCode())
       setCodeError('')
       setIsCodeBlocked(false)
@@ -217,8 +246,9 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
       setIsConfirmingCode(true)
       setCodeError('')
       await apiRequest<PasswordResetResponse>('/api/auth/reset-password/confirm', {
-        method: 'POST', body: { email, code },
+        method: 'POST', body: { email: activeResetEmail, code },
       })
+      setEmail(activeResetEmail)
       setResetStep('newPassword')
     } catch (error) {
       const message = getRequestErrorMessage(error, 'Проверьте правильность ввода или отправьте новый код.')
@@ -269,7 +299,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
     try {
       setIsSendingCode(true)
       setCodeError('')
-      await apiRequest<PasswordResetResponse>('/api/auth/forgot-password', { method: 'POST', body: { email } })
+      await apiRequest<PasswordResetResponse>('/api/auth/forgot-password', { method: 'POST', body: { email: activeResetEmail } })
       setConfirmationCode(createEmptyCode())
       setIsCodeBlocked(false)
       startCodeTimers()
@@ -285,6 +315,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
       setIsCancellingReset(true)
       await cancelServerReset()
       setEmail('')
+      setCodeEmail('')
       setEmailError('')
       setConfirmationCode(createEmptyCode())
       setCodeError('')
@@ -305,7 +336,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
       setIsSavingPassword(true)
       setPasswordError('')
       await apiRequest<PasswordResetResponse>('/api/auth/reset-password', {
-        method: 'POST', body: { email, new_password: newPassword },
+        method: 'POST', body: { email: activeResetEmail, new_password: newPassword },
       })
       setResetStep('success')
     } catch (error) {
@@ -317,6 +348,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
         setConfirmationCode(createEmptyCode())
         setResendSeconds(0)
         setCodeExpiresSeconds(0)
+        setCodeEmail('')
         setEmailError(message)
         setResetStep('email')
       }
@@ -373,7 +405,7 @@ function PasswordResetModal({ initialEmail = '', onClose, onOpenLogin }: Passwor
             <div className="passwordResetCodeContent">
               <div className="passwordResetCodeIntro">
                 <h3>Подтвердите ваш E-mail</h3>
-                <p className="passwordResetEmailPreview" title={email}>Введите код, отправленный на почту {email}</p>
+                <p className="passwordResetEmailPreview" title={activeResetEmail}>Введите код, отправленный на почту {activeResetEmail}</p>
               </div>
               <div className={hasCodeError ? 'passwordResetCodeArea passwordResetCodeAreaInvalid' : 'passwordResetCodeArea'}>
                 <div className="passwordResetCodeInputs" aria-label="Код подтверждения">
