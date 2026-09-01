@@ -16,6 +16,13 @@ const NOTIFICATIONS_PATH = '/app/notifications'
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000]
 const FALLBACK_POLL_INTERVAL_MS = 10_000
 
+const CRM_NOTIFICATION_ROUTES = {
+  chat: { pathname: '/app/chats', idParam: 'chat_id' },
+  deals: { pathname: '/app/deals', idParam: 'deal_id' },
+  contacts: { pathname: '/app/contacts', idParam: 'contact_id' },
+  tasks: { pathname: '/app/tasks', idParam: 'task_id' },
+} as const
+
 type BrowserNotificationPayload = {
   id: string
   title: string
@@ -25,6 +32,46 @@ type BrowserNotificationPayload = {
 
 function isNotificationsPath(pathname: string) {
   return pathname === NOTIFICATIONS_PATH
+}
+
+function normalizeNotificationNavigationHref(href: string) {
+  if (!href.startsWith('/')) {
+    return href
+  }
+
+  const target = new URL(href, window.location.origin)
+  if (target.pathname === '/notifications') {
+    return `${NOTIFICATIONS_PATH}${target.search}${target.hash}`
+  }
+
+  const pathParts = target.pathname.split('/').filter(Boolean)
+  if (pathParts.length !== 2) {
+    return href
+  }
+
+  const route = CRM_NOTIFICATION_ROUTES[
+    pathParts[0] as keyof typeof CRM_NOTIFICATION_ROUTES
+  ]
+  if (!route) {
+    return href
+  }
+
+  const searchParams = new URLSearchParams(target.search)
+  searchParams.set(route.idParam, decodePathPart(pathParts[1]))
+  const query = searchParams.toString()
+  return `${route.pathname}${query ? `?${query}` : ''}${target.hash}`
+}
+
+function decodePathPart(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function currentBrowserHref() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`
 }
 
 function parseRealtimeEvent(value: string): NotificationRealtimeEvent | null {
@@ -127,20 +174,25 @@ export function NotificationCenterController() {
   }, [])
 
   const navigateFromNotification = useCallback((href: string) => {
-    const normalizedHref = href.trim()
-
-    setIsOpen(false)
-
-    if (!normalizedHref) {
+    const rawHref = href.trim()
+    if (!rawHref) {
       return
     }
 
+    const normalizedHref = normalizeNotificationNavigationHref(rawHref)
+
     if (normalizedHref.startsWith('/')) {
+      if (normalizedHref === currentBrowserHref()) {
+        return
+      }
+
+      setIsOpen(false)
       window.history.pushState(null, '', normalizedHref)
       window.dispatchEvent(new PopStateEvent('popstate'))
       return
     }
 
+    setIsOpen(false)
     window.location.assign(normalizedHref)
   }, [])
 
