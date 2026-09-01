@@ -21,6 +21,7 @@ from .models import (
     Chat,
     ChatAuditAction,
     Message,
+    MessageAttachmentType,
     MessageIdempotencyRecord,
     MessageSenderType,
     MessageStatus,
@@ -39,14 +40,59 @@ class PermanentDeliveryError(Exception):
     pass
 
 
-def _request_hash(chat_id, text):
-    payload = json.dumps(
-        {'chat_id': str(chat_id), 'text': text},
+def _safe_attachment_name(name):
+    value = str(name or 'attachment').replace('\\', '/')
+    return (value.rsplit('/', 1)[-1] or 'attachment')[:255]
+
+
+def _attachment_metadata(attachment):
+    if attachment is None:
+        return None
+
+    digest = hashlib.sha256()
+    for chunk in attachment.chunks():
+        digest.update(chunk)
+    attachment.seek(0)
+    mime_type = (getattr(attachment, 'content_type', '') or '')[:255]
+    return {
+        'type': (
+            MessageAttachmentType.IMAGE
+            if mime_type.lower().startswith('image/')
+            else MessageAttachmentType.DOCUMENT
+        ),
+        'name': _safe_attachment_name(attachment.name),
+        'size': attachment.size,
+        'mime_type': mime_type or 'application/octet-stream',
+        'sha256': digest.hexdigest(),
+    }
+
+
+def _request_hash(chat_id, text, attachment_metadata=None):
+    payload = {
+        'chat_id': str(chat_id),
+        'text': text,
+        'attachment': attachment_metadata,
+    }
+    encoded = json.dumps(
+        payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(',', ':'),
     ).encode('utf-8')
-    return hashlib.sha256(payload).hexdigest()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _message_preview(text, attachment_metadata):
+    if text:
+        return text
+    if not attachment_metadata:
+        return ''
+    label = (
+        '[Фото]'
+        if attachment_metadata['type'] == MessageAttachmentType.IMAGE
+        else '[Документ]'
+    )
+    return f"{label} {attachment_metadata['name']}".strip()
 
 
 def enqueue_outgoing_message(
@@ -55,6 +101,7 @@ def enqueue_outgoing_message(
     user,
     chat_id,
     text,
+    attachment=None,
     idempotency_key,
     audit_context=None,
 ):
@@ -69,7 +116,8 @@ def enqueue_outgoing_message(
             'Idempotency-Key must not exceed 255 characters',
         )
     now = timezone.now()
-    request_hash = _request_hash(chat_id, text)
+    attachment_metadata = _attachment_metadata(attachment)
+    request_hash = _request_hash(chat_id, text, attachment_metadata)
     with transaction.atomic():
         chat = Chat.objects.select_for_update().select_related('contact').filter(
             id=chat_id,
@@ -118,14 +166,23 @@ def enqueue_outgoing_message(
                 status_code=409,
             )
 
-        message = Message.objects.create(
-            chat=chat,
-            sender_type=MessageSenderType.USER,
-            sender_id=user.id,
-            text=text,
-            status=MessageStatus.SENT,
-            next_delivery_attempt_at=now,
-        )
+        create_kwargs = {
+            'chat': chat,
+            'sender_type': MessageSenderType.USER,
+            'sender_id': user.id,
+            'text': text,
+            'status': MessageStatus.SENT,
+            'next_delivery_attempt_at': now,
+        }
+        if attachment_metadata is not None:
+            create_kwargs.update({
+                'attachment_type': attachment_metadata['type'],
+                'attachment_name': attachment_metadata['name'],
+                'attachment_size': attachment_metadata['size'],
+                'attachment_mime_type': attachment_metadata['mime_type'],
+                'attachment_file': attachment,
+            })
+        message = Message.objects.create(**create_kwargs)
         MessageIdempotencyRecord.objects.create(
             workspace=workspace,
             chat=chat,
@@ -135,7 +192,7 @@ def enqueue_outgoing_message(
             message=message,
             expires_at=now + IDEMPOTENCY_TTL,
         )
-        chat.last_message = text
+        chat.last_message = _message_preview(text, attachment_metadata)
         chat.last_message_at = message.created_at
         chat.save(
             update_fields=('last_message', 'last_message_at', 'updated_at'),
@@ -146,7 +203,15 @@ def enqueue_outgoing_message(
             action=ChatAuditAction.MESSAGE_SENT,
             chat_id=chat.id,
             message_id=message.id,
-            details={'status': MessageStatus.SENT, 'sent_by_ai': False},
+            details={
+                'status': MessageStatus.SENT,
+                'sent_by_ai': False,
+                'attachment_type': (
+                    attachment_metadata['type']
+                    if attachment_metadata is not None
+                    else None
+                ),
+            },
             context=audit_context,
         )
         payload = {
@@ -183,6 +248,32 @@ def _delivery_credentials(message):
     return token, message.chat.contact.telegram_chat_id
 
 
+def _send_via_telegram(client, token, telegram_chat_id, message):
+    if not message.attachment_file:
+        return client.send_message(
+            token,
+            chat_id=telegram_chat_id,
+            text=message.text,
+        )
+
+    message.attachment_file.open('rb')
+    try:
+        kwargs = {
+            'chat_id': telegram_chat_id,
+            'file_obj': message.attachment_file.file,
+            'filename': message.attachment_name or 'attachment',
+            'content_type': (
+                message.attachment_mime_type or 'application/octet-stream'
+            ),
+            'caption': message.text or None,
+        }
+        if message.attachment_type == MessageAttachmentType.IMAGE:
+            return client.send_photo(token, **kwargs)
+        return client.send_document(token, **kwargs)
+    finally:
+        message.attachment_file.close()
+
+
 def process_outgoing_message(message_id, *, client=None, now=None):
     client = client or TelegramBotApiClient()
     now = now or timezone.now()
@@ -208,10 +299,11 @@ def process_outgoing_message(message_id, *, client=None, now=None):
         permanent_failure = False
         try:
             token, telegram_chat_id = _delivery_credentials(message)
-            result = client.send_message(
+            result = _send_via_telegram(
+                client,
                 token,
-                chat_id=telegram_chat_id,
-                text=message.text,
+                telegram_chat_id,
+                message,
             )
         except (
             PermanentDeliveryError,
@@ -251,6 +343,7 @@ def process_outgoing_message(message_id, *, client=None, now=None):
                     'sent_by_ai': message.sent_by_ai,
                     'telegram_message_id': message.telegram_message_id,
                     'delivery_attempts': message.delivery_attempts,
+                    'attachment_type': message.attachment_type,
                 },
             )
             payload = {

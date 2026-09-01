@@ -17,6 +17,11 @@ class MessageStatus(models.TextChoices):
     FAILED = 'failed', 'Ошибка'
 
 
+class MessageAttachmentType(models.TextChoices):
+    IMAGE = 'image', 'Изображение'
+    DOCUMENT = 'document', 'Документ'
+
+
 class ChatAuditAction(models.TextChoices):
     CHAT_CREATED = 'chat_created', 'Чат создан'
     MESSAGE_SENT = 'message_sent', 'Сообщение отправлено'
@@ -83,7 +88,26 @@ class Message(TimestampMixin):
     )
     sender_type = models.CharField(max_length=16, choices=MessageSenderType.choices)
     sender_id = models.UUIDField(db_index=True)
-    text = models.TextField()
+    text = models.TextField(blank=True, default='')
+    attachment_type = models.CharField(
+        max_length=16,
+        choices=MessageAttachmentType.choices,
+        null=True,
+        blank=True,
+    )
+    attachment_name = models.CharField(max_length=255, null=True, blank=True)
+    attachment_size = models.BigIntegerField(null=True, blank=True)
+    attachment_mime_type = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
+    attachment_file = models.FileField(
+        upload_to='chat_attachments/%Y/%m/%d',
+        max_length=500,
+        null=True,
+        blank=True,
+    )
     status = models.CharField(
         max_length=16,
         choices=MessageStatus.choices,

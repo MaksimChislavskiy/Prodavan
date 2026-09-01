@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from .models import Chat
 from .outgoing import enqueue_outgoing_message
 from .serializers import (
+    MAX_ATTACHMENT_SIZE,
     ChatAutopilotSerializer,
     ChatSerializer,
     MessageSerializer,
@@ -31,6 +32,15 @@ class MessageRateLimitExceeded(APIException):
         'message': 'Too many messages. Please slow down.',
     }
     default_code = 'rate_limit_exceeded'
+
+
+class AttachmentTooLarge(APIException):
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    default_detail = {
+        'error': 'attachment_too_large',
+        'message': 'Attachment must not exceed 20 MB.',
+    }
+    default_code = 'attachment_too_large'
 
 
 def _positive_int(value, *, default, maximum):
@@ -150,6 +160,10 @@ class ChatMessagesView(APIView):
         )
 
     def post(self, request, chat_id):
+        attachment = request.FILES.get('attachment')
+        if attachment is not None and attachment.size > MAX_ATTACHMENT_SIZE:
+            raise AttachmentTooLarge()
+
         serializer = OutgoingMessageSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -165,6 +179,7 @@ class ChatMessagesView(APIView):
                 user=request.user,
                 chat_id=chat_id,
                 text=serializer.validated_data['text'],
+                attachment=serializer.validated_data.get('attachment'),
                 idempotency_key=request.headers.get('Idempotency-Key'),
                 audit_context=request_audit_context(request),
             )
