@@ -31,4 +31,12 @@ class OnboardingStatusView(OnboardingViewMixin, APIView):
 
 class OnboardingMaterialsViewedView(OnboardingViewMixin, APIView):
     def post(self, request):
-        return Response(mark_materials_viewed(**self.service_context(request)))
+        material = request.data.get('material') if isinstance(request.data, dict) else None
+        if material not in {'video', 'pdf'}:
+            material = None
+        return Response(
+            mark_materials_viewed(
+                **self.service_context(request),
+                material=material,
+            ),
+        )
