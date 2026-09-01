@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { closeCurrentAiChatSession } from '../../shared/api/aiChatApi'
 import './AiAssistantModal.css'
 
 export type AiChatMessage = {
@@ -25,6 +26,9 @@ type AiAssistantModalProps = {
   onClose: () => void
 }
 
+const MAX_MESSAGE_LENGTH = 1000
+const MAX_TEXTAREA_HEIGHT = 104
+
 export function AiAssistantModal({
   messages,
   isLoading,
@@ -37,7 +41,7 @@ export function AiAssistantModal({
 }: AiAssistantModalProps) {
   const [messageText, setMessageText] = useState('')
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const previousFirstMessageIdRef = useRef<string | null>(null)
   const previousLastMessageIdRef = useRef<string | null>(null)
   const olderHistoryScrollSnapshotRef = useRef<OlderHistoryScrollSnapshot | null>(null)
@@ -51,6 +55,18 @@ export function AiAssistantModal({
       inputRef.current?.focus()
     }
   }, [isInputDisabled])
+
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input) {
+      return
+    }
+
+    input.style.height = 'auto'
+    const nextHeight = Math.min(input.scrollHeight, MAX_TEXTAREA_HEIGHT)
+    input.style.height = `${nextHeight}px`
+    input.style.overflowY = input.scrollHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden'
+  }, [messageText])
 
   useEffect(() => {
     if (isHistoryLoading) {
@@ -148,8 +164,13 @@ export function AiAssistantModal({
     focusInput()
   }
 
+  const handleClose = () => {
+    void closeCurrentAiChatSession().catch(() => undefined)
+    onClose()
+  }
+
   return (
-    <div className="ai-assistant-overlay" role="presentation" onMouseDown={onClose}>
+    <div className="ai-assistant-overlay" role="presentation" onMouseDown={handleClose}>
       <section
         className="ai-assistant-window"
         role="dialog"
@@ -165,7 +186,7 @@ export function AiAssistantModal({
             <h2 id="ai-assistant-title">Анна AI</h2>
           </div>
 
-          <button className="ai-assistant-close" type="button" aria-label="Закрыть" onClick={onClose}>
+          <button className="ai-assistant-close" type="button" aria-label="Закрыть" onClick={handleClose}>
             ×
           </button>
         </header>
@@ -203,7 +224,11 @@ export function AiAssistantModal({
                         : 'ai-assistant-message ai-assistant-message--anna'
                     }
                   >
-                    {message.text}
+                    <AiMessageContent text={message.text} />
+                    <div className="ai-assistant-message__meta">
+                      <time>{formatMessageTime(message.createdAt)}</time>
+                      <span>{messageStatusLabel(messages, message, index, isLoading)}</span>
+                    </div>
                   </div>
                 </Fragment>
               ))}
@@ -235,18 +260,25 @@ export function AiAssistantModal({
             handleSubmit()
           }}
         >
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
-            placeholder="Сообщение"
+            rows={1}
+            maxLength={MAX_MESSAGE_LENGTH}
+            placeholder="Введите вопрос..."
             aria-label="Сообщение для Анны AI"
             value={messageText}
             disabled={isInputDisabled}
             onChange={(event) => setMessageText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                handleSubmit()
+              }
+            }}
           />
 
           <button type="submit" aria-label="Отправить сообщение" disabled={isInputDisabled}>
-            ↗
+            {isLoading ? '…' : '↗'}
           </button>
         </form>
       </section>
@@ -279,16 +311,52 @@ function getMessageDateKey(date: string | null) {
   return new Date(date).toDateString()
 }
 
-function formatMessageDate(date: string | null) {
-  if (!date) {
+function formatMessageDate(value: string | null) {
+  if (!value) {
     return 'Без даты'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'Без даты'
+  }
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const dayDifference = Math.round(
+    (today.getTime() - messageDay.getTime()) / 86_400_000,
+  )
+
+  if (dayDifference === 0) {
+    return 'Сегодня'
+  }
+
+  if (dayDifference === 1) {
+    return 'Вчера'
   }
 
   return new Intl.DateTimeFormat('ru-RU', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(new Date(date))
+  }).format(date)
+}
+
+function formatMessageTime(value: string | null) {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
 function formatSessionTitle(sessionId: string | null) {
@@ -297,4 +365,170 @@ function formatSessionTitle(sessionId: string | null) {
   }
 
   return `Сессия ${sessionId.slice(0, 8)}`
+}
+
+function messageStatusLabel(
+  messages: AiChatMessage[],
+  message: AiChatMessage,
+  index: number,
+  isLoading: boolean,
+) {
+  if (message.role === 'assistant') {
+    return message.id.startsWith('assistant-error-') ? 'Ошибка' : 'Готово'
+  }
+
+  const expectedErrorId = message.id.replace('user-message-', 'assistant-error-')
+  if (messages[index + 1]?.id === expectedErrorId) {
+    return 'Ошибка отправки'
+  }
+
+  if (isLoading && index === messages.length - 1) {
+    return 'Отправляется...'
+  }
+
+  return 'Отправлено'
+}
+
+function AiMessageContent({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/)
+  const blocks: ReactNode[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+
+    if (!line.trim()) {
+      index += 1
+      continue
+    }
+
+    if (/^\s*-\s+/.test(line)) {
+      const items: string[] = []
+      while (index < lines.length && /^\s*-\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*-\s+/, ''))
+        index += 1
+      }
+      blocks.push(
+        <ul key={`ul-${index}`}>
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>,
+      )
+      continue
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: string[] = []
+      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+\.\s+/, ''))
+        index += 1
+      }
+      blocks.push(
+        <ol key={`ol-${index}`}>
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ol>,
+      )
+      continue
+    }
+
+    const paragraphLines: string[] = []
+    while (
+      index < lines.length
+      && lines[index].trim()
+      && !/^\s*-\s+/.test(lines[index])
+      && !/^\s*\d+\.\s+/.test(lines[index])
+    ) {
+      paragraphLines.push(lines[index])
+      index += 1
+    }
+
+    blocks.push(
+      <p key={`p-${index}`}>
+        {paragraphLines.map((paragraphLine, lineIndex) => (
+          <Fragment key={lineIndex}>
+            {lineIndex > 0 && <br />}
+            {renderInlineMarkdown(paragraphLine)}
+          </Fragment>
+        ))}
+      </p>,
+    )
+  }
+
+  return <div className="ai-assistant-markdown">{blocks}</div>
+}
+
+function renderInlineMarkdown(text: string) {
+  const tokenPattern = /(\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g
+  const parts = text.split(tokenPattern).filter(Boolean)
+
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>
+    }
+
+    if (part.startsWith('*') && part.endsWith('*')) {
+      return <em key={index}>{part.slice(1, -1)}</em>
+    }
+
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+    if (linkMatch) {
+      const href = normalizeCrmMarkdownHref(linkMatch[2])
+      if (href) {
+        return (
+          <a key={index} href={href} target="_blank" rel="noopener noreferrer">
+            {linkMatch[1]}
+          </a>
+        )
+      }
+      return <span key={index}>{linkMatch[1]}</span>
+    }
+
+    return <Fragment key={index}>{part}</Fragment>
+  })
+}
+
+function normalizeCrmMarkdownHref(rawHref: string) {
+  if (!rawHref.startsWith('/') || rawHref.startsWith('//')) {
+    return ''
+  }
+
+  const target = new URL(rawHref, window.location.origin)
+  if (target.origin !== window.location.origin) {
+    return ''
+  }
+
+  const parts = target.pathname.split('/').filter(Boolean)
+  if (parts.length !== 2) {
+    return target.pathname.startsWith('/app/') ? rawHref : ''
+  }
+
+  const [entityType, encodedId] = parts
+  const id = safeDecodeURIComponent(encodedId)
+  const routes: Record<string, { path: string; idParam: string }> = {
+    deals: { path: '/app/deals', idParam: 'deal_id' },
+    contacts: { path: '/app/contacts', idParam: 'contact_id' },
+    tasks: { path: '/app/tasks', idParam: 'task_id' },
+    chat: { path: '/app/chats', idParam: 'chat_id' },
+  }
+  const route = routes[entityType]
+
+  if (!route || !id) {
+    return ''
+  }
+
+  const searchParams = new URLSearchParams(target.search)
+  searchParams.set(route.idParam, id)
+  const query = searchParams.toString()
+  return `${route.path}${query ? `?${query}` : ''}${target.hash}`
+}
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }
