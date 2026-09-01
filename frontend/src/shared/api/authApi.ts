@@ -34,6 +34,20 @@ export function startRegistration(data: RegisterRequest) {
   })
 }
 
+export function resendRegistrationCode(email: string) {
+  return apiRequest<unknown>('/api/auth/register/resend', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
+export function expireRegistration(email: string) {
+  return apiRequest<unknown>('/api/auth/register/expire', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
 export function confirmRegistration(data: ConfirmRegistrationRequest) {
   return apiRequest<ConfirmRegistrationResponse>('/api/auth/confirm', {
     method: 'POST',
