@@ -1,10 +1,14 @@
 import math
+import tempfile
 from time import perf_counter
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from ai_assistant.models import KnowledgeDocument, KnowledgeDocumentStatus
+from ai_assistant.processing import process_knowledge_document
 from users.models import User, UserRole
 
 from .models import (
@@ -12,6 +16,11 @@ from .models import (
     Workspace,
     WorkspaceOnboardingAuditLog,
 )
+
+
+class FastEmbeddingClient:
+    def create_embeddings(self, texts):
+        return [[1.0, 0.0] for _ in texts]
 
 
 @override_settings(
@@ -22,6 +31,12 @@ class NewTzOnboardingContractTests(TestCase):
     materials_url = '/api/user/onboarding/materials-viewed'
 
     def setUp(self):
+        self.media_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.media_dir.cleanup)
+        self.settings_override = override_settings(MEDIA_ROOT=self.media_dir.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+
         self.workspace = Workspace.objects.create(name='Компания')
         self.user = User.objects.create_user(
             email='onboarding-contract@example.com',
@@ -113,6 +128,50 @@ class NewTzOnboardingContractTests(TestCase):
                 event=OnboardingAuditEvent.MATERIALS_VIEWED,
             ).count(),
             1,
+        )
+
+    def test_upload_correlation_survives_background_processing_to_completion(self):
+        materials = self.client.post(
+            self.materials_url,
+            {'material': 'pdf'},
+            format='json',
+            **self._headers('onboarding-materials-flow-1'),
+        )
+        self.assertEqual(materials.status_code, status.HTTP_200_OK)
+
+        upload = self.client.post(
+            '/api/ai/knowledge-base/files',
+            {
+                'files': SimpleUploadedFile(
+                    'База.txt',
+                    'Текст базы знаний для онбординга'.encode('utf-8'),
+                    content_type='text/plain',
+                ),
+            },
+            format='multipart',
+            **self._headers('onboarding-upload-flow-1'),
+        )
+        self.assertEqual(upload.status_code, status.HTTP_202_ACCEPTED)
+        document = KnowledgeDocument.objects.get(id=upload.data['files'][0]['id'])
+        self.assertEqual(
+            document.onboarding_correlation_id,
+            'onboarding-upload-flow-1',
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            result = process_knowledge_document(
+                document.id,
+                embedding_client=FastEmbeddingClient(),
+            )
+
+        self.assertEqual(result, KnowledgeDocumentStatus.READY)
+        completed = WorkspaceOnboardingAuditLog.objects.get(
+            event=OnboardingAuditEvent.COMPLETED,
+        )
+        self.assertEqual(completed.correlation_id, 'onboarding-upload-flow-1')
+        self.assertEqual(
+            completed.details['reason']['trigger_document_id'],
+            str(document.id),
         )
 
     def test_status_application_p95_is_within_300_ms(self):
