@@ -69,41 +69,34 @@ def _write_audit_logs(
         for key, value in changes.items()
         if key.startswith('autopilot_')
     }
-    enabled_change = autopilot_changes.pop('autopilot_enabled', None)
-    if enabled_change is not None:
-        enabled = enabled_change['new']
-        logs.append(
-            AIAuditLog(
-                workspace=settings_object.workspace,
-                user=user,
-                user_identifier=user.id,
-                action=(
-                    AIAuditAction.AUTOPILOT_ENABLED
-                    if enabled
-                    else AIAuditAction.AUTOPILOT_DISABLED
-                ),
-                changes={'autopilot_enabled': enabled_change},
-                old_value=enabled_change['old'],
-                new_value=enabled_change['new'],
-                request_id=request_id,
-                **common,
-            ),
-        )
-
     if autopilot_changes:
+        enabled_change = autopilot_changes.get('autopilot_enabled')
+        if enabled_change is not None:
+            action = (
+                AIAuditAction.AUTOPILOT_ENABLED
+                if enabled_change['new']
+                else AIAuditAction.AUTOPILOT_DISABLED
+            )
+            old_value = enabled_change['old']
+            new_value = enabled_change['new']
+        else:
+            action = AIAuditAction.AUTOPILOT_SETTINGS_CHANGED
+            old_value = {
+                key: value['old'] for key, value in autopilot_changes.items()
+            }
+            new_value = {
+                key: value['new'] for key, value in autopilot_changes.items()
+            }
+
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
-                action=AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
+                action=action,
                 changes=autopilot_changes,
-                old_value={
-                    key: value['old'] for key, value in autopilot_changes.items()
-                },
-                new_value={
-                    key: value['new'] for key, value in autopilot_changes.items()
-                },
+                old_value=old_value,
+                new_value=new_value,
                 request_id=request_id,
                 **common,
             ),
