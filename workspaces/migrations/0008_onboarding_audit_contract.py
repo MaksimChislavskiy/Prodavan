@@ -30,4 +30,29 @@ class Migration(migrations.Migration):
                 max_length=64,
             ),
         ),
+        migrations.AlterField(
+            model_name='workspaceonboarding',
+            name='completed',
+            field=models.BooleanField(
+                db_column='onboarding_completed',
+                default=False,
+            ),
+        ),
+        migrations.AlterField(
+            model_name='workspaceonboarding',
+            name='completed_at',
+            field=models.DateTimeField(
+                blank=True,
+                db_column='onboarding_completed_at',
+                null=True,
+            ),
+        ),
+        migrations.AlterField(
+            model_name='workspaceonboarding',
+            name='materials_viewed',
+            field=models.BooleanField(
+                db_column='onboarding_materials_viewed',
+                default=False,
+            ),
+        ),
     ]
