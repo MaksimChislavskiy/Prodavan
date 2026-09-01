@@ -30,6 +30,13 @@
   gap: 10px;
 }
 
+.notifications-contract:has(.notifications-contract__skeleton)
+  .notifications-contract__header-actions,
+.notifications-contract:has(.notifications-contract__state[role='alert'])
+  .notifications-contract__header-actions {
+  display: none;
+}
+
 .notifications-contract button {
   font: inherit;
 }
