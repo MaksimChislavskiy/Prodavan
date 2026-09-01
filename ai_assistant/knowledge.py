@@ -69,6 +69,11 @@ def _audit_kwargs(audit_context):
     }
 
 
+def _onboarding_correlation_id(audit_context):
+    audit_context = audit_context or {}
+    return str(audit_context.get('correlation_id') or '')[:64]
+
+
 def _normalized_name(uploaded_file):
     raw_name = str(getattr(uploaded_file, 'name', '') or '')
     return PurePath(raw_name.replace('\\', '/')).name
@@ -228,6 +233,7 @@ def create_knowledge_documents(
     batch_size = sum(item.size_bytes for item in prepared)
     saved_names = []
     audit_kwargs = _audit_kwargs(audit_context)
+    onboarding_correlation_id = _onboarding_correlation_id(audit_context)
 
     try:
         with transaction.atomic():
@@ -256,6 +262,7 @@ def create_knowledge_documents(
                     size_bytes=item.size_bytes,
                     mime_type=item.mime_type,
                     sha256=item.sha256,
+                    onboarding_correlation_id=onboarding_correlation_id,
                 )
                 document.file.save(
                     item.original_name,
@@ -330,12 +337,14 @@ def retry_knowledge_document(
         document.error_reason = ''
         document.processing_started_at = None
         document.processed_at = None
+        document.onboarding_correlation_id = _onboarding_correlation_id(audit_context)
         document.save(
             update_fields=(
                 'status',
                 'error_reason',
                 'processing_started_at',
                 'processed_at',
+                'onboarding_correlation_id',
                 'updated_at',
             ),
         )
@@ -407,6 +416,7 @@ def delete_knowledge_document(
                     previous_has_ready=True,
                     current_has_ready=False,
                     user_id=user.id,
+                    correlation_id=_onboarding_correlation_id(audit_context) or None,
                     trigger_document_id=document.id,
                 ),
                 robust=True,
