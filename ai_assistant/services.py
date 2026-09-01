@@ -29,17 +29,38 @@ def _change(old_value, new_value):
     return {'old': old_value, 'new': new_value}
 
 
-def _write_audit_logs(*, settings_object, user, changes, request_id):
+def _audit_kwargs(audit_context):
+    audit_context = audit_context or {}
+    return {
+        'ip_address': audit_context.get('ip_address'),
+        'user_agent': (audit_context.get('user_agent') or '')[:512],
+    }
+
+
+def _write_audit_logs(
+    *,
+    settings_object,
+    user,
+    changes,
+    request_id,
+    audit_context=None,
+):
     logs = []
+    common = _audit_kwargs(audit_context)
+
     if 'instruction' in changes:
+        change = changes['instruction']
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
                 action=AIAuditAction.INSTRUCTION_UPDATED,
-                changes={'instruction': changes['instruction']},
+                changes={'instruction': change},
+                old_value=change['old'],
+                new_value=change['new'],
                 request_id=request_id,
+                **common,
             ),
         )
 
@@ -48,32 +69,50 @@ def _write_audit_logs(*, settings_object, user, changes, request_id):
         for key, value in changes.items()
         if key.startswith('autopilot_')
     }
-    if autopilot_changes:
-        if set(autopilot_changes) == {'autopilot_enabled'}:
-            enabled = autopilot_changes['autopilot_enabled']['new']
-            action = (
-                AIAuditAction.AUTOPILOT_ENABLED
-                if enabled
-                else AIAuditAction.AUTOPILOT_DISABLED
-            )
-        else:
-            action = AIAuditAction.AUTOPILOT_SETTINGS_CHANGED
-
+    enabled_change = autopilot_changes.pop('autopilot_enabled', None)
+    if enabled_change is not None:
+        enabled = enabled_change['new']
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
-                action=action,
-                changes=autopilot_changes,
+                action=(
+                    AIAuditAction.AUTOPILOT_ENABLED
+                    if enabled
+                    else AIAuditAction.AUTOPILOT_DISABLED
+                ),
+                changes={'autopilot_enabled': enabled_change},
+                old_value=enabled_change['old'],
+                new_value=enabled_change['new'],
                 request_id=request_id,
+                **common,
+            ),
+        )
+
+    if autopilot_changes:
+        logs.append(
+            AIAuditLog(
+                workspace=settings_object.workspace,
+                user=user,
+                user_identifier=user.id,
+                action=AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
+                changes=autopilot_changes,
+                old_value={
+                    key: value['old'] for key, value in autopilot_changes.items()
+                },
+                new_value={
+                    key: value['new'] for key, value in autopilot_changes.items()
+                },
+                request_id=request_id,
+                **common,
             ),
         )
 
     AIAuditLog.objects.bulk_create(logs)
 
 
-def update_ai_settings(*, workspace_id, user, validated_data):
+def update_ai_settings(*, workspace_id, user, validated_data, audit_context=None):
     submitted_version = validated_data['version']
 
     with transaction.atomic():
@@ -121,6 +160,7 @@ def update_ai_settings(*, workspace_id, user, validated_data):
                 user=user,
                 changes=changes,
                 request_id=uuid.uuid4(),
+                audit_context=audit_context,
             )
 
     return settings_object
