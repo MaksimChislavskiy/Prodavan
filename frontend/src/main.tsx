@@ -6,7 +6,6 @@ import './PasswordResetModal.mobile.css'
 import { AccountDeletedNotice } from './components/AccountDeletedNotice'
 import { CrmToastController } from './components/crm/CrmToastController'
 import { CrmAppPage } from './pages/CrmAppPage'
-import { installAiMaterialsController } from './shared/aiMaterialsController'
 import { installAiSettingsFeedbackController } from './shared/aiSettingsFeedbackController'
 import {
   CRM_REALTIME_EVENT,
@@ -18,7 +17,6 @@ import { installNotificationDeepLinks } from './shared/notificationDeepLinks'
 import { installTasksTouchDnd } from './shared/tasksTouchDnd'
 
 installNotificationDeepLinks()
-installAiMaterialsController()
 installAiSettingsFeedbackController()
 installCrmRealtime()
 installTasksTouchDnd()
