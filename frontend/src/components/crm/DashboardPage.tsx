@@ -45,7 +45,9 @@ export function DashboardPage({ onShowAll }: DashboardPageProps) {
     }
 
     if (previous?.status === 'completed') {
-      setPhase('dashboard')
+      if (completionTimerRef.current === null) {
+        setPhase('dashboard')
+      }
       return
     }
 
