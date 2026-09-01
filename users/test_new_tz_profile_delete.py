@@ -34,11 +34,10 @@ class NewTzProfileDeleteTests(TestCase):
             is_confirmed=True,
         )
         self.workspace = self.user.workspace
-        self.stage = SalesStage.objects.create(
+        self.stage = SalesStage.objects.get(
             workspace=self.workspace,
-            name='Новый лид',
             is_system=True,
-            order=1,
+            is_deleted=False,
         )
         self.contact = Contact.objects.create(
             workspace=self.workspace,
