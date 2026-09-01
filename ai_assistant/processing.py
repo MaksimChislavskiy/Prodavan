@@ -326,6 +326,7 @@ def process_knowledge_document(document_id, *, embedding_client=None):
                     previous_has_ready=previous_has_ready,
                     current_has_ready=True,
                     user_id=locked.uploaded_by_id,
+                    correlation_id=locked.onboarding_correlation_id or None,
                     trigger_document_id=locked.id,
                 ),
                 robust=True,
