@@ -27,9 +27,7 @@ class FastEmbeddingClient:
         return [[1.0, 0.0] for _ in texts]
 
 
-@override_settings(
-    PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
-)
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class NewTzOnboardingContractTests(TestCase):
     status_url = '/api/user/onboarding-status'
     materials_url = '/api/user/onboarding/materials-viewed'
@@ -45,16 +43,11 @@ class NewTzOnboardingContractTests(TestCase):
         self.settings_override = override_settings(MEDIA_ROOT=self.media_dir.name)
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)
-
         self.workspace = Workspace.objects.create(name='Компания')
         self.user = User.objects.create_user(
-            email='onboarding-contract@example.com',
-            password='StrongPass1',
-            first_name='Иван',
-            last_name='Иванов',
-            workspace=self.workspace,
-            role=UserRole.ADMIN,
-            is_confirmed=True,
+            email='onboarding-contract@example.com', password='StrongPass1',
+            first_name='Иван', last_name='Иванов', workspace=self.workspace,
+            role=UserRole.ADMIN, is_confirmed=True,
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
@@ -84,27 +77,13 @@ class NewTzOnboardingContractTests(TestCase):
 
     def test_video_open_records_specific_and_generic_audit_with_metadata(self):
         response = self.client.post(
-            self.materials_url,
-            {'material': 'video'},
-            format='json',
+            self.materials_url, {'material': 'video'}, format='json',
             **self._headers(self.video_correlation),
         )
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data['steps']['materials_viewed'])
-        events = list(
-            WorkspaceOnboardingAuditLog.objects.order_by('created_at').values_list(
-                'event',
-                flat=True,
-            ),
-        )
-        self.assertEqual(
-            events,
-            [
-                OnboardingAuditEvent.VIDEO_OPENED,
-                OnboardingAuditEvent.MATERIALS_VIEWED,
-            ],
-        )
+        events = list(WorkspaceOnboardingAuditLog.objects.order_by('created_at').values_list('event', flat=True))
+        self.assertEqual(events, [OnboardingAuditEvent.VIDEO_OPENED, OnboardingAuditEvent.MATERIALS_VIEWED])
         correlations = set()
         for audit in WorkspaceOnboardingAuditLog.objects.all():
             self.assertEqual(audit.user_identifier, self.user.id)
@@ -119,12 +98,9 @@ class NewTzOnboardingContractTests(TestCase):
 
     def test_non_uuid_request_id_is_replaced_by_one_flow_uuid(self):
         response = self.client.post(
-            self.materials_url,
-            {'material': 'video'},
-            format='json',
+            self.materials_url, {'material': 'video'}, format='json',
             **self._headers('legacy-readable-request-id'),
         )
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         audits = list(WorkspaceOnboardingAuditLog.objects.all())
         self.assertEqual(len(audits), 2)
@@ -135,49 +111,36 @@ class NewTzOnboardingContractTests(TestCase):
         self.assertNotEqual(str(correlation_id), 'legacy-readable-request-id')
 
     def test_pdf_open_after_materials_viewed_records_open_without_duplicate_step(self):
-        self.client.post(
-            self.materials_url,
-            {'material': 'video'},
-            format='json',
-            **self._headers(self.video_correlation),
-        )
-
-        response = self.client.post(
-            self.materials_url,
-            {'material': 'pdf'},
-            format='json',
-            **self._headers(self.pdf_correlation),
-        )
-
+        self.client.post(self.materials_url, {'material': 'video'}, format='json', **self._headers(self.video_correlation))
+        response = self.client.post(self.materials_url, {'material': 'pdf'}, format='json', **self._headers(self.pdf_correlation))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            WorkspaceOnboardingAuditLog.objects.filter(
-                event=OnboardingAuditEvent.MATERIALS_VIEWED,
-            ).count(),
-            1,
-        )
-        pdf_audit = WorkspaceOnboardingAuditLog.objects.get(
-            event=OnboardingAuditEvent.PDF_OPENED,
-        )
+        self.assertEqual(WorkspaceOnboardingAuditLog.objects.filter(event=OnboardingAuditEvent.MATERIALS_VIEWED).count(), 1)
+        pdf_audit = WorkspaceOnboardingAuditLog.objects.get(event=OnboardingAuditEvent.PDF_OPENED)
         self.assertEqual(pdf_audit.correlation_id, self.pdf_correlation)
 
     def test_bodyless_materials_viewed_remains_idempotent(self):
         first = self.client.post(self.materials_url)
         second = self.client.post(self.materials_url)
-
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.data, first.data)
-        self.assertEqual(
-            WorkspaceOnboardingAuditLog.objects.filter(
-                event=OnboardingAuditEvent.MATERIALS_VIEWED,
-            ).count(),
-            1,
-        )
-        audit = WorkspaceOnboardingAuditLog.objects.get(
-            event=OnboardingAuditEvent.MATERIALS_VIEWED,
-        )
+        self.assertEqual(WorkspaceOnboardingAuditLog.objects.filter(event=OnboardingAuditEvent.MATERIALS_VIEWED).count(), 1)
+        audit = WorkspaceOnboardingAuditLog.objects.get(event=OnboardingAuditEvent.MATERIALS_VIEWED)
         self.assertIsInstance(audit.correlation_id, uuid.UUID)
+
+    def test_material_completion_audit_includes_ready_document_id(self):
+        document = self._ready_document()
+        response = self.client.post(
+            self.materials_url, {'material': 'video'}, format='json',
+            **self._headers(self.video_correlation),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'completed')
+        completed = WorkspaceOnboardingAuditLog.objects.get(event=OnboardingAuditEvent.COMPLETED)
+        self.assertEqual(completed.correlation_id, self.video_correlation)
+        self.assertEqual(completed.details['reason']['trigger_document_id'], str(document.id))
+        self.assertEqual(completed.ip, '203.0.113.24')
+        self.assertEqual(completed.user_agent, 'ProdavanOnboardingContract/1.0')
 
     def test_in_progress_does_not_regress_after_last_ready_document_is_deleted(self):
         document = self._ready_document()
@@ -185,11 +148,9 @@ class NewTzOnboardingContractTests(TestCase):
         self.assertEqual(initial.status_code, status.HTTP_200_OK)
         self.assertEqual(initial.data['status'], 'in_progress')
         self.assertTrue(initial.data['steps']['knowledge_base_completed'])
-
         document.is_deleted = True
         document.deleted_at = timezone.now()
         document.save(update_fields=('is_deleted', 'deleted_at', 'updated_at'))
-
         after_delete = self.client.get(self.status_url)
         self.assertEqual(after_delete.status_code, status.HTTP_200_OK)
         self.assertEqual(after_delete.data['status'], 'in_progress')
@@ -197,82 +158,44 @@ class NewTzOnboardingContractTests(TestCase):
         self.assertFalse(after_delete.data['steps']['materials_viewed'])
 
     def test_legacy_deleted_ready_document_does_not_start_onboarding(self):
-        self._ready_document(
-            is_deleted=True,
-            deleted_at=timezone.now(),
-        )
-
+        self._ready_document(is_deleted=True, deleted_at=timezone.now())
         response = self.client.get(self.status_url)
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['status'], 'not_started')
         self.assertFalse(response.data['steps']['knowledge_base_completed'])
         self.assertFalse(response.data['steps']['materials_viewed'])
 
     def test_upload_correlation_survives_background_processing_to_completion(self):
-        materials = self.client.post(
-            self.materials_url,
-            {'material': 'pdf'},
-            format='json',
-            **self._headers(self.materials_correlation),
-        )
+        materials = self.client.post(self.materials_url, {'material': 'pdf'}, format='json', **self._headers(self.materials_correlation))
         self.assertEqual(materials.status_code, status.HTTP_200_OK)
-
         upload = self.client.post(
             '/api/ai/knowledge-base/files',
-            {
-                'files': SimpleUploadedFile(
-                    'База.txt',
-                    'Текст базы знаний для онбординга'.encode('utf-8'),
-                    content_type='text/plain',
-                ),
-            },
-            format='multipart',
-            **self._headers(self.upload_correlation),
+            {'files': SimpleUploadedFile('База.txt', 'Текст базы знаний для онбординга'.encode('utf-8'), content_type='text/plain')},
+            format='multipart', **self._headers(self.upload_correlation),
         )
         self.assertEqual(upload.status_code, status.HTTP_202_ACCEPTED)
         document = KnowledgeDocument.objects.get(id=upload.data['files'][0]['id'])
-        self.assertEqual(
-            document.onboarding_correlation_id,
-            str(self.upload_correlation),
-        )
-
+        self.assertEqual(document.onboarding_correlation_id, str(self.upload_correlation))
         with self.captureOnCommitCallbacks(execute=True):
-            result = process_knowledge_document(
-                document.id,
-                embedding_client=FastEmbeddingClient(),
-            )
-
+            result = process_knowledge_document(document.id, embedding_client=FastEmbeddingClient())
         self.assertEqual(result, KnowledgeDocumentStatus.READY)
-        completed = WorkspaceOnboardingAuditLog.objects.get(
-            event=OnboardingAuditEvent.COMPLETED,
-        )
+        completed = WorkspaceOnboardingAuditLog.objects.get(event=OnboardingAuditEvent.COMPLETED)
         self.assertEqual(completed.correlation_id, self.upload_correlation)
         self.assertEqual(completed.ip, '203.0.113.24')
         self.assertEqual(completed.user_agent, 'ProdavanOnboardingContract/1.0')
-        self.assertEqual(
-            completed.details['reason']['trigger_document_id'],
-            str(document.id),
-        )
+        self.assertEqual(completed.details['reason']['trigger_document_id'], str(document.id))
 
     @patch('workspaces.onboarding.broadcast_workspace_event')
     def test_onboarding_status_websocket_contains_flow_correlation(self, broadcast):
         self.client.post(self.materials_url)
         broadcast.reset_mock()
-        document = self._ready_document(
-            file='knowledge_base/test/correlation.txt',
-        )
-
+        document = self._ready_document(file='knowledge_base/test/correlation.txt')
         with self.captureOnCommitCallbacks(execute=True):
             onboarding_knowledge_state_changed(
-                workspace_id=self.workspace.id,
-                previous_has_ready=False,
-                current_has_ready=True,
-                user_id=self.user.id,
-                correlation_id=self.worker_correlation,
-                trigger_document_id=document.id,
+                workspace_id=self.workspace.id, previous_has_ready=False,
+                current_has_ready=True, user_id=self.user.id,
+                correlation_id=self.worker_correlation, trigger_document_id=document.id,
             )
-
         broadcast.assert_called_once()
         payload = broadcast.call_args.args[1]
         self.assertEqual(payload['event'], 'onboarding_status_updated')
@@ -283,17 +206,11 @@ class NewTzOnboardingContractTests(TestCase):
         samples = []
         warmup = self.client.get(self.status_url)
         self.assertEqual(warmup.status_code, status.HTTP_200_OK)
-
         for _ in range(20):
             started = perf_counter()
             response = self.client.get(self.status_url)
             samples.append(perf_counter() - started)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         ordered = sorted(samples)
         p95 = ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)]
-        self.assertLessEqual(
-            p95,
-            0.3,
-            f'GET /api/user/onboarding-status application p95 is {p95:.3f}s',
-        )
+        self.assertLessEqual(p95, 0.3, f'GET /api/user/onboarding-status application p95 is {p95:.3f}s')
