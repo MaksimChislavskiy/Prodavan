@@ -69,6 +69,32 @@ function normalizeDealsUi(root: ParentNode) {
       error.textContent = CURRENT_DEAL_CONFLICT
     }
   })
+
+  const createTitle = root instanceof Element && root.matches('#create-deal-title')
+    ? root
+    : root.querySelector<HTMLElement>('#create-deal-title')
+  if (createTitle?.textContent?.trim() === 'Добавление сделки') {
+    createTitle.textContent = 'Создать сделку'
+  }
+
+  const createButton = root instanceof Element && root.matches('.create-deal-form__submit')
+    ? root
+    : root.querySelector<HTMLElement>('.create-deal-form__submit')
+  if (createButton?.textContent?.trim() === 'Добавить сделку') {
+    createButton.textContent = 'Создать сделку'
+  }
+
+  const fieldErrors = root instanceof Element && root.matches('.create-deal-v2__field-error')
+    ? [root]
+    : Array.from(root.querySelectorAll<HTMLElement>('.create-deal-v2__field-error'))
+  fieldErrors.forEach((error) => {
+    const message = error.textContent?.trim()
+    if (message === 'Название сделки обязательно') {
+      error.textContent = 'Обязательное поле'
+    } else if (message === 'ФИО контакта обязательно') {
+      error.textContent = 'ФИО обязательно'
+    }
+  })
 }
 
 function handleRealtime(event: Event) {
