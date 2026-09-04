@@ -9,6 +9,11 @@
   box-shadow: 0 8px 22px rgba(11, 43, 85, 0.08);
 }
 
+.deals-page .create-deal-modal,
+.create-deal-overlay .create-deal-modal {
+  width: min(600px, 95vw);
+}
+
 .deals-stage__action--add {
   border: 1px solid rgba(11, 43, 85, 0.28);
   border-radius: 50%;
