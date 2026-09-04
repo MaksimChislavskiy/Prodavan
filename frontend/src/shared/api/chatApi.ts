@@ -68,6 +68,7 @@ const CHAT_SOCKET_DEDUP_LIMIT = 1000
 const seenSocketMessageIds = new Set<string>()
 const seenSocketMessageOrder: string[] = []
 let currentChatContextId: string | null = null
+let resolvedContactDeepLink: { contactId: string; chatId: string | null } | null = null
 
 export function getCurrentChatContextId() {
   return currentChatContextId
@@ -86,28 +87,35 @@ export async function getChatsPage(
   limit = 20,
   signal?: AbortSignal,
 ) {
-  const targetChatId = getDeepLinkedChatId()
+  const directChatId = getDeepLinkedChatId()
+  const contactId = directChatId ? null : getDeepLinkedContactId()
+  let targetChatId = directChatId
+  let targetChat: ApiChat | null = null
+
+  if (!targetChatId && contactId) {
+    targetChat = await findDeepLinkedContactChat(contactId, signal)
+    targetChatId = targetChat?.id ?? null
+  }
 
   if (!targetChatId) {
     return requestChatsPage(page, limit, signal)
   }
 
   // ChatPageV2 normally selects the first row after the initial page is loaded.
-  // For a notification deep link we expose the requested chat as a one-row
-  // virtual first page. Subsequent virtual pages map to the ordinary sorted
-  // server pages, so the selected chat remains active while the rest of the
-  // list is filled normally and pagination stays available.
+  // For notification/deal-card deep links we expose the requested chat as a
+  // one-row virtual first page. Subsequent virtual pages map to ordinary sorted
+  // server pages, so that chat stays selected while the rest of the list loads.
   if (page === 1) {
     const firstPagePromise = requestChatsPage(1, limit, signal)
 
     try {
-      const [targetChat, firstPage] = await Promise.all([
-        getChat(targetChatId, signal),
+      const [resolvedTargetChat, firstPage] = await Promise.all([
+        targetChat ? Promise.resolve(targetChat) : getChat(targetChatId, signal),
         firstPagePromise,
       ])
 
       return {
-        chats: [targetChat],
+        chats: [resolvedTargetChat],
         page: 1,
         limit,
         total: firstPage.total + limit,
@@ -153,6 +161,50 @@ function getDeepLinkedChatId() {
 
   const chatId = new URLSearchParams(window.location.search).get('chat_id')?.trim()
   return chatId || null
+}
+
+function getDeepLinkedContactId() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const contactId = new URLSearchParams(window.location.search).get('contact_id')?.trim()
+  return contactId || null
+}
+
+async function findDeepLinkedContactChat(
+  contactId: string,
+  signal?: AbortSignal,
+) {
+  if (resolvedContactDeepLink?.contactId === contactId) {
+    if (!resolvedContactDeepLink.chatId) return null
+    try {
+      return await getChat(resolvedContactDeepLink.chatId, signal)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    }
+  }
+
+  let page = 1
+  const pageSize = 100
+
+  while (true) {
+    const response = await requestChatsPage(page, pageSize, signal)
+    const match = response.chats.find((chat) => chat.contact.id === contactId) ?? null
+
+    if (match) {
+      resolvedContactDeepLink = { contactId, chatId: match.id }
+      return match
+    }
+
+    if (page * response.limit >= response.total) {
+      resolvedContactDeepLink = { contactId, chatId: null }
+      return null
+    }
+
+    page += 1
+  }
 }
 
 export async function getChatMessages(
