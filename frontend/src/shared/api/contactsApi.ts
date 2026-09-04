@@ -113,6 +113,8 @@ export function updateContact(
     method: 'PATCH',
     body: data,
     signal,
+    timeoutMs: 30_000,
+    suppressGlobalErrorToast: true,
   })
 }
 
