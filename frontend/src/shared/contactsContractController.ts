@@ -1,3 +1,5 @@
+import './contactsContractController.css'
+
 const BULK_TOAST = /^Удалено (\d+) контактов\. Пропущено (\d+)\.$/
 const BULK_SELECTED = /^Выбрано:\s*(\d+)$/
 const BULK_CONFIRM = /^Удалить выбранные контакты \((\d+) шт\.\)\?$/
