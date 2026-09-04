@@ -9,6 +9,17 @@
   box-shadow: 0 8px 22px rgba(11, 43, 85, 0.08);
 }
 
+.deals-stage__action--add {
+  border: 1px solid rgba(11, 43, 85, 0.28);
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.deals-stage__action--add:hover {
+  background: #f7faff;
+}
+
 .deals-board-empty {
   box-sizing: border-box;
   width: min(660px, 100%);
