@@ -26,14 +26,18 @@ class TelegramBotApiClient:
     def __init__(self, session=None):
         self.session = session or requests.Session()
 
-    def _call(self, token, method, *, data=None):
+    def _call(self, token, method, *, data=None, files=None):
         url = f'{settings.TELEGRAM_API_BASE_URL}/bot{token}/{method}'
         try:
-            response = self.session.post(
-                url,
-                json=data,
-                timeout=settings.TELEGRAM_REQUEST_TIMEOUT,
-            )
+            request_kwargs = {
+                'timeout': settings.TELEGRAM_REQUEST_TIMEOUT,
+            }
+            if files:
+                request_kwargs['data'] = data
+                request_kwargs['files'] = files
+            else:
+                request_kwargs['json'] = data
+            response = self.session.post(url, **request_kwargs)
             payload = response.json()
         except (requests.RequestException, ValueError):
             raise TelegramApiUnavailable(
@@ -46,15 +50,31 @@ class TelegramBotApiClient:
             raise TelegramInvalidToken('Telegram отклонил токен бота.')
         if response.status_code == 400 and method in ('getMe', 'getWebhookInfo'):
             raise TelegramInvalidToken('Telegram отклонил токен бота.')
-        if response.status_code in (400, 403) and method == 'sendMessage':
+        if response.status_code in (400, 403) and method in {
+            'sendMessage',
+            'sendPhoto',
+            'sendDocument',
+            'getFile',
+        }:
             raise TelegramMessageRejected(
-                'Telegram отклонил сообщение.',
+                'Telegram отклонил сообщение или файл.',
             )
         if response.status_code == 400:
             raise TelegramWebhookRejected(
                 'Telegram отклонил настройки webhook.',
             )
         raise TelegramApiUnavailable('Telegram Bot API временно недоступен.')
+
+    @staticmethod
+    def _validate_message_result(result, method):
+        if not isinstance(result, dict) or not isinstance(
+            result.get('message_id'),
+            int,
+        ):
+            raise TelegramApiUnavailable(
+                f'Telegram вернул некорректный ответ на {method}.',
+            )
+        return result
 
     def get_me(self, token):
         result = self._call(token, 'getMe')
@@ -102,11 +122,106 @@ class TelegramBotApiClient:
             'sendMessage',
             data={'chat_id': chat_id, 'text': text},
         )
-        if not isinstance(result, dict) or not isinstance(
-            result.get('message_id'),
-            int,
-        ):
+        return self._validate_message_result(result, 'sendMessage')
+
+    def _send_file(
+        self,
+        token,
+        *,
+        method,
+        field,
+        chat_id,
+        file_obj,
+        filename,
+        content_type,
+        caption=None,
+    ):
+        data = {'chat_id': chat_id}
+        if caption:
+            data['caption'] = caption
+        result = self._call(
+            token,
+            method,
+            data=data,
+            files={
+                field: (
+                    filename,
+                    file_obj,
+                    content_type or 'application/octet-stream',
+                ),
+            },
+        )
+        return self._validate_message_result(result, method)
+
+    def send_photo(
+        self,
+        token,
+        *,
+        chat_id,
+        file_obj,
+        filename,
+        content_type,
+        caption=None,
+    ):
+        return self._send_file(
+            token,
+            method='sendPhoto',
+            field='photo',
+            chat_id=chat_id,
+            file_obj=file_obj,
+            filename=filename,
+            content_type=content_type,
+            caption=caption,
+        )
+
+    def send_document(
+        self,
+        token,
+        *,
+        chat_id,
+        file_obj,
+        filename,
+        content_type,
+        caption=None,
+    ):
+        return self._send_file(
+            token,
+            method='sendDocument',
+            field='document',
+            chat_id=chat_id,
+            file_obj=file_obj,
+            filename=filename,
+            content_type=content_type,
+            caption=caption,
+        )
+
+    def get_file(self, token, *, file_id):
+        result = self._call(
+            token,
+            'getFile',
+            data={'file_id': file_id},
+        )
+        if not isinstance(result, dict):
             raise TelegramApiUnavailable(
-                'Telegram вернул некорректный ответ на sendMessage.',
+                'Telegram вернул некорректные данные файла.',
+            )
+        file_path = result.get('file_path')
+        if not isinstance(file_path, str) or not file_path:
+            raise TelegramApiUnavailable(
+                'Telegram не вернул путь к файлу.',
             )
         return result
+
+    def download_file(self, token, *, file_path):
+        url = f'{settings.TELEGRAM_API_BASE_URL}/file/bot{token}/{file_path}'
+        try:
+            response = self.session.get(
+                url,
+                timeout=settings.TELEGRAM_REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            raise TelegramApiUnavailable(
+                'Не удалось скачать файл из Telegram.',
+            ) from None
+        return response.content

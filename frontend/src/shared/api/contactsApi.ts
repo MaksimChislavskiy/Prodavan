@@ -87,6 +87,15 @@ export function searchContacts(
   )
 }
 
+export function findContactByName(name: string, signal?: AbortSignal) {
+  const searchParams = new URLSearchParams({ name })
+
+  return apiRequest<ApiContactAutocomplete | null>(
+    `/api/contacts/find-by-name?${searchParams.toString()}`,
+    { signal },
+  )
+}
+
 export function createContact(data: CreateContactRequest, signal?: AbortSignal) {
   return apiRequest<ApiContact>('/api/contacts', {
     method: 'POST',
@@ -104,6 +113,8 @@ export function updateContact(
     method: 'PATCH',
     body: data,
     signal,
+    timeoutMs: 30_000,
+    suppressGlobalErrorToast: true,
   })
 }
 

@@ -13,6 +13,17 @@ export type ConfirmRegistrationRequest = {
   code: string
 }
 
+export type CurrentUserRole = 'admin' | 'user'
+
+export type CurrentUser = {
+  id: string
+  name: string
+  surname: string
+  email: string
+  role: CurrentUserRole
+  workspace_id: string | null
+}
+
 type ConfirmRegistrationResponse = {
   access_token: string
 }
@@ -31,6 +42,20 @@ export function startRegistration(data: RegisterRequest) {
   return apiRequest<unknown>('/api/auth/register', {
     method: 'POST',
     body: data,
+  })
+}
+
+export function resendRegistrationCode(email: string) {
+  return apiRequest<unknown>('/api/auth/register/resend', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
+export function expireRegistration(email: string) {
+  return apiRequest<unknown>('/api/auth/register/expire', {
+    method: 'POST',
+    body: { email },
   })
 }
 
@@ -57,6 +82,10 @@ export function refreshSession() {
   }
 
   return refreshSessionPromise
+}
+
+export function getCurrentUser() {
+  return apiRequest<CurrentUser>('/api/auth/me')
 }
 
 export function logoutSession() {

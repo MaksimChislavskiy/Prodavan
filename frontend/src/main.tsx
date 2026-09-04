@@ -4,16 +4,36 @@ import './index.css'
 import App from './App.tsx'
 import './PasswordResetModal.mobile.css'
 import { AccountDeletedNotice } from './components/AccountDeletedNotice'
+import { CrmToastController } from './components/crm/CrmToastController'
 import { CrmAppPage } from './pages/CrmAppPage'
-import { installAiMaterialsController } from './shared/aiMaterialsController'
+import { installAiSettingsFeedbackController } from './shared/aiSettingsFeedbackController'
 import {
   CRM_REALTIME_EVENT,
   CRM_REALTIME_RECONNECTED_EVENT,
   installCrmRealtime,
 } from './shared/crmRealtime'
+import { installDealsContractController } from './shared/dealsContractController'
+import { installDealsTouchDnd } from './shared/dealsTouchDnd'
+import { installNotificationDeepLinks } from './shared/notificationDeepLinks'
+import { installTasksTouchDnd } from './shared/tasksTouchDnd'
 
-installAiMaterialsController()
+installNotificationDeepLinks()
+installAiSettingsFeedbackController()
 installCrmRealtime()
+installTasksTouchDnd()
+installDealsTouchDnd()
+installDealsContractController()
+
+const AI_SETTINGS_SPEC_PATH = '/settings/ai'
+const AI_SETTINGS_APP_PATH = '/app/settings/ai'
+
+if (window.location.pathname === AI_SETTINGS_SPEC_PATH) {
+  window.history.replaceState(
+    null,
+    '',
+    `${AI_SETTINGS_APP_PATH}${window.location.search}${window.location.hash}`,
+  )
+}
 
 const root = createRoot(document.getElementById('root')!)
 let appRevision = 0
@@ -30,6 +50,7 @@ function renderApplication() {
       <>
         {rootPage}
         <AccountDeletedNotice />
+        <CrmToastController />
       </>
     </StrictMode>,
   )

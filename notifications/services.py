@@ -66,6 +66,11 @@ def create_notification(
 ):
     now = now or timezone.now()
     with transaction.atomic():
+        # Serialize aggregation decisions for one user so two concurrent events
+        # cannot both miss the same 60-second duplicate window and create two
+        # notifications for the same object.
+        User.objects.select_for_update().only('id').get(id=user.id)
+
         notification = _recent_duplicate(
             user=user,
             type=type,

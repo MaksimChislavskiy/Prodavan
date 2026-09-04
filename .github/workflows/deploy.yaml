@@ -85,6 +85,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Validate AI material configuration
+        env:
+          AI_SETUP_VIDEO_URL: ${{ vars.AI_SETUP_VIDEO_URL }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$AI_SETUP_VIDEO_URL" || {
+            echo "Repository variable AI_SETUP_VIDEO_URL is required for the frontend production build." >&2
+            exit 1
+          }
+          case "$AI_SETUP_VIDEO_URL" in
+            https://www.youtube.com/*|https://youtube.com/*|https://youtu.be/*|https://www.youtube-nocookie.com/*)
+              ;;
+            *)
+              echo "AI_SETUP_VIDEO_URL must be a YouTube HTTPS URL." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Build and push backend
         uses: docker/build-push-action@v7
         with:
@@ -108,7 +126,9 @@ jobs:
           tags: |
             ${{ env.FRONTEND_REPOSITORY }}:develop
             ${{ env.FRONTEND_REPOSITORY }}:${{ github.sha }}
-          build-args: VITE_API_URL=/api
+          build-args: |
+            VITE_API_URL=/api
+            VITE_AI_SETUP_VIDEO_URL=${{ vars.AI_SETUP_VIDEO_URL }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 

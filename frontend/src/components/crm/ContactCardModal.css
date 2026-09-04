@@ -1,0 +1,78 @@
+.contact-card-modal__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contact-form-modal__header .contact-card-modal__header-actions > button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font: inherit;
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.contact-form-modal__header .contact-card-modal__header-actions > button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.17);
+}
+
+.contact-form-modal__header .contact-card-modal__header-actions > button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.contact-card-modal__view {
+  padding: 26px;
+}
+
+.contact-card-modal__view input[readonly],
+.contact-card-modal__view textarea[readonly] {
+  cursor: default;
+  background: rgba(255, 255, 255, 0.72);
+  color: #12385f;
+  box-shadow: none;
+}
+
+.contact-card-modal__view input[readonly]:focus,
+.contact-card-modal__view textarea[readonly]:focus {
+  border-color: rgba(11, 43, 85, 0.18);
+  box-shadow: none;
+}
+
+.contact-card-modal__footer,
+.contact-card-modal__view-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.contact-card-modal__footer {
+  margin-top: 25px;
+}
+
+.contact-card-modal__view-footer {
+  padding: 0 26px 26px;
+}
+
+.contact-card-modal__view-footer .contact-form__button,
+.contact-card-modal__footer .contact-form__button {
+  min-width: 150px;
+}
+
+@media (max-width: 640px) {
+  .contact-card-modal__footer,
+  .contact-card-modal__view-footer {
+    flex-direction: column;
+  }
+
+  .contact-card-modal__footer .contact-form__button,
+  .contact-card-modal__view-footer .contact-form__button {
+    width: 100%;
+  }
+}

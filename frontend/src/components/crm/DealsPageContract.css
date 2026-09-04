@@ -1,0 +1,67 @@
+.deals-page__refreshing {
+  width: fit-content;
+  margin: 0 0 12px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0b2b55;
+  font-size: 12px;
+  box-shadow: 0 8px 22px rgba(11, 43, 85, 0.08);
+}
+
+.deals-page .create-deal-modal,
+.create-deal-overlay .create-deal-modal {
+  width: min(600px, 95vw);
+}
+
+.deals-stage__action--add {
+  border: 1px solid rgba(11, 43, 85, 0.28);
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.deals-stage__action--add:hover {
+  background: #f7faff;
+}
+
+.deals-board-empty {
+  box-sizing: border-box;
+  width: min(660px, 100%);
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(11, 43, 85, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #51667f;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.deals-lazy-sentinel {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.deals-lazy-sentinel span {
+  color: #71869b;
+  font-size: 12px;
+}
+
+.deals-lazy-sentinel button {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid rgba(11, 43, 85, 0.24);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #0b2b55;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.deals-lazy-sentinel button:hover {
+  border-color: #0b2b55;
+}

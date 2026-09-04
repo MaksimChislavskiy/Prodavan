@@ -10,6 +10,7 @@ from .chat_views import (
     AIChatSessionsView,
     AIChatView,
 )
+from .reset_views import AISettingsResetView
 from .views import (
     AIAuditView,
     AISettingsView,
@@ -21,6 +22,11 @@ from .views import (
 
 urlpatterns = [
     path('ai/settings', AISettingsView.as_view(), name='ai-settings'),
+    path(
+        'ai/settings/reset',
+        AISettingsResetView.as_view(),
+        name='ai-settings-reset',
+    ),
     path('ai/audit', AIAuditView.as_view(), name='ai-audit'),
     path(
         'ai/knowledge-base/files',

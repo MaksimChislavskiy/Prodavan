@@ -27,6 +27,15 @@ class ContactServiceError(Exception):
         return {'error': {'code': self.code, 'message': self.message}}
 
 
+def _correlation_id(value=None):
+    if value:
+        try:
+            return uuid.UUID(str(value))
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return uuid.uuid4()
+
+
 def request_audit_context(request):
     forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
     ip_address = forwarded.split(',', 1)[0].strip() if forwarded else None
@@ -35,6 +44,7 @@ def request_audit_context(request):
     return {
         'ip_address': ip_address,
         'user_agent': request.META.get('HTTP_USER_AGENT', '')[:2000],
+        'correlation_id': _correlation_id(getattr(request, 'request_id', None)),
     }
 
 
@@ -48,7 +58,7 @@ def _audit(*, workspace, user, action, contact_id=None, changes=None, context=No
         changes=changes or {},
         ip_address=context.get('ip_address'),
         user_agent=context.get('user_agent', ''),
-        correlation_id=uuid.uuid4(),
+        correlation_id=_correlation_id(context.get('correlation_id')),
     )
 
 

@@ -78,7 +78,10 @@ class ChatCompletionClient:
         self.base_url = (
             settings.AI_CHAT_BASE_URL if base_url is None else base_url
         ).rstrip('/')
-        self.api_key = settings.AI_CHAT_API_KEY if api_key is None else api_key
+        if api_key is None:
+            self.api_key = settings.AI_CHAT_API_KEY if base_url is None else ''
+        else:
+            self.api_key = api_key
         self.model = settings.AI_CHAT_MODEL if model is None else model
         self.provider = (
             settings.AI_CHAT_PROVIDER if provider is None else provider

@@ -1,0 +1,3 @@
+html[data-crm-role='user'] .crm-sidebar__link[href='/app/settings/ai'] {
+  display: none;
+}

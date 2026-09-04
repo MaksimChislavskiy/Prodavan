@@ -111,27 +111,44 @@ def _find_contact(workspace, telegram_user_id, username, *, phone, email):
     queryset = Contact.objects.select_for_update().filter(workspace=workspace)
     contact = queryset.filter(telegram_user_id=telegram_user_id).first()
     if contact is not None:
-        return contact
+        return contact, 'telegram_user_id'
     if username:
         contact = queryset.filter(
             Q(telegram_username__iexact=username)
             | Q(telegram__iexact=f'@{username}'),
-        ).order_by('created_at', 'id').first()
+        ).order_by('is_deleted', 'created_at', 'id').first()
         if contact is not None:
-            return contact
+            return contact, 'telegram_username'
     if phone:
         contact = (
             queryset.filter(phone=phone)
-            .order_by('created_at', 'id')
+            .order_by('is_deleted', 'created_at', 'id')
             .first()
         )
         if contact is not None:
-            return contact
+            return contact, 'phone'
     if email:
-        return queryset.filter(
+        contact = queryset.filter(
             email__iexact=email,
-        ).order_by('created_at', 'id').first()
-    return None
+        ).order_by('is_deleted', 'created_at', 'id').first()
+        if contact is not None:
+            return contact, 'email'
+    return None, None
+
+
+def _notify_possible_duplicate(workspace, contact):
+    create_workspace_notification(
+        workspace=workspace,
+        type=NotificationType.CONTACT_AI_UPDATED,
+        title='Обнаружен существующий контакт',
+        content=(
+            'Обнаружен существующий контакт. '
+            'Возможно, требуется объединение данных.'
+        ),
+        link='/app/contacts',
+        entity_type='contact',
+        entity_id=str(contact.id),
+    )
 
 
 def process_telegram_webhook_log(log_id):
@@ -181,7 +198,7 @@ def process_telegram_webhook_log(log_id):
             username = None
         text = _message_text(message)
         phone, email = _message_contact_identifiers(text)
-        contact = _find_contact(
+        contact, match_reason = _find_contact(
             webhook_log.workspace,
             telegram_user_id,
             username,
@@ -189,6 +206,11 @@ def process_telegram_webhook_log(log_id):
             email=email,
         )
         contact_created = contact is None
+        duplicate_contact_detected = (
+            contact is not None
+            and not contact.is_deleted
+            and match_reason in {'phone', 'email'}
+        )
         if contact_created:
             contact = create_contact(
                 workspace=webhook_log.workspace,
@@ -209,6 +231,16 @@ def process_telegram_webhook_log(log_id):
                     'channel': 'telegram',
                 },
             )
+        elif duplicate_contact_detected:
+            # ТЗ 8.4: совпадение по активному phone/e-mail не создаёт новый
+            # контакт и не изменяет CRM-данные существующего. Технические Telegram
+            # идентификаторы сохраняем только для устойчивой маршрутизации следующих
+            # сообщений этого же диалога; version и пользовательские поля не меняются.
+            Contact.objects.filter(id=contact.id).update(
+                telegram_user_id=telegram_user_id,
+                telegram_chat_id=telegram_chat_id,
+            )
+            _notify_possible_duplicate(webhook_log.workspace, contact)
         else:
             Contact.objects.filter(id=contact.id).update(
                 telegram_user_id=telegram_user_id,
@@ -254,13 +286,14 @@ def process_telegram_webhook_log(log_id):
             source_update_id=webhook_log.update_id,
             telegram_message_id=telegram_message_id,
         )
-        if contact_created:
-            from ai_assistant.models import AIAutomationEvent
+
+        if contact_created or duplicate_contact_detected:
+            from ai_assistant.models import AIAutomationEvent, AutomationEventStatus
 
             automation_event = AIAutomationEvent.objects.filter(
                 message=incoming,
             ).first()
-            if automation_event is not None:
+            if automation_event is not None and contact_created:
                 automation_event.contact_created = True
                 automation_event.save(
                     update_fields=('contact_created', 'updated_at'),
@@ -270,6 +303,23 @@ def process_telegram_webhook_log(log_id):
                     contact_identifier=contact.id,
                     action=ContactAuditAction.CREATED,
                 ).update(correlation_id=automation_event.id)
+            elif automation_event is not None and duplicate_contact_detected:
+                # Не запускаем AI-enrichment на том же первом сообщении: иначе
+                # найденный дубль мог бы быть изменён сразу после предупреждения.
+                automation_event.status = AutomationEventStatus.IGNORED
+                automation_event.processed_at = timezone.now()
+                automation_event.locked_at = None
+                automation_event.last_error = 'Possible duplicate contact requires review.'
+                automation_event.analysis = {'contact_duplicate_detected': True}
+                automation_event.save(update_fields=(
+                    'status',
+                    'processed_at',
+                    'locked_at',
+                    'last_error',
+                    'analysis',
+                    'updated_at',
+                ))
+
         now = incoming.created_at
         Chat.objects.filter(id=chat.id).update(
             last_message=text,
@@ -321,6 +371,10 @@ def process_telegram_webhook_log(log_id):
             now=now,
         )
         if chat_created:
+            # События отправляются по порядку: сначала пустой новый чат, затем
+            # message_new. Если передать здесь уже обновлённый unread_count=1,
+            # клиент корректно прибавит входящее message_new ещё раз и получит 2.
+            # Контракт 12.10 задаёт для chat_created исходное состояние 0/null.
             chat_payload = {
                 'event': 'chat_created',
                 'chat': {
@@ -331,9 +385,9 @@ def process_telegram_webhook_log(log_id):
                         'company': contact.company,
                         'is_deleted': contact.is_deleted,
                     },
-                    'last_message': chat.last_message,
-                    'last_message_at': chat.last_message_at.isoformat(),
-                    'unread_count': chat.unread_count,
+                    'last_message': None,
+                    'last_message_at': None,
+                    'unread_count': 0,
                 },
             }
             transaction.on_commit(

@@ -1,4 +1,4 @@
-import { ApiError, apiRequest } from './apiClient'
+import { ApiError, apiRequest, apiUploadRequest } from './apiClient'
 
 export type ApiAutopilotMode = 'always' | 'fallback'
 
@@ -19,6 +19,13 @@ export type ApiAiSettingsCurrentUsage = {
   autopilot_replies_today: number
 }
 
+export type ApiAiSettingsStorage = {
+  used_bytes: number
+  max_bytes: number
+  files_count: number
+  max_files: number
+}
+
 export type ApiAiSettings = {
   version: number
   instruction: string
@@ -27,6 +34,7 @@ export type ApiAiSettings = {
   autopilot_delay: number
   limits: ApiAiSettingsLimits
   current_usage: ApiAiSettingsCurrentUsage
+  storage: ApiAiSettingsStorage
 }
 
 export type UpdateAiSettingsPayload = {
@@ -71,11 +79,22 @@ export type ApiKnowledgeFilesUploadResponse = {
   accepted: number
 }
 
+export type ApiKnowledgeSort =
+  | 'uploaded_at:desc'
+  | 'uploaded_at:asc'
+  | 'name:asc'
+  | 'name:desc'
+  | 'size:asc'
+  | 'size:desc'
+  | 'status:asc'
+  | 'status:desc'
+
 const SETTINGS_TIMEOUT_MS = 10_000
 const SETTINGS_LOAD_ERROR = 'Не удалось загрузить настройки. Обновите страницу.'
 const INSTRUCTION_SAVE_ERROR = 'Не удалось сохранить инструкцию. Попробуйте позже.'
-const SETTINGS_CONFLICT_ERROR = 'Настройки были изменены другим пользователем или в другой вкладке. Обновите страницу.'
+const SETTINGS_CONFLICT_ERROR = 'Настройки были изменены другим пользователем или в другой вкладке. Обновите страницу и повторите попытку.'
 const AUTOPILOT_SAVE_ERROR = 'Не удалось изменить состояние автопилота. Попробуйте позже.'
+const SETTINGS_RESET_ERROR = 'Не удалось сбросить настройки AI. Попробуйте позже.'
 const KNOWLEDGE_LIST_ERROR = 'Не удалось загрузить список документов. Обновите страницу.'
 const KNOWLEDGE_UPLOAD_ERROR = 'Не удалось загрузить файл. Попробуйте позже.'
 const KNOWLEDGE_DELETE_ERROR = 'Не удалось удалить файл. Попробуйте позже.'
@@ -120,15 +139,44 @@ export async function updateAiSettings(payload: UpdateAiSettingsPayload) {
       throw normalizeServerError(error, AUTOPILOT_SAVE_ERROR)
     }
 
-    throw normalizeServerError(error, 'Не удалось сбросить настройки. Попробуйте позже.')
+    throw normalizeServerError(error, SETTINGS_RESET_ERROR)
   }
 }
 
-export async function getKnowledgeFiles(page = 1, pageSize = 50) {
+export async function resetAiSettings(version: number) {
+  try {
+    return await withTimeout(
+      (signal) => apiRequest<ApiAiSettings>('/api/ai/settings/reset', {
+        method: 'POST',
+        body: { version },
+        signal,
+      }),
+      SETTINGS_TIMEOUT_MS,
+    )
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      throw new Error(SETTINGS_CONFLICT_ERROR)
+    }
+    throw normalizeServerError(error, SETTINGS_RESET_ERROR)
+  }
+}
+
+export async function getKnowledgeFiles(
+  page = 1,
+  pageSize = 50,
+  search = '',
+  sort: ApiKnowledgeSort = 'uploaded_at:desc',
+) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
+    sort,
   })
+
+  const normalizedSearch = search.trim()
+  if (normalizedSearch) {
+    params.set('search', normalizedSearch)
+  }
 
   try {
     return await apiRequest<ApiKnowledgeFilesResponse>(
@@ -139,7 +187,11 @@ export async function getKnowledgeFiles(page = 1, pageSize = 50) {
   }
 }
 
-export async function uploadKnowledgeFiles(files: File[]) {
+export async function uploadKnowledgeFiles(
+  files: File[],
+  signal?: AbortSignal,
+  onProgress?: (percent: number) => void,
+) {
   const formData = new FormData()
 
   files.forEach((file) => {
@@ -147,11 +199,19 @@ export async function uploadKnowledgeFiles(files: File[]) {
   })
 
   try {
-    return await apiRequest<ApiKnowledgeFilesUploadResponse>('/api/ai/knowledge-base/files', {
-      method: 'POST',
-      body: formData,
-    })
+    return await apiUploadRequest<ApiKnowledgeFilesUploadResponse>(
+      '/api/ai/knowledge-base/files',
+      {
+        method: 'POST',
+        body: formData,
+        signal,
+        onUploadProgress: onProgress,
+      },
+    )
   } catch (error) {
+    if (signal?.aborted) {
+      throw error
+    }
     throw normalizeServerError(error, KNOWLEDGE_UPLOAD_ERROR)
   }
 }

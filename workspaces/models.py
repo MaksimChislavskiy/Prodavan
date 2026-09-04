@@ -44,6 +44,8 @@ class Workspace(TimestampMixin):
     language = models.CharField(max_length=8, default='ru')
     version = models.PositiveIntegerField(default=0)
     company = models.JSONField(default=default_company_details)
+    is_active = models.BooleanField(default=True, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'workspaces'
@@ -59,6 +61,8 @@ class OnboardingAuditEvent(models.TextChoices):
     UPLOAD_STARTED = 'onboarding_upload_started', 'Загрузка начата'
     UPLOAD_SUCCESS = 'onboarding_upload_success', 'Загрузка принята'
     UPLOAD_FAILED = 'onboarding_upload_failed', 'Ошибка загрузки'
+    VIDEO_OPENED = 'onboarding_video_opened', 'Видео открыто'
+    PDF_OPENED = 'onboarding_pdf_opened', 'PDF открыт'
     MATERIALS_VIEWED = 'onboarding_materials_viewed', 'Материалы просмотрены'
     COMPLETED = 'onboarding_completed', 'Онбординг завершён'
 
@@ -70,9 +74,19 @@ class WorkspaceOnboarding(TimestampMixin):
         primary_key=True,
         related_name='onboarding',
     )
-    completed = models.BooleanField(default=False)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    materials_viewed = models.BooleanField(default=False)
+    completed = models.BooleanField(
+        default=False,
+        db_column='onboarding_completed',
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_column='onboarding_completed_at',
+    )
+    materials_viewed = models.BooleanField(
+        default=False,
+        db_column='onboarding_materials_viewed',
+    )
 
     class Meta:
         db_table = 'workspace_onboarding'
@@ -102,9 +116,9 @@ class WorkspaceOnboardingAuditLog(models.Model):
         db_index=True,
     )
     details = models.JSONField(default=dict, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=512, blank=True, default='')
-    correlation_id = models.CharField(max_length=64, db_index=True)
+    correlation_id = models.UUIDField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

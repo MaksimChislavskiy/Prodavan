@@ -1,4 +1,5 @@
-import { apiRequest } from './apiClient'
+import { showCrmToast } from '../crmToast'
+import { ApiError, apiRequest } from './apiClient'
 
 export type ApiIntegrationStatus = 'connected' | 'disconnected'
 export type ApiIntegrationHealth = 'healthy' | 'degraded' | 'error' | null
@@ -37,7 +38,7 @@ export type ApiWorkspaceSettings = {
 export type UpdateWorkspaceSettingsPayload = {
   version: number
   timezone?: string
-  company?: ApiCompanySettings
+  company?: Partial<ApiCompanySettings>
 }
 
 type TelegramSettingsResponse = {
@@ -48,34 +49,62 @@ type TelegramMutationResponse = TelegramSettingsResponse & {
   message: string
 }
 
+const SETTINGS_CONFLICT_MESSAGE =
+  'Настройки были изменены другим пользователем. Обновите страницу и повторите попытку.'
+
 export function getWorkspaceSettings(signal?: AbortSignal) {
   return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', { signal })
 }
 
-export function updateWorkspaceSettings(payload: UpdateWorkspaceSettingsPayload) {
-  return apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', {
-    method: 'PATCH',
-    headers: {
-      'If-Match': `"${payload.version}"`,
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-    body: payload,
+export async function updateWorkspaceSettings(
+  payload: UpdateWorkspaceSettingsPayload,
+  idempotencyKey: string = crypto.randomUUID(),
+  signal?: AbortSignal,
+) {
+  try {
+    const settings = await apiRequest<ApiWorkspaceSettings>('/api/workspace/settings', {
+      method: 'PATCH',
+      headers: {
+        'If-Match': `"${payload.version}"`,
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: payload,
+      signal,
+      suppressGlobalErrorToast: true,
+    })
+    showCrmToast('Настройки сохранены')
+    return settings
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      showCrmToast(
+        error instanceof ApiError && error.status === 409
+          ? SETTINGS_CONFLICT_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : 'Не удалось сохранить настройки.',
+      )
+    }
+    throw error
+  }
+}
+
+export function getTelegramSettings(signal?: AbortSignal) {
+  return apiRequest<TelegramSettingsResponse>('/api/settings/integrations/telegram', {
+    signal,
   })
 }
 
-export function getTelegramSettings() {
-  return apiRequest<TelegramSettingsResponse>('/api/settings/integrations/telegram')
-}
-
-export function connectTelegram(botToken: string) {
+export function connectTelegram(botToken: string, signal?: AbortSignal) {
   return apiRequest<TelegramMutationResponse>('/api/settings/integrations/telegram/connect', {
     method: 'POST',
     body: { bot_token: botToken },
+    signal,
   })
 }
 
-export function disconnectTelegram() {
+export function disconnectTelegram(signal?: AbortSignal) {
   return apiRequest<TelegramMutationResponse>('/api/settings/integrations/telegram/disconnect', {
     method: 'POST',
+    signal,
   })
 }

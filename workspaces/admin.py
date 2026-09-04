@@ -32,7 +32,7 @@ class WorkspaceOnboardingAuditLogAdmin(admin.ModelAdmin):
     search_fields = ('workspace_identifier', 'user_identifier', 'correlation_id')
     readonly_fields = (
         'workspace', 'workspace_identifier', 'user', 'user_identifier',
-        'event', 'details', 'ip_address', 'user_agent', 'correlation_id',
+        'event', 'details', 'ip', 'user_agent', 'correlation_id',
         'created_at',
     )
 

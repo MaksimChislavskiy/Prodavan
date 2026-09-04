@@ -1,4 +1,4 @@
-import { apiRequest } from './apiClient'
+import { ApiError, apiRequest } from './apiClient'
 import { getAccessToken } from './authToken'
 
 export type ApiChatContact = {
@@ -11,10 +11,19 @@ export type ApiChatContact = {
 export type ApiChat = {
   id: string
   contact: ApiChatContact
-  last_message: string
+  last_message: string | null
   last_message_at: string | null
   unread_count: number
   ai_autopilot_enabled: boolean | null
+}
+
+export type ApiChatAttachment = {
+  type: 'image' | 'document'
+  name: string | null
+  size: number | null
+  mime_type: string | null
+  url: string | null
+  preview_url: string | null
 }
 
 export type ApiChatMessage = {
@@ -23,6 +32,7 @@ export type ApiChatMessage = {
   sender_type: 'user' | 'contact'
   sender_id: string | null
   text: string
+  attachment: ApiChatAttachment | null
   status: 'sent' | 'delivered' | 'failed' | null
   read_at: string | null
   sent_by_ai: boolean
@@ -54,42 +64,249 @@ export type ChatSocketEvent =
     }
   | { event: 'error'; code: string; message: string }
 
+const CHAT_SOCKET_DEDUP_LIMIT = 1000
+const seenSocketMessageIds = new Set<string>()
+const seenSocketMessageOrder: string[] = []
+let currentChatContextId: string | null = null
+let resolvedContactDeepLink: { contactId: string; chatId: string | null } | null = null
+
+export function getCurrentChatContextId() {
+  return currentChatContextId
+}
+
 export function getChats(signal?: AbortSignal) {
   return apiRequest<ApiChatsResponse>('/api/chats?limit=100', { signal })
 }
 
-export function getChatMessages(
-  chatId: string,
-  cursor?: string | null,
+export function getChat(chatId: string, signal?: AbortSignal) {
+  return apiRequest<ApiChat>(`/api/chats/${chatId}`, { signal })
+}
+
+export async function getChatsPage(
+  page = 1,
+  limit = 20,
   signal?: AbortSignal,
 ) {
-  const searchParams = new URLSearchParams({ limit: '50' })
-  if (cursor) searchParams.set('cursor', cursor)
+  const directChatId = getDeepLinkedChatId()
+  const contactId = directChatId ? null : getDeepLinkedContactId()
+  let targetChatId = directChatId
+  let targetChat: ApiChat | null = null
 
-  return apiRequest<ApiMessagesResponse>(
-    `/api/chats/${chatId}/messages?${searchParams.toString()}`,
+  if (!targetChatId && contactId) {
+    targetChat = await findDeepLinkedContactChat(contactId, signal)
+    targetChatId = targetChat?.id ?? null
+  }
+
+  if (!targetChatId) {
+    if (contactId) {
+      return { chats: [], page, limit, total: 0 }
+    }
+    return requestChatsPage(page, limit, signal)
+  }
+
+  // ChatPageV2 normally selects the first row after the initial page is loaded.
+  // For notification/deal-card deep links we expose the requested chat as a
+  // one-row virtual first page. Subsequent virtual pages map to ordinary sorted
+  // server pages, so that chat stays selected while the rest of the list loads.
+  if (page === 1) {
+    const firstPagePromise = requestChatsPage(1, limit, signal)
+
+    try {
+      const [resolvedTargetChat, firstPage] = await Promise.all([
+        targetChat ? Promise.resolve(targetChat) : getChat(targetChatId, signal),
+        firstPagePromise,
+      ])
+
+      return {
+        chats: [resolvedTargetChat],
+        page: 1,
+        limit,
+        total: firstPage.total + limit,
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return firstPagePromise
+      }
+      throw error
+    }
+  }
+
+  const response = await requestChatsPage(page - 1, limit, signal)
+
+  return {
+    chats: response.chats.filter((chat) => chat.id !== targetChatId),
+    page,
+    limit: response.limit,
+    total: response.total + limit,
+  }
+}
+
+function requestChatsPage(
+  page: number,
+  limit: number,
+  signal?: AbortSignal,
+) {
+  const searchParams = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  })
+
+  return apiRequest<ApiChatsResponse>(
+    `/api/chats?${searchParams.toString()}`,
     { signal },
   )
 }
 
-export function sendChatMessage(
+function getDeepLinkedChatId() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const chatId = new URLSearchParams(window.location.search).get('chat_id')?.trim()
+  return chatId || null
+}
+
+function getDeepLinkedContactId() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const contactId = new URLSearchParams(window.location.search).get('contact_id')?.trim()
+  return contactId || null
+}
+
+async function findDeepLinkedContactChat(
+  contactId: string,
+  signal?: AbortSignal,
+) {
+  if (resolvedContactDeepLink?.contactId === contactId) {
+    if (!resolvedContactDeepLink.chatId) return null
+    try {
+      return await getChat(resolvedContactDeepLink.chatId, signal)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    }
+  }
+
+  let page = 1
+  const pageSize = 100
+
+  while (true) {
+    const response = await requestChatsPage(page, pageSize, signal)
+    const match = response.chats.find((chat) => chat.contact.id === contactId) ?? null
+
+    if (match) {
+      resolvedContactDeepLink = { contactId, chatId: match.id }
+      return match
+    }
+
+    if (page * response.limit >= response.total) {
+      resolvedContactDeepLink = { contactId, chatId: null }
+      return null
+    }
+
+    page += 1
+  }
+}
+
+export async function getChatMessages(
+  chatId: string,
+  cursor?: string | null,
+  signal?: AbortSignal,
+) {
+  currentChatContextId = chatId
+  const searchParams = new URLSearchParams({ limit: '50' })
+  if (cursor) searchParams.set('cursor', cursor)
+
+  try {
+    const response = await apiRequest<ApiMessagesResponse>(
+      `/api/chats/${chatId}/messages?${searchParams.toString()}`,
+      { signal },
+    )
+    rememberSocketMessageIds(response.messages.map((message) => message.id))
+    return response
+  } catch (error) {
+    if (
+      currentChatContextId === chatId
+      && error instanceof ApiError
+      && error.status === 404
+    ) {
+      currentChatContextId = null
+    }
+    throw error
+  }
+}
+
+export async function sendChatMessage(
   chatId: string,
   text: string,
   idempotencyKey: string,
+  signal?: AbortSignal,
+  attachment?: File | null,
 ) {
-  return apiRequest<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
+  let body: { text: string } | FormData = { text }
+
+  if (attachment) {
+    const formData = new FormData()
+    formData.append('text', text)
+    formData.append('attachment', attachment, attachment.name)
+    body = formData
+  }
+
+  const message = await apiRequest<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
-    body: { text },
+    body,
+    signal,
+  })
+  rememberSocketMessageIds([message.id])
+  return message
+}
+
+export function markChatRead(chatId: string, signal?: AbortSignal) {
+  return apiRequest<void>(`/api/chats/${chatId}/read`, {
+    method: 'POST',
+    signal,
   })
 }
 
-export function markChatRead(chatId: string) {
-  return apiRequest<void>(`/api/chats/${chatId}/read`, { method: 'POST' })
+export async function deleteChat(chatId: string, signal?: AbortSignal) {
+  const response = await apiRequest<void>(`/api/chats/${chatId}`, {
+    method: 'DELETE',
+    signal,
+  })
+  if (currentChatContextId === chatId) {
+    currentChatContextId = null
+  }
+  return response
 }
 
-export function deleteChat(chatId: string) {
-  return apiRequest<void>(`/api/chats/${chatId}`, { method: 'DELETE' })
+export function createChatMessageIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256)
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0'))
+  return [
+    hex.slice(0, 4).join(''),
+    hex.slice(4, 6).join(''),
+    hex.slice(6, 8).join(''),
+    hex.slice(8, 10).join(''),
+    hex.slice(10, 16).join(''),
+  ].join('-')
 }
 
 export function createChatSocket() {
@@ -97,7 +314,65 @@ export function createChatSocket() {
   if (!token) return null
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return new WebSocket(
-    `${protocol}//${window.location.host}/ws/chat?token=${encodeURIComponent(token)}`,
+  const socket = new WebSocket(
+    `${protocol}//${window.location.host}/ws/chat`,
+    ['Bearer', token],
   )
+
+  // Section 12 requires deduplication across every delivery path, not only
+  // repeated WebSocket frames. REST history pages and POST responses therefore
+  // populate the same 1000-id cache used here. A delayed/replayed message_new
+  // cannot increment unread counters after the message was already reconciled
+  // through HTTP.
+  socket.addEventListener('message', (event) => {
+    const messageId = getSocketMessageId(event.data)
+    if (!messageId) {
+      return
+    }
+
+    if (seenSocketMessageIds.has(messageId)) {
+      event.stopImmediatePropagation()
+      return
+    }
+
+    rememberSocketMessageIds([messageId])
+  })
+
+  return socket
+}
+
+function rememberSocketMessageIds(messageIds: string[]) {
+  messageIds.forEach((messageId) => {
+    if (seenSocketMessageIds.has(messageId)) {
+      return
+    }
+
+    seenSocketMessageIds.add(messageId)
+    seenSocketMessageOrder.push(messageId)
+  })
+
+  while (seenSocketMessageOrder.length > CHAT_SOCKET_DEDUP_LIMIT) {
+    const oldest = seenSocketMessageOrder.shift()
+    if (oldest) {
+      seenSocketMessageIds.delete(oldest)
+    }
+  }
+}
+
+function getSocketMessageId(rawData: unknown) {
+  if (typeof rawData !== 'string') {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(rawData) as {
+      event?: unknown
+      message?: { id?: unknown }
+    }
+    return parsed.event === 'message_new' && typeof parsed.message?.id === 'string'
+      ? parsed.message.id
+      : null
+  } catch {
+    return null
+  }
 }

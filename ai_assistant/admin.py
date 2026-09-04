@@ -30,9 +30,15 @@ class AISettingsAdmin(admin.ModelAdmin):
 
 @admin.register(AIAuditLog)
 class AIAuditLogAdmin(admin.ModelAdmin):
-    list_display = ('action', 'workspace', 'user_identifier', 'created_at')
+    list_display = (
+        'action',
+        'workspace',
+        'user_identifier',
+        'ip',
+        'created_at',
+    )
     list_filter = ('action',)
-    search_fields = ('workspace__name', 'user_identifier')
+    search_fields = ('workspace__name', 'user_identifier', 'ip', 'user_agent')
     readonly_fields = (
         'id',
         'workspace',
@@ -40,6 +46,10 @@ class AIAuditLogAdmin(admin.ModelAdmin):
         'user_identifier',
         'action',
         'changes',
+        'old_value',
+        'new_value',
+        'ip',
+        'user_agent',
         'request_id',
         'created_at',
     )

@@ -118,7 +118,7 @@ class User(AbstractUser, TimestampMixin):
         unique=True,
         verbose_name='Электронная почта',
     )
-    first_name = models.CharField(max_length=100, verbose_name='Имя')
+    first_name = models.CharField(max_length=50, verbose_name='Имя')
     last_name = models.CharField(max_length=50, verbose_name='Фамилия')
     position = models.CharField(
         max_length=100,
@@ -237,6 +237,8 @@ class RegistrationToken(TimestampMixin):
     code_expires_at = models.DateTimeField(db_index=True)
     attempts = models.PositiveSmallIntegerField(default=0)
     expired = models.BooleanField(default=False)
+    used = models.BooleanField(default=False)
+    is_confirmed = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'registration_tokens'
@@ -248,7 +250,12 @@ class RegistrationToken(TimestampMixin):
 
     @property
     def can_attempt(self):
-        return not self.is_expired and self.attempts < self.MAX_ATTEMPTS
+        return (
+            not self.used
+            and not self.is_confirmed
+            and not self.is_expired
+            and self.attempts < self.MAX_ATTEMPTS
+        )
 
 
 class PasswordResetToken(TimestampMixin):

@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from .models import Chat
 from .outgoing import enqueue_outgoing_message
 from .serializers import (
+    MAX_ATTACHMENT_SIZE,
     ChatAutopilotSerializer,
     ChatSerializer,
     MessageSerializer,
@@ -21,7 +22,7 @@ from .services import (
     request_audit_context,
     update_chat_autopilot,
 )
-from .throttles import ChatMessageThrottle, WorkspaceTelegramMessageThrottle
+from .throttles import ChatMessageThrottle
 
 
 class MessageRateLimitExceeded(APIException):
@@ -31,6 +32,15 @@ class MessageRateLimitExceeded(APIException):
         'message': 'Too many messages. Please slow down.',
     }
     default_code = 'rate_limit_exceeded'
+
+
+class AttachmentTooLarge(APIException):
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    default_detail = {
+        'error': 'attachment_too_large',
+        'message': 'Attachment must not exceed 20 MB.',
+    }
+    default_code = 'attachment_too_large'
 
 
 def _positive_int(value, *, default, maximum):
@@ -114,10 +124,11 @@ class ChatMessagesView(APIView):
 
     def get_throttles(self):
         if self.request.method == 'POST':
-            return [
-                ChatMessageThrottle(),
-                WorkspaceTelegramMessageThrottle(),
-            ]
+            # ТЗ 12.4.5: лимит применяется отдельно к каждому чату —
+            # не более 20 сообщений за 10 секунд. Дополнительный лимит на весь
+            # workspace здесь недопустим: активность в одном диалоге не должна
+            # блокировать отправку в другом.
+            return [ChatMessageThrottle()]
         return super().get_throttles()
 
     def throttled(self, request, wait):
@@ -149,6 +160,10 @@ class ChatMessagesView(APIView):
         )
 
     def post(self, request, chat_id):
+        attachment = request.FILES.get('attachment')
+        if attachment is not None and attachment.size > MAX_ATTACHMENT_SIZE:
+            raise AttachmentTooLarge()
+
         serializer = OutgoingMessageSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -164,6 +179,7 @@ class ChatMessagesView(APIView):
                 user=request.user,
                 chat_id=chat_id,
                 text=serializer.validated_data['text'],
+                attachment=serializer.validated_data.get('attachment'),
                 idempotency_key=request.headers.get('Idempotency-Key'),
                 audit_context=request_audit_context(request),
             )
@@ -195,6 +211,13 @@ class ChatReadView(APIView):
 
 class ChatDetailView(APIView):
     permission_classes = [IsAuthenticated]
+
+    def get(self, request, chat_id):
+        try:
+            chat = get_chat(workspace=request.user.workspace, chat_id=chat_id)
+        except ChatServiceError as error:
+            return Response(error.response_data, status=error.status_code)
+        return Response(ChatSerializer(chat).data)
 
     def patch(self, request, chat_id):
         return _update_chat_settings(request, chat_id)

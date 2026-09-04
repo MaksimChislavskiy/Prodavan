@@ -31,6 +31,9 @@ class FakeEmbeddingClient:
 class OnboardingApiTests(TestCase):
     status_url = '/api/user/onboarding-status'
     materials_url = '/api/user/onboarding/materials-viewed'
+    materials_correlation = uuid.UUID('66666666-6666-4666-8666-666666666666')
+    second_materials_correlation = uuid.UUID('77777777-7777-4777-8777-777777777777')
+    upload_correlation = uuid.UUID('88888888-8888-4888-8888-888888888888')
 
     def setUp(self):
         self.media_dir = tempfile.TemporaryDirectory()
@@ -110,12 +113,12 @@ class OnboardingApiTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             first = self.client.post(
                 self.materials_url,
-                HTTP_X_REQUEST_ID='onboarding-materials-1',
+                HTTP_X_REQUEST_ID=str(self.materials_correlation),
             )
         with self.captureOnCommitCallbacks(execute=True):
             second = self.client.post(
                 self.materials_url,
-                HTTP_X_REQUEST_ID='onboarding-materials-2',
+                HTTP_X_REQUEST_ID=str(self.second_materials_correlation),
             )
 
         self.assertEqual(first.data['status'], 'in_progress')
@@ -129,7 +132,7 @@ class OnboardingApiTests(TestCase):
         audit = WorkspaceOnboardingAuditLog.objects.get(
             event=OnboardingAuditEvent.MATERIALS_VIEWED,
         )
-        self.assertEqual(audit.correlation_id, 'onboarding-materials-1')
+        self.assertEqual(audit.correlation_id, self.materials_correlation)
         broadcast.assert_called_once()
 
     @patch('workspaces.onboarding.broadcast_workspace_event')
@@ -228,7 +231,7 @@ class OnboardingApiTests(TestCase):
                 ),
             },
             format='multipart',
-            HTTP_X_REQUEST_ID='onboarding-upload-1',
+            HTTP_X_REQUEST_ID=str(self.upload_correlation),
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
@@ -247,7 +250,7 @@ class OnboardingApiTests(TestCase):
         )
         self.assertFalse(
             WorkspaceOnboardingAuditLog.objects.exclude(
-                correlation_id='onboarding-upload-1',
+                correlation_id=self.upload_correlation,
             ).exists(),
         )
 

@@ -62,7 +62,7 @@ def normalize_telegram(value):
     value = _nullable_trimmed(value)
     if value is None:
         return None
-    username = value.lstrip('@')
+    username = value.replace('@', '')
     if not TELEGRAM_PATTERN.fullmatch(username):
         raise serializers.ValidationError(
             'Никнейм Telegram должен содержать 5–32 латинских символа, '

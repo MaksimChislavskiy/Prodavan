@@ -6,6 +6,7 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from 'react'
+import { ProfileDeleteControl } from '../components/ProfileDeleteControl'
 import {
   deleteProfileAvatar,
   getProfile,
@@ -432,14 +433,10 @@ export function ProfilePage() {
               onChange={(value) => updateField('email', value)}
             />
 
-            <button
-              className="profile-form__delete-account"
-              type="button"
-              title="Удаление аккаунта подключим отдельным этапом"
-              disabled
-            >
-              Удалить аккаунт
-            </button>
+            <ProfileDeleteControl
+              version={profile.version}
+              disabled={isSaving || isAvatarBusy}
+            />
           </div>
 
           {saveError && <p className="profile-form__save-error" role="alert">{saveError}</p>}

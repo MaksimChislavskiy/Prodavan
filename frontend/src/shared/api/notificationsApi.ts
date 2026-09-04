@@ -27,6 +27,11 @@ export type NotificationRealtimeEvent = {
   payload?: unknown
 }
 
+export type NotificationRealtimeEnvelope = {
+  sequence: number
+  event: NotificationRealtimeEvent
+}
+
 type UnreadCountResponse = {
   unread_count: number
 }
@@ -44,6 +49,12 @@ type DeleteAllNotificationsResponse = {
   deleted_count: number
 }
 
+const NOTIFICATIONS_REQUEST_TIMEOUT_MS = 10_000
+const notificationRequestOptions = {
+  timeoutMs: NOTIFICATIONS_REQUEST_TIMEOUT_MS,
+  suppressGlobalErrorToast: true,
+} as const
+
 export function getNotifications(
   limit = 50,
   cursor?: string | null,
@@ -57,53 +68,75 @@ export function getNotifications(
 
   return apiRequest<NotificationsPageResponse>(
     `/api/notifications?${searchParams.toString()}`,
-    { signal },
+    {
+      ...notificationRequestOptions,
+      signal,
+    },
   )
 }
 
 export function getNotificationUnreadCount(signal?: AbortSignal) {
   return apiRequest<UnreadCountResponse>('/api/notifications/unread-count', {
+    ...notificationRequestOptions,
     signal,
   })
 }
 
-export function markNotificationRead(notificationId: string) {
+export function markNotificationRead(
+  notificationId: string,
+  signal?: AbortSignal,
+) {
   return apiRequest<MarkNotificationReadResponse>(
     `/api/notifications/${notificationId}/read`,
-    { method: 'PATCH' },
+    {
+      ...notificationRequestOptions,
+      method: 'PATCH',
+      signal,
+    },
   )
 }
 
-export function markAllNotificationsRead() {
+export function markAllNotificationsRead(signal?: AbortSignal) {
   return apiRequest<MarkAllNotificationsReadResponse>(
     '/api/notifications/mark-all-read',
-    { method: 'POST' },
+    {
+      ...notificationRequestOptions,
+      method: 'POST',
+      signal,
+    },
   )
 }
 
-export function deleteNotification(notificationId: string) {
+export function deleteNotification(
+  notificationId: string,
+  signal?: AbortSignal,
+) {
   return apiRequest<null>(`/api/notifications/${notificationId}`, {
+    ...notificationRequestOptions,
     method: 'DELETE',
+    signal,
   })
 }
 
-export function deleteAllNotifications() {
+export function deleteAllNotifications(signal?: AbortSignal) {
   return apiRequest<DeleteAllNotificationsResponse>('/api/notifications/all', {
+    ...notificationRequestOptions,
     method: 'DELETE',
+    signal,
   })
 }
 
 export function createNotificationsSocket() {
   const token = getAccessToken()
 
-  if (!token) {
+  if (!token || typeof WebSocket === 'undefined') {
     return null
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const encodedToken = encodeURIComponent(token)
 
   return new WebSocket(
-    `${protocol}//${window.location.host}/ws/notifications?token=${encodedToken}`,
+    `${protocol}//${window.location.host}/ws/notifications`,
+    ['Bearer', token],
   )
 }

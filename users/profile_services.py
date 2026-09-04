@@ -9,12 +9,25 @@ from django.db import transaction
 from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from contacts.models import ContactAuditLog
+from deals.models import DealHistory
+from messaging.models import (
+    ChatAuditLog,
+    Message,
+    MessageIdempotencyRecord,
+    MessageSenderType,
+)
+from messaging.realtime import disconnect_user_sessions
+from tasks.models import Task, TaskAuditLog, TaskHistory
+from workspaces.models import Workspace
+
 from .models import (
     DeletedEmailReservation,
     ProfileAuditAction,
     ProfileAuditLog,
     RefreshToken,
     User,
+    UserRole,
 )
 
 
@@ -22,6 +35,9 @@ EMAIL_REUSE_DELAY = timedelta(days=30)
 MAX_AVATAR_SIZE = 5 * 1024 * 1024
 MIN_AVATAR_SIDE = 200
 ALLOWED_AVATAR_FORMATS = {'JPEG': 'jpg', 'PNG': 'png', 'WEBP': 'webp'}
+SYSTEM_WORKSPACE_ID = uuid.UUID('00000000-0000-0000-0000-000000000001')
+DELETED_SYSTEM_USER_ID = uuid.UUID('00000000-0000-0000-0000-000000000002')
+DELETED_SYSTEM_USER_EMAIL = 'deleted-user@system.invalid'
 
 
 class ProfileServiceError(Exception):
@@ -312,6 +328,69 @@ def change_password(*, user_id, current_password, new_password, request):
         )
 
 
+def _deleted_system_user(now):
+    system_workspace, _ = Workspace.objects.get_or_create(
+        id=SYSTEM_WORKSPACE_ID,
+        defaults={
+            'name': 'Системный workspace',
+            'is_active': False,
+            'deleted_at': now,
+        },
+    )
+    system_user, _ = User.objects.get_or_create(
+        email=DELETED_SYSTEM_USER_EMAIL,
+        defaults={
+            'id': DELETED_SYSTEM_USER_ID,
+            'workspace': system_workspace,
+            'first_name': 'Удалённый',
+            'last_name': 'Пользователь',
+            'role': UserRole.USER,
+            'is_active': False,
+            'is_confirmed': True,
+            'is_deleted': True,
+            'deleted_at': now,
+            'password': '!',
+        },
+    )
+    return system_user
+
+
+def _reassign_deleted_user_authorship(user, system_user):
+    ContactAuditLog.objects.filter(user_id=user.id).update(user=system_user)
+    DealHistory.objects.filter(changed_by_id=user.id).update(changed_by=system_user)
+    Task.objects.filter(created_by_user_id=user.id).update(
+        created_by_user=system_user,
+    )
+    TaskHistory.objects.filter(user_id=user.id).update(user=system_user)
+    TaskAuditLog.objects.filter(user_id=user.id).update(user=system_user)
+    ChatAuditLog.objects.filter(user_id=user.id).update(user=system_user)
+    Message.objects.filter(
+        sender_type=MessageSenderType.USER,
+        sender_id=user.id,
+    ).update(sender_id=system_user.id)
+    MessageIdempotencyRecord.objects.filter(user_id=user.id).update(
+        user=system_user,
+    )
+
+
+def _deactivate_workspace_if_last_admin(user, now):
+    if user.role != UserRole.ADMIN:
+        return
+    has_other_active_admin = User.objects.filter(
+        workspace_id=user.workspace_id,
+        role=UserRole.ADMIN,
+        is_active=True,
+        is_deleted=False,
+    ).exclude(id=user.id).exists()
+    if has_other_active_admin:
+        return
+
+    workspace = Workspace.objects.select_for_update().get(id=user.workspace_id)
+    workspace.is_active = False
+    workspace.deleted_at = now
+    workspace.save(update_fields=('is_active', 'deleted_at', 'updated_at'))
+
+
 def delete_profile(*, user_id, version, request):
     with transaction.atomic():
         user = _active_profile_for_update(user_id)
@@ -321,6 +400,8 @@ def delete_profile(*, user_id, version, request):
         now = timezone.now()
         old_references = _file_references(_field_files(user))
         original_email = user.email.lower()
+        system_user = _deleted_system_user(now)
+
         DeletedEmailReservation.objects.update_or_create(
             email_hash=hashlib.sha256(original_email.encode()).hexdigest(),
             defaults={
@@ -329,6 +410,9 @@ def delete_profile(*, user_id, version, request):
                 'release_at': now + EMAIL_REUSE_DELAY,
             },
         )
+
+        _reassign_deleted_user_authorship(user, system_user)
+        _deactivate_workspace_if_last_admin(user, now)
 
         user.email = f'deleted-{user.id}@invalid.local'
         user.first_name = 'Удалённый'
@@ -363,5 +447,6 @@ def delete_profile(*, user_id, version, request):
             request,
             ['account'],
         )
+        transaction.on_commit(lambda: disconnect_user_sessions(user_id))
 
     _delete_file_references(old_references)

@@ -29,17 +29,38 @@ def _change(old_value, new_value):
     return {'old': old_value, 'new': new_value}
 
 
-def _write_audit_logs(*, settings_object, user, changes, request_id):
+def _audit_kwargs(audit_context):
+    audit_context = audit_context or {}
+    return {
+        'ip': audit_context.get('ip_address'),
+        'user_agent': (audit_context.get('user_agent') or '')[:512],
+    }
+
+
+def _write_audit_logs(
+    *,
+    settings_object,
+    user,
+    changes,
+    request_id,
+    audit_context=None,
+):
     logs = []
+    common = _audit_kwargs(audit_context)
+
     if 'instruction' in changes:
+        change = changes['instruction']
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
                 action=AIAuditAction.INSTRUCTION_UPDATED,
-                changes={'instruction': changes['instruction']},
+                changes={'instruction': change},
+                old_value=change['old'],
+                new_value=change['new'],
                 request_id=request_id,
+                **common,
             ),
         )
 
@@ -49,21 +70,42 @@ def _write_audit_logs(*, settings_object, user, changes, request_id):
         if key.startswith('autopilot_')
     }
     if autopilot_changes:
+        enabled_change = autopilot_changes.get('autopilot_enabled')
+        if enabled_change is not None:
+            action = (
+                AIAuditAction.AUTOPILOT_ENABLED
+                if enabled_change['new']
+                else AIAuditAction.AUTOPILOT_DISABLED
+            )
+            old_value = enabled_change['old']
+            new_value = enabled_change['new']
+        else:
+            action = AIAuditAction.AUTOPILOT_SETTINGS_CHANGED
+            old_value = {
+                key: value['old'] for key, value in autopilot_changes.items()
+            }
+            new_value = {
+                key: value['new'] for key, value in autopilot_changes.items()
+            }
+
         logs.append(
             AIAuditLog(
                 workspace=settings_object.workspace,
                 user=user,
                 user_identifier=user.id,
-                action=AIAuditAction.AUTOPILOT_SETTINGS_CHANGED,
+                action=action,
                 changes=autopilot_changes,
+                old_value=old_value,
+                new_value=new_value,
                 request_id=request_id,
+                **common,
             ),
         )
 
     AIAuditLog.objects.bulk_create(logs)
 
 
-def update_ai_settings(*, workspace_id, user, validated_data):
+def update_ai_settings(*, workspace_id, user, validated_data, audit_context=None):
     submitted_version = validated_data['version']
 
     with transaction.atomic():
@@ -78,7 +120,7 @@ def update_ai_settings(*, workspace_id, user, validated_data):
             raise AISettingsServiceError(
                 'VERSION_CONFLICT',
                 'Настройки были изменены другим пользователем или в другой '
-                'вкладке. Обновите страницу.',
+                'вкладке. Обновите страницу и повторите попытку.',
                 status_code=409,
                 extra={'current_version': settings_object.version},
             )
@@ -111,6 +153,7 @@ def update_ai_settings(*, workspace_id, user, validated_data):
                 user=user,
                 changes=changes,
                 request_id=uuid.uuid4(),
+                audit_context=audit_context,
             )
 
     return settings_object

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { refreshSession } from '../../shared/api/authApi'
+import { clearAccessToken } from '../../shared/api/authToken'
 import {
   createNotificationsSocket,
   getNotificationUnreadCount,
+  type NotificationRealtimeEnvelope,
   type NotificationRealtimeEvent,
 } from '../../shared/api/notificationsApi'
 import { readNotificationPreferences } from '../../shared/notificationPreferences'
@@ -11,6 +14,14 @@ import './FigmaNotificationsPage.css'
 
 const NOTIFICATIONS_PATH = '/app/notifications'
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000]
+const FALLBACK_POLL_INTERVAL_MS = 10_000
+
+const CRM_NOTIFICATION_ROUTES = {
+  chat: { pathname: '/app/chats', idParam: 'chat_id' },
+  deals: { pathname: '/app/deals', idParam: 'deal_id' },
+  contacts: { pathname: '/app/contacts', idParam: 'contact_id' },
+  tasks: { pathname: '/app/tasks', idParam: 'task_id' },
+} as const
 
 type BrowserNotificationPayload = {
   id: string
@@ -21,6 +32,46 @@ type BrowserNotificationPayload = {
 
 function isNotificationsPath(pathname: string) {
   return pathname === NOTIFICATIONS_PATH
+}
+
+function normalizeNotificationNavigationHref(href: string) {
+  if (!href.startsWith('/')) {
+    return href
+  }
+
+  const target = new URL(href, window.location.origin)
+  if (target.pathname === '/notifications') {
+    return `${NOTIFICATIONS_PATH}${target.search}${target.hash}`
+  }
+
+  const pathParts = target.pathname.split('/').filter(Boolean)
+  if (pathParts.length !== 2) {
+    return href
+  }
+
+  const route = CRM_NOTIFICATION_ROUTES[
+    pathParts[0] as keyof typeof CRM_NOTIFICATION_ROUTES
+  ]
+  if (!route) {
+    return href
+  }
+
+  const searchParams = new URLSearchParams(target.search)
+  searchParams.set(route.idParam, decodePathPart(pathParts[1]))
+  const query = searchParams.toString()
+  return `${route.pathname}${query ? `?${query}` : ''}${target.hash}`
+}
+
+function decodePathPart(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function currentBrowserHref() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`
 }
 
 function parseRealtimeEvent(value: string): NotificationRealtimeEvent | null {
@@ -97,7 +148,10 @@ export function NotificationCenterController() {
   )
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
-  const [realtimeVersion, setRealtimeVersion] = useState(0)
+  const [realtimeEnvelope, setRealtimeEnvelope] =
+    useState<NotificationRealtimeEnvelope | null>(null)
+  const [fallbackRevision, setFallbackRevision] = useState(0)
+  const realtimeSequenceRef = useRef(0)
 
   const refreshUnreadCount = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -120,20 +174,25 @@ export function NotificationCenterController() {
   }, [])
 
   const navigateFromNotification = useCallback((href: string) => {
-    const normalizedHref = href.trim()
-
-    setIsOpen(false)
-
-    if (!normalizedHref) {
+    const rawHref = href.trim()
+    if (!rawHref) {
       return
     }
 
+    const normalizedHref = normalizeNotificationNavigationHref(rawHref)
+
     if (normalizedHref.startsWith('/')) {
+      if (normalizedHref === currentBrowserHref()) {
+        return
+      }
+
+      setIsOpen(false)
       window.history.pushState(null, '', normalizedHref)
       window.dispatchEvent(new PopStateEvent('popstate'))
       return
     }
 
+    setIsOpen(false)
     window.location.assign(normalizedHref)
   }, [])
 
@@ -148,6 +207,7 @@ export function NotificationCenterController() {
     let isDisposed = false
     let reconnectAttempt = 0
     let reconnectTimerId: number | null = null
+    let fallbackTimerId: number | null = null
     let socket: WebSocket | null = null
 
     const showBrowserNotification = (event: NotificationRealtimeEvent) => {
@@ -185,6 +245,26 @@ export function NotificationCenterController() {
       }
     }
 
+    const startFallbackPolling = () => {
+      if (isDisposed || fallbackTimerId !== null) {
+        return
+      }
+
+      const poll = () => {
+        void refreshUnreadCount()
+
+        if (isNotificationsPath(window.location.pathname)) {
+          // Section 14 explicitly requires a 10-second polling fallback when
+          // WebSocket is unavailable. Remount the page only in that fallback
+          // mode so its first 50 notifications are reconciled through REST.
+          setFallbackRevision((revision) => revision + 1)
+        }
+      }
+
+      poll()
+      fallbackTimerId = window.setInterval(poll, FALLBACK_POLL_INTERVAL_MS)
+    }
+
     const scheduleReconnect = () => {
       if (isDisposed) {
         return
@@ -197,8 +277,28 @@ export function NotificationCenterController() {
       reconnectTimerId = window.setTimeout(connect, delay)
     }
 
+    const reconnectAfterTokenRefresh = async () => {
+      try {
+        await refreshSession()
+      } catch {
+        clearAccessToken()
+        window.location.replace('/')
+        return
+      }
+
+      if (!isDisposed) {
+        reconnectAttempt = 0
+        connect()
+      }
+    }
+
     const connect = () => {
       if (isDisposed) {
+        return
+      }
+
+      if (typeof WebSocket === 'undefined') {
+        startFallbackPolling()
         return
       }
 
@@ -211,6 +311,9 @@ export function NotificationCenterController() {
 
       socket.onopen = () => {
         reconnectAttempt = 0
+        // REST reconciliation is deliberately performed on every successful
+        // reconnect. This is stronger than the section 14 requirement to do it
+        // after disconnects longer than one minute and avoids stale badges.
         void refreshUnreadCount()
       }
 
@@ -227,19 +330,36 @@ export function NotificationCenterController() {
 
         showBrowserNotification(event)
 
-        const nextUnreadCount = getUnreadCountFromEvent(event)
+        if (event.event === 'notification_created') {
+          // The following unread_count_updated event remains authoritative, but
+          // increment immediately so the badge reacts without waiting for it.
+          setUnreadCount((current) => current + 1)
+        }
 
+        const nextUnreadCount = getUnreadCountFromEvent(event)
         if (nextUnreadCount !== null) {
           setUnreadCount(nextUnreadCount)
-          setRealtimeVersion((version) => version + 1)
+        }
+
+        realtimeSequenceRef.current += 1
+        setRealtimeEnvelope({
+          sequence: realtimeSequenceRef.current,
+          event,
+        })
+      }
+
+      socket.onclose = (closeEvent) => {
+        socket = null
+
+        if (isDisposed) {
           return
         }
 
-        setRealtimeVersion((version) => version + 1)
-      }
+        if (closeEvent.code === 1008) {
+          void reconnectAfterTokenRefresh()
+          return
+        }
 
-      socket.onclose = () => {
-        socket = null
         scheduleReconnect()
       }
 
@@ -255,6 +375,10 @@ export function NotificationCenterController() {
 
       if (reconnectTimerId !== null) {
         window.clearTimeout(reconnectTimerId)
+      }
+
+      if (fallbackTimerId !== null) {
+        window.clearInterval(fallbackTimerId)
       }
 
       socket?.close()
@@ -359,8 +483,9 @@ export function NotificationCenterController() {
   return createPortal(
     <div className="notification-center-portal">
       <FigmaNotificationsPage
+        key={`notifications-${fallbackRevision}`}
         unreadCount={unreadCount}
-        realtimeVersion={realtimeVersion}
+        realtimeEnvelope={realtimeEnvelope}
         onUnreadCountChange={setUnreadCount}
         onNavigate={navigateFromNotification}
       />

@@ -1,0 +1,168 @@
+.ai-settings-card--instruction .ai-settings-save-button {
+  align-self: flex-end;
+}
+
+.ai-settings-storage-summary {
+  white-space: nowrap;
+}
+
+.ai-settings-knowledge-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ai-settings-knowledge-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 480px;
+}
+
+.ai-settings-knowledge-search input,
+.ai-settings-knowledge-sort select {
+  min-height: 38px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #0b2b55;
+  font: inherit;
+}
+
+.ai-settings-knowledge-search input {
+  min-width: 180px;
+  flex: 1;
+  padding: 0 16px;
+}
+
+.ai-settings-knowledge-search button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0.3px solid #0b2b55;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #0b2b55;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ai-settings-knowledge-search button[type='submit'] {
+  border-color: #6366ff;
+  background: #6366ff;
+  color: #ffffff;
+}
+
+.ai-settings-knowledge-search button:disabled,
+.ai-settings-knowledge-sort select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-settings-knowledge-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #0b2b55;
+  font-size: 13px;
+}
+
+.ai-settings-knowledge-sort select {
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.ai-settings-knowledge-search-empty {
+  margin: 0;
+  padding: 12px 0;
+  color: #757575;
+  font-size: 14px;
+  text-align: center;
+}
+
+.ai-settings-upload-box[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ai-settings-upload-box__button:not(:disabled)::before,
+.ai-settings-upload-box__button:not(:disabled)::after {
+  content: '"';
+}
+
+.ai-settings-knowledge-row--uploading {
+  opacity: 0.85;
+}
+
+.ai-settings-status-progress--determinate .ai-settings-status-progress__bar {
+  left: 0;
+  animation: none;
+  transition: width 0.15s ease-out;
+}
+
+.ai-settings-table-action-button::before {
+  display: inline-block;
+  margin-right: 6px;
+  line-height: 1;
+}
+
+.ai-settings-table-action-button:not(.ai-settings-table-action-button--retry)::before {
+  content: '🗑️';
+}
+
+.ai-settings-table-action-button--retry::before {
+  content: '🔄';
+}
+
+.ai-settings-reset-toast {
+  position: fixed;
+  z-index: 1100;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #118a3b;
+  box-shadow: 0 12px 36px rgba(11, 43, 85, 0.18);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ai-settings-reset-toast--error {
+  color: #e20f0f;
+}
+
+@media (max-width: 700px) {
+  .ai-settings-storage-summary {
+    white-space: normal;
+  }
+
+  .ai-settings-knowledge-toolbar,
+  .ai-settings-knowledge-search,
+  .ai-settings-knowledge-sort {
+    width: 100%;
+  }
+
+  .ai-settings-knowledge-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-settings-knowledge-search input,
+  .ai-settings-knowledge-search button,
+  .ai-settings-knowledge-sort select {
+    width: 100%;
+  }
+
+  .ai-settings-knowledge-sort {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-settings-reset-toast {
+    right: 16px;
+    bottom: 16px;
+  }
+}

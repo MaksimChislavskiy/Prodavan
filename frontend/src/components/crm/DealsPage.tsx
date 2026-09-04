@@ -1,4 +1,11 @@
-import { useEffect, useState, type DragEvent, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+} from 'react'
+import { ApiError } from '../../shared/api/apiClient'
 import {
   createSalesStage,
   getDealsPage,
@@ -8,10 +15,16 @@ import {
   type ApiKanbanResponse,
   type ApiSalesStage,
 } from '../../shared/api/dealsApi'
+import {
+  CRM_REALTIME_EVENT,
+  CRM_REALTIME_RECONNECTED_EVENT,
+} from '../../shared/crmRealtime'
+import { showCrmToast } from '../../shared/crmToast'
 import { CreateDealModal } from './CreateDealModal'
 import { DealCardMenu } from './DealCardMenu'
 import { StageMenu } from './StageMenu'
 import './DealsPage.css'
+import './DealsPageContract.css'
 
 type DealsPageState = {
   data: ApiKanbanResponse | null
@@ -29,9 +42,44 @@ type ContactFilter = {
   name: string
 }
 
+type StagePagingState = {
+  nextCursor: string | null
+  cursorPrimed: boolean
+  isLoading: boolean
+  exhausted: boolean
+  error: string
+}
+
+type RealtimePayload = {
+  event?: unknown
+  deal_id?: unknown
+  data?: {
+    deal_id?: unknown
+  }
+}
+
+const DEAL_REALTIME_EVENTS = new Set([
+  'deal_created',
+  'deal_updated',
+  'deal_stage_changed',
+  'deals_stage_changed_batch',
+  'deal_deleted',
+  'stage_created',
+  'stage_updated',
+  'stage_deleted',
+])
+
 const initialState: DealsPageState = {
   data: null,
   isLoading: true,
+  error: '',
+}
+
+const emptyPagingState: StagePagingState = {
+  nextCursor: null,
+  cursorPrimed: false,
+  isLoading: false,
+  exhausted: false,
   error: '',
 }
 
@@ -50,9 +98,10 @@ export function DealsPage() {
   const [movingDealId, setMovingDealId] = useState('')
   const [dealMoveError, setDealMoveError] = useState('')
   const [isDealModalOpen, setIsDealModalOpen] = useState(false)
+  const [pagingByStage, setPagingByStage] = useState<Record<string, StagePagingState>>({})
 
   useEffect(() => {
-    let isMounted = true
+    const controller = new AbortController()
 
     async function loadKanban() {
       setState((currentState) => ({
@@ -62,13 +111,13 @@ export function DealsPage() {
       }))
 
       try {
-        let data = await getKanban()
+        let data = await getKanban(controller.signal)
 
         if (contactFilter) {
-          data = await filterKanbanByContact(data, contactFilter.id)
+          data = await filterKanbanByContact(data, contactFilter.id, controller.signal)
         }
 
-        if (!isMounted) {
+        if (controller.signal.aborted) {
           return
         }
 
@@ -77,25 +126,63 @@ export function DealsPage() {
           isLoading: false,
           error: '',
         })
+        setPagingByStage(createPagingState(data, Boolean(contactFilter)))
       } catch (error) {
-        if (!isMounted) {
+        if (isAbortError(error)) {
           return
         }
 
-        setState({
-          data: null,
+        setState((currentState) => ({
+          data: currentState.data,
           isLoading: false,
-          error: error instanceof Error ? error.message : 'Не удалось загрузить сделки',
-        })
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Не удалось загрузить канбан-доску.',
+        }))
       }
     }
 
     void loadKanban()
-
-    return () => {
-      isMounted = false
-    }
+    return () => controller.abort()
   }, [contactFilter, requestVersion])
+
+  useEffect(() => {
+    const handleRealtime = (event: Event) => {
+      if (!(event instanceof CustomEvent)) {
+        return
+      }
+
+      const payload = event.detail as RealtimePayload | null
+      const eventName = typeof payload?.event === 'string' ? payload.event : ''
+      if (!DEAL_REALTIME_EVENTS.has(eventName)) {
+        return
+      }
+
+      const eventDealId = getRealtimeDealId(payload)
+      if (draggedDeal && eventDealId === draggedDeal.deal.id) {
+        setDraggedDeal(null)
+        setDropTargetStageId('')
+        setDealMoveError('Сделка была изменена другим пользователем. Данные обновлены.')
+        showCrmToast('Перетаскивание отменено: сделка была изменена')
+      }
+
+      setRequestVersion((currentVersion) => currentVersion + 1)
+    }
+
+    const handleReconnect = () => {
+      setDraggedDeal(null)
+      setDropTargetStageId('')
+      setRequestVersion((currentVersion) => currentVersion + 1)
+    }
+
+    window.addEventListener(CRM_REALTIME_EVENT, handleRealtime)
+    window.addEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    return () => {
+      window.removeEventListener(CRM_REALTIME_EVENT, handleRealtime)
+      window.removeEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    }
+  }, [draggedDeal])
 
   const openStageEditor = () => {
     setNewStageName('')
@@ -173,7 +260,13 @@ export function DealsPage() {
           },
         }
       })
-
+      setPagingByStage((current) => ({
+        ...current,
+        [createdStage.id]: {
+          ...emptyPagingState,
+          exhausted: true,
+        },
+      }))
       setIsStageEditorOpen(false)
       setNewStageName('')
     } catch (error) {
@@ -214,13 +307,11 @@ export function DealsPage() {
       }
 
       const systemStage = currentState.data.stages.find((stage) => stage.is_system)
-
       if (!systemStage) {
         return currentState
       }
 
       const currentDeals = currentState.data.deals[systemStage.id] ?? []
-
       return {
         ...currentState,
         data: {
@@ -234,7 +325,7 @@ export function DealsPage() {
             [systemStage.id]: [
               createdDeal,
               ...currentDeals.filter((deal) => deal.id !== createdDeal.id),
-            ],
+            ].slice(0, 20),
           },
         },
       }
@@ -249,7 +340,6 @@ export function DealsPage() {
 
       const stageDeals = currentState.data.deals[stageId] ?? []
       const hasDeal = stageDeals.some((deal) => deal.id === dealId)
-
       if (!hasDeal) {
         return currentState
       }
@@ -259,10 +349,7 @@ export function DealsPage() {
         data: {
           stages: currentState.data.stages.map((stage) =>
             stage.id === stageId
-              ? {
-                  ...stage,
-                  deal_count: Math.max(0, stage.deal_count - 1),
-                }
+              ? { ...stage, deal_count: Math.max(0, stage.deal_count - 1) }
               : stage,
           ),
           deals: {
@@ -274,12 +361,116 @@ export function DealsPage() {
     })
   }
 
+  const loadMoreDeals = async (stageId: string) => {
+    if (contactFilter) {
+      return
+    }
+
+    const paging = pagingByStage[stageId]
+    if (!paging || paging.isLoading || paging.exhausted) {
+      return
+    }
+
+    setPagingByStage((current) => ({
+      ...current,
+      [stageId]: {
+        ...(current[stageId] ?? emptyPagingState),
+        isLoading: true,
+        error: '',
+      },
+    }))
+
+    try {
+      let page
+      let cursorPrimed = paging.cursorPrimed
+
+      if (!cursorPrimed) {
+        const firstPage = await getDealsPage(stageId, 20)
+        cursorPrimed = true
+
+        if (!firstPage.has_more || !firstPage.next_cursor) {
+          setPagingByStage((current) => ({
+            ...current,
+            [stageId]: {
+              nextCursor: null,
+              cursorPrimed: true,
+              isLoading: false,
+              exhausted: true,
+              error: '',
+            },
+          }))
+          return
+        }
+
+        page = await getDealsPage(stageId, 20, firstPage.next_cursor)
+      } else {
+        if (!paging.nextCursor) {
+          setPagingByStage((current) => ({
+            ...current,
+            [stageId]: {
+              ...(current[stageId] ?? emptyPagingState),
+              isLoading: false,
+              exhausted: true,
+            },
+          }))
+          return
+        }
+        page = await getDealsPage(stageId, 20, paging.nextCursor)
+      }
+
+      setState((currentState) => {
+        if (!currentState.data) {
+          return currentState
+        }
+
+        const existingDeals = currentState.data.deals[stageId] ?? []
+        const knownIds = new Set(existingDeals.map((deal) => deal.id))
+        return {
+          ...currentState,
+          data: {
+            ...currentState.data,
+            deals: {
+              ...currentState.data.deals,
+              [stageId]: [
+                ...existingDeals,
+                ...page.deals.filter((deal) => !knownIds.has(deal.id)),
+              ],
+            },
+          },
+        }
+      })
+
+      setPagingByStage((current) => ({
+        ...current,
+        [stageId]: {
+          nextCursor: page.next_cursor,
+          cursorPrimed,
+          isLoading: false,
+          exhausted: !page.has_more || !page.next_cursor,
+          error: '',
+        },
+      }))
+    } catch (error) {
+      setPagingByStage((current) => ({
+        ...current,
+        [stageId]: {
+          ...(current[stageId] ?? emptyPagingState),
+          isLoading: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Не удалось загрузить следующие сделки.',
+        },
+      }))
+    }
+  }
+
   const handleDealDragStart = (
     event: DragEvent<HTMLElement>,
     deal: ApiKanbanDeal,
     sourceStageId: string,
   ) => {
-    if (movingDealId) {
+    if (movingDealId || state.isLoading) {
       event.preventDefault()
       return
     }
@@ -310,7 +501,6 @@ export function DealsPage() {
 
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
-
     if (dropTargetStageId !== targetStageId) {
       setDropTargetStageId(targetStageId)
     }
@@ -321,7 +511,6 @@ export function DealsPage() {
     stageId: string,
   ) => {
     const relatedTarget = event.relatedTarget
-
     if (
       dropTargetStageId === stageId &&
       (!(relatedTarget instanceof Node) || !event.currentTarget.contains(relatedTarget))
@@ -340,7 +529,6 @@ export function DealsPage() {
 
   const moveDraggedDeal = async (targetStageId: string) => {
     const dragged = draggedDeal
-
     setDraggedDeal(null)
     setDropTargetStageId('')
 
@@ -374,19 +562,11 @@ export function DealsPage() {
           data: {
             stages: currentState.data.stages.map((stage) => {
               if (stage.id === dragged.sourceStageId) {
-                return {
-                  ...stage,
-                  deal_count: Math.max(0, stage.deal_count - 1),
-                }
+                return { ...stage, deal_count: Math.max(0, stage.deal_count - 1) }
               }
-
               if (stage.id === targetStageId) {
-                return {
-                  ...stage,
-                  deal_count: stage.deal_count + 1,
-                }
+                return { ...stage, deal_count: stage.deal_count + 1 }
               }
-
               return stage
             }),
             deals: {
@@ -403,24 +583,34 @@ export function DealsPage() {
         }
       })
     } catch (error) {
-      setDealMoveError(
-        error instanceof Error ? error.message : 'Не удалось переместить сделку.',
-      )
+      let message =
+        error instanceof Error ? error.message : 'Не удалось переместить сделку.'
+
+      if (error instanceof ApiError && error.status === 409) {
+        message = 'Сделка была изменена другим пользователем. Данные обновлены.'
+      } else if (error instanceof ApiError && error.status === 404) {
+        message = 'Сделка была удалена другим пользователем.'
+      }
+
+      setDealMoveError(message)
+      showCrmToast(message)
       setRequestVersion((currentVersion) => currentVersion + 1)
     } finally {
       setMovingDealId('')
     }
   }
 
-  if (state.isLoading) {
+  if (state.isLoading && !state.data) {
     return <DealsSkeleton />
   }
 
-  if (state.error || !state.data) {
+  if (state.error && !state.data) {
     return (
       <section className="deals-state-card" aria-live="polite">
         <h1 className="deals-state-card__title">Не удалось загрузить сделки</h1>
-        <p className="deals-state-card__text">{state.error}</p>
+        <p className="deals-state-card__text">
+          Не удалось загрузить канбан-доску. Попробуйте обновить страницу.
+        </p>
         <button
           className="deals-state-card__button"
           type="button"
@@ -432,14 +622,17 @@ export function DealsPage() {
     )
   }
 
-  const { stages, deals } = state.data
+  if (!state.data) {
+    return null
+  }
 
-  const systemStageName =
-    stages.find((stage) => stage.is_system)?.name ?? 'Новый лид'
+  const { stages, deals } = state.data
+  const systemStageName = stages.find((stage) => stage.is_system)?.name ?? 'Новый лид'
   const filteredDealsCount = Object.values(deals).reduce(
     (total, stageDeals) => total + stageDeals.length,
     0,
   )
+  const totalDealCount = stages.reduce((total, stage) => total + stage.deal_count, 0)
 
   return (
     <>
@@ -449,9 +642,7 @@ export function DealsPage() {
             <div>
               <span>Связанные сделки</span>
               <strong>{contactFilter.name}</strong>
-              <small>
-                Найдено: {filteredDealsCount}
-              </small>
+              <small>Найдено: {filteredDealsCount}</small>
             </div>
             <button
               type="button"
@@ -465,9 +656,27 @@ export function DealsPage() {
           </div>
         )}
 
+        {state.isLoading && (
+          <div className="deals-page__refreshing" role="status">
+            Обновляем канбан…
+          </div>
+        )}
+
+        {state.error && (
+          <p className="deals-page__error" role="alert">
+            Не удалось синхронизировать канбан. Будет выполнена следующая попытка обновления.
+          </p>
+        )}
+
         {dealMoveError && (
           <p className="deals-page__error" role="alert">
             {dealMoveError}
+          </p>
+        )}
+
+        {!contactFilter && totalDealCount === 0 && (
+          <p className="deals-board-empty" role="status">
+            Сделок пока нет. Создайте первую сделку вручную или дождитесь создания сделки AI.
           </p>
         )}
 
@@ -478,11 +687,16 @@ export function DealsPage() {
             const otherStageNames = stages
               .filter((otherStage) => otherStage.id !== stage.id)
               .map((otherStage) => otherStage.name)
+            const paging = pagingByStage[stage.id] ?? {
+              ...emptyPagingState,
+              exhausted: stageDeals.length >= stage.deal_count,
+            }
 
             return (
               <article
                 className={`deals-column${isDropTarget ? ' deals-column--drop-target' : ''}`}
                 key={stage.id}
+                data-stage-id={stage.id}
                 onDragOver={(event) => handleStageDragOver(event, stage.id)}
                 onDragLeave={(event) => handleStageDragLeave(event, stage.id)}
                 onDrop={(event) => handleStageDrop(event, stage.id)}
@@ -492,7 +706,7 @@ export function DealsPage() {
                     <span className="deals-stage__title" title={stage.name}>
                       {stage.name}
                     </span>
-                    <span className="deals-stage__count">{stage.deal_count}</span>
+                    <span className="deals-stage__count">({stage.deal_count})</span>
                   </div>
 
                   {contactFilter ? null : stage.is_system ? (
@@ -500,7 +714,7 @@ export function DealsPage() {
                       className="deals-stage__action deals-stage__action--add"
                       type="button"
                       aria-label="Добавить сделку"
-                      title="Создать сделку"
+                      title="Добавить сделку"
                       onClick={() => setIsDealModalOpen(true)}
                     >
                       +
@@ -520,7 +734,7 @@ export function DealsPage() {
                   {stageDeals.map((deal) => (
                     <DealCard
                       deal={deal}
-                      allowDrag={!contactFilter}
+                      allowDrag={!contactFilter && !state.isLoading}
                       isMoving={movingDealId === deal.id}
                       key={deal.id}
                       onDeleted={(deletedDealId) =>
@@ -530,6 +744,14 @@ export function DealsPage() {
                       onDragEnd={handleDealDragEnd}
                     />
                   ))}
+
+                  {!contactFilter && !paging.exhausted && (
+                    <LazyLoadSentinel
+                      isLoading={paging.isLoading}
+                      error={paging.error}
+                      onLoad={() => void loadMoreDeals(stage.id)}
+                    />
+                  )}
                 </div>
               </article>
             )
@@ -538,58 +760,58 @@ export function DealsPage() {
           {!contactFilter && (
             <article className="deals-column deals-column--add-stage">
               {isStageEditorOpen ? (
-              <form
-                className="deals-stage-create"
-                onSubmit={(event) => void handleStageCreate(event)}
-              >
-                <div className="deals-stage-create__row">
-                  <input
-                    className="deals-stage-create__input"
-                    type="text"
-                    value={newStageName}
-                    maxLength={100}
-                    autoFocus
-                    placeholder="Название этапа"
-                    aria-label="Название нового этапа"
-                    disabled={isStageSaving}
-                    onChange={(event) => {
-                      setNewStageName(event.target.value)
-                      setStageCreateError('')
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        closeStageEditor()
-                      }
-                    }}
-                  />
+                <form
+                  className="deals-stage-create"
+                  onSubmit={(event) => void handleStageCreate(event)}
+                >
+                  <div className="deals-stage-create__row">
+                    <input
+                      className="deals-stage-create__input"
+                      type="text"
+                      value={newStageName}
+                      maxLength={100}
+                      autoFocus
+                      placeholder="Название этапа"
+                      aria-label="Название нового этапа"
+                      disabled={isStageSaving}
+                      onChange={(event) => {
+                        setNewStageName(event.target.value)
+                        setStageCreateError('')
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          closeStageEditor()
+                        }
+                      }}
+                    />
 
-                  <button
-                    className="deals-stage-create__button deals-stage-create__button--save"
-                    type="submit"
-                    aria-label="Сохранить этап"
-                    disabled={isStageSaving || !newStageName.trim()}
-                  >
-                    {isStageSaving ? '…' : '✓'}
-                  </button>
+                    <button
+                      className="deals-stage-create__button deals-stage-create__button--save"
+                      type="submit"
+                      aria-label="Сохранить этап"
+                      disabled={isStageSaving || !newStageName.trim()}
+                    >
+                      {isStageSaving ? '…' : '✓'}
+                    </button>
 
-                  <button
-                    className="deals-stage-create__button"
-                    type="button"
-                    aria-label="Отменить создание этапа"
-                    disabled={isStageSaving}
-                    onClick={closeStageEditor}
-                  >
-                    ×
-                  </button>
-                </div>
+                    <button
+                      className="deals-stage-create__button"
+                      type="button"
+                      aria-label="Отменить создание этапа"
+                      disabled={isStageSaving}
+                      onClick={closeStageEditor}
+                    >
+                      ×
+                    </button>
+                  </div>
 
-                {stageCreateError && (
-                  <p className="deals-stage-create__error" role="alert">
-                    {stageCreateError}
-                  </p>
-                )}
-              </form>
+                  {stageCreateError && (
+                    <p className="deals-stage-create__error" role="alert">
+                      {stageCreateError}
+                    </p>
+                  )}
+                </form>
               ) : (
                 <button
                   className="deals-add-stage"
@@ -615,6 +837,45 @@ export function DealsPage() {
   )
 }
 
+type LazyLoadSentinelProps = {
+  isLoading: boolean
+  error: string
+  onLoad: () => void
+}
+
+function LazyLoadSentinel({ isLoading, error, onLoad }: LazyLoadSentinelProps) {
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (isLoading || error || !ref.current || typeof IntersectionObserver === 'undefined') {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoad()
+        }
+      },
+      { rootMargin: '180px 0px', threshold: 0.01 },
+    )
+    observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [error, isLoading, onLoad])
+
+  return (
+    <div className="deals-lazy-sentinel" ref={ref}>
+      {isLoading ? (
+        <span role="status">Загружаем…</span>
+      ) : error ? (
+        <button type="button" onClick={onLoad}>
+          Повторить загрузку
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 type DealCardProps = {
   deal: ApiKanbanDeal
   allowDrag: boolean
@@ -635,6 +896,8 @@ function DealCard({
   return (
     <article
       className={`deals-card${isMoving ? ' deals-card--moving' : ''}`}
+      data-deal-id={deal.id}
+      data-deal-version={deal.version}
       draggable={allowDrag && !isMoving}
       aria-grabbed="false"
       onDragStart={onDragStart}
@@ -665,6 +928,34 @@ function DealCard({
   )
 }
 
+function createPagingState(data: ApiKanbanResponse, filtered: boolean) {
+  return Object.fromEntries(
+    data.stages.map((stage) => {
+      const loadedCount = data.deals[stage.id]?.length ?? 0
+      return [
+        stage.id,
+        {
+          nextCursor: null,
+          cursorPrimed: false,
+          isLoading: false,
+          exhausted: filtered || loadedCount >= stage.deal_count,
+          error: '',
+        } satisfies StagePagingState,
+      ]
+    }),
+  )
+}
+
+function getRealtimeDealId(payload: RealtimePayload | null) {
+  if (typeof payload?.deal_id === 'string') {
+    return payload.deal_id
+  }
+  if (typeof payload?.data?.deal_id === 'string') {
+    return payload.data.deal_id
+  }
+  return null
+}
+
 function getContactFilterFromLocation(): ContactFilter | null {
   const searchParams = new URLSearchParams(window.location.search)
   const id = searchParams.get('contact_id')?.trim()
@@ -682,6 +973,7 @@ function getContactFilterFromLocation(): ContactFilter | null {
 async function filterKanbanByContact(
   data: ApiKanbanResponse,
   contactId: string,
+  signal?: AbortSignal,
 ): Promise<ApiKanbanResponse> {
   const stageEntries = await Promise.all(
     data.stages.map(async (stage) => {
@@ -690,7 +982,7 @@ async function filterKanbanByContact(
       let hasMore = true
 
       while (hasMore) {
-        const response = await getDealsPage(stage.id, 100, cursor)
+        const response = await getDealsPage(stage.id, 20, cursor, signal)
         stageDeals.push(...response.deals)
         cursor = response.next_cursor
         hasMore = response.has_more && Boolean(cursor)
@@ -742,7 +1034,6 @@ function formatDealAmount(deal: ApiKanbanDeal) {
   }
 
   const amount = Number(deal.amount)
-
   if (!Number.isFinite(amount)) {
     return `${deal.amount} ${deal.currency}`
   }
@@ -750,15 +1041,17 @@ function formatDealAmount(deal: ApiKanbanDeal) {
   const formattedAmount = new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(amount)
-
-  return deal.currency === 'RUB'
-    ? `${formattedAmount} ₽`
-    : `${formattedAmount} ${deal.currency}`
+  const currencySymbols: Record<string, string> = {
+    RUB: '₽',
+    USD: '$',
+    EUR: '€',
+  }
+  const currency = currencySymbols[deal.currency] ?? deal.currency
+  return `${formattedAmount} ${currency}`
 }
 
 function formatDealDate(date: string) {
   const parsedDate = new Date(date)
-
   if (Number.isNaN(parsedDate.getTime())) {
     return 'Дата не указана'
   }
@@ -768,4 +1061,8 @@ function formatDealDate(date: string) {
     month: '2-digit',
     year: 'numeric',
   }).format(parsedDate)
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError'
 }

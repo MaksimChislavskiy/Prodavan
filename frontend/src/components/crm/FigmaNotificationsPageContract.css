@@ -1,0 +1,257 @@
+.notifications-contract {
+  min-height: 100%;
+  padding: 28px;
+}
+
+.notifications-contract__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.notifications-contract__header h1 {
+  margin: 0;
+  color: #0b2b55;
+  font-size: 28px;
+}
+
+.notifications-contract__header p {
+  margin: 8px 0 0;
+  color: #6f7c8c;
+}
+
+.notifications-contract__header-actions,
+.notifications-contract__item-actions,
+.notifications-contract__confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.notifications-contract:has(.notifications-contract__skeleton)
+  .notifications-contract__header-actions,
+.notifications-contract:has(.notifications-contract__state[role='alert'])
+  .notifications-contract__header-actions {
+  display: none;
+}
+
+.notifications-contract button {
+  font: inherit;
+}
+
+.notifications-contract__header-actions button,
+.notifications-contract__item-actions button,
+.notifications-contract__load-more,
+.notifications-contract__state button,
+.notifications-contract__confirm button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid #0b2b55;
+  border-radius: 10px;
+  background: #fff;
+  color: #0b2b55;
+  cursor: pointer;
+}
+
+.notifications-contract__header-actions button:disabled,
+.notifications-contract__item-actions button:disabled,
+.notifications-contract__load-more:disabled,
+.notifications-contract__confirm button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.notifications-contract__state {
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  color: #6f7c8c;
+  text-align: center;
+}
+
+.notifications-contract__state p {
+  margin: 0;
+}
+
+.notifications-contract__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notifications-contract__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid #e0e6ec;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.notifications-contract__item--unread {
+  border-color: #9fd6e3;
+  background: #f1fbfd;
+}
+
+.notifications-contract__content {
+  min-width: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #15273d;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notifications-contract__content:disabled {
+  cursor: default;
+}
+
+.notifications-contract__topline {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.notifications-contract__topline strong {
+  font-size: 16px;
+}
+
+.notifications-contract__item--unread .notifications-contract__topline strong {
+  font-weight: 700;
+}
+
+.notifications-contract__topline time,
+.notifications-contract__category {
+  color: #6f7c8c;
+  font-size: 12px;
+}
+
+.notifications-contract__text {
+  line-height: 1.45;
+}
+
+.notifications-contract__link {
+  color: #087b9b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notifications-contract__item-actions {
+  justify-content: flex-end;
+}
+
+.notifications-contract__load-more {
+  align-self: center;
+  min-width: 160px;
+  margin: 12px auto 0;
+}
+
+.notifications-contract__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notifications-contract__skeleton > div {
+  min-height: 104px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.notifications-contract__skeleton span,
+.notifications-contract__skeleton i {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #edf0f3 25%, #f8fafb 50%, #edf0f3 75%);
+  background-size: 200% 100%;
+  animation: notifications-contract-shimmer 1.4s infinite;
+}
+
+.notifications-contract__skeleton span { width: 42%; }
+.notifications-contract__skeleton i:nth-child(2) { width: 88%; }
+.notifications-contract__skeleton i:nth-child(3) { width: 64%; }
+
+@keyframes notifications-contract-shimmer {
+  to { background-position: -200% 0; }
+}
+
+.notifications-contract__confirm-backdrop {
+  position: fixed;
+  z-index: 150;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(11, 43, 85, .42);
+}
+
+.notifications-contract__confirm {
+  box-sizing: border-box;
+  width: min(100%, 460px);
+  padding: 28px;
+  border-radius: 16px;
+  background: #fff;
+  color: #0b2b55;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .2);
+}
+
+.notifications-contract__confirm p {
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+
+.notifications-contract__confirm > div {
+  justify-content: flex-end;
+}
+
+.notifications-contract__confirm button:last-child {
+  background: #0b2b55;
+  color: #fff;
+}
+
+@media (max-width: 760px) {
+  .notifications-contract {
+    padding: 16px;
+  }
+
+  .notifications-contract__header,
+  .notifications-contract__item {
+    grid-template-columns: 1fr;
+  }
+
+  .notifications-contract__header {
+    flex-direction: column;
+  }
+
+  .notifications-contract__header-actions,
+  .notifications-contract__item-actions {
+    width: 100%;
+  }
+
+  .notifications-contract__header-actions button,
+  .notifications-contract__item-actions button {
+    flex: 1 1 180px;
+  }
+
+  .notifications-contract__topline {
+    flex-direction: column;
+    gap: 6px;
+  }
+}

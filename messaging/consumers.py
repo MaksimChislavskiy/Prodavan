@@ -2,7 +2,7 @@ import json
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from .realtime import workspace_group_name
+from .realtime import user_session_group_name, workspace_group_name
 
 
 class ReadOnlyEventConsumer(AsyncJsonWebsocketConsumer):
@@ -15,7 +15,12 @@ class ReadOnlyEventConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=1008)
             return
         self.group_name = self.group_name_for_user(user)
+        self.session_group_name = user_session_group_name(user.id)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.channel_layer.group_add(
+            self.session_group_name,
+            self.channel_name,
+        )
         await self.accept(
             subprotocol=self.scope.get('accepted_subprotocol'),
         )
@@ -25,6 +30,12 @@ class ReadOnlyEventConsumer(AsyncJsonWebsocketConsumer):
         if group_name:
             await self.channel_layer.group_discard(
                 group_name,
+                self.channel_name,
+            )
+        session_group_name = getattr(self, 'session_group_name', None)
+        if session_group_name:
+            await self.channel_layer.group_discard(
+                session_group_name,
                 self.channel_name,
             )
 
@@ -48,6 +59,9 @@ class ReadOnlyEventConsumer(AsyncJsonWebsocketConsumer):
 
     async def send_event_payload(self, event):
         await self.send_json(event['payload'])
+
+    async def force_disconnect(self, event):
+        await self.close(code=event.get('code', 4001))
 
 
 class ChatConsumer(ReadOnlyEventConsumer):

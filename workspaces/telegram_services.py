@@ -3,10 +3,12 @@ import hmac
 import json
 import secrets
 import uuid
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .crypto import (
@@ -29,6 +31,10 @@ from .telegram import (
     TelegramInvalidToken,
     TelegramWebhookRejected,
 )
+
+
+TELEGRAM_HEALTHY_CHECK_INTERVAL = timedelta(minutes=30)
+TELEGRAM_PROBLEM_CHECK_INTERVAL = timedelta(minutes=5)
 
 
 class TelegramIntegrationError(Exception):
@@ -231,18 +237,28 @@ def connect_telegram(*, workspace, user, bot_token, client=None):
             integration.deleted_at = None
             integration.save()
 
+            connection_payload = _audit_payload({
+                'bot_username': integration.bot_username,
+                'health_status': integration.health_status,
+                'reconnected': was_connected,
+            })
             _audit(
                 user,
                 workspace,
                 request_id,
                 'telegram_bot_connected',
                 None,
-                _audit_payload({
-                    'bot_username': integration.bot_username,
-                    'health_status': integration.health_status,
-                    'reconnected': was_connected,
-                }),
+                connection_payload,
             )
+            if was_connected:
+                _audit(
+                    user,
+                    workspace,
+                    request_id,
+                    'integration.telegram.reconnected',
+                    None,
+                    connection_payload,
+                )
             _audit(
                 user,
                 workspace,
@@ -547,11 +563,29 @@ def check_telegram_integration(integration_id, *, client=None):
 
 
 def check_all_telegram_integrations(*, client=None):
+    now = timezone.now()
+    healthy_cutoff = now - TELEGRAM_HEALTHY_CHECK_INTERVAL
+    problem_cutoff = now - TELEGRAM_PROBLEM_CHECK_INTERVAL
+    due_filter = (
+        Q(last_check_at__isnull=True)
+        | Q(
+            health_status=IntegrationHealth.HEALTHY,
+            last_check_at__lte=healthy_cutoff,
+        )
+        | Q(
+            health_status__in=(IntegrationHealth.DEGRADED, IntegrationHealth.ERROR),
+            last_check_at__lte=problem_cutoff,
+        )
+        | Q(
+            health_status__isnull=True,
+            last_check_at__lte=problem_cutoff,
+        )
+    )
     integration_ids = list(
         WorkspaceIntegration.objects.filter(
             type=IntegrationType.TELEGRAM,
             status=IntegrationStatus.CONNECTED,
-        ).values_list('id', flat=True),
+        ).filter(due_filter).values_list('id', flat=True),
     )
     checked = 0
     for integration_id in integration_ids:

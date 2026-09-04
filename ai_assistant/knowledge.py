@@ -61,6 +61,24 @@ class PreparedUpload:
     sha256: str
 
 
+def _audit_kwargs(audit_context):
+    audit_context = audit_context or {}
+    return {
+        'ip': audit_context.get('ip_address'),
+        'user_agent': (audit_context.get('user_agent') or '')[:512],
+    }
+
+
+def _onboarding_correlation_id(audit_context):
+    audit_context = audit_context or {}
+    return str(audit_context.get('correlation_id') or '')[:64]
+
+
+def _audit_request_id(audit_context):
+    audit_context = audit_context or {}
+    return audit_context.get('correlation_id') or uuid.uuid4()
+
+
 def _normalized_name(uploaded_file):
     raw_name = str(getattr(uploaded_file, 'name', '') or '')
     return PurePath(raw_name.replace('\\', '/')).name
@@ -202,7 +220,13 @@ def broadcast_document_status(document, event='knowledge_document_status'):
     )
 
 
-def create_knowledge_documents(*, workspace, user, uploaded_files):
+def create_knowledge_documents(
+    *,
+    workspace,
+    user,
+    uploaded_files,
+    audit_context=None,
+):
     if not uploaded_files:
         raise KnowledgeServiceError('FILES_REQUIRED', 'Добавьте хотя бы один файл.')
     if len(uploaded_files) > MAX_FILES_PER_UPLOAD:
@@ -213,6 +237,8 @@ def create_knowledge_documents(*, workspace, user, uploaded_files):
     prepared = [prepare_upload(uploaded_file) for uploaded_file in uploaded_files]
     batch_size = sum(item.size_bytes for item in prepared)
     saved_names = []
+    audit_kwargs = _audit_kwargs(audit_context)
+    onboarding_correlation_id = _onboarding_correlation_id(audit_context)
 
     try:
         with transaction.atomic():
@@ -229,7 +255,7 @@ def create_knowledge_documents(*, workspace, user, uploaded_files):
                     'Превышен общий лимит хранения (5 ГБ). Удалите часть файлов.',
                 )
 
-            request_id = uuid.uuid4()
+            request_id = _audit_request_id(audit_context)
             documents = []
             audit_logs = []
             for item in prepared:
@@ -241,6 +267,7 @@ def create_knowledge_documents(*, workspace, user, uploaded_files):
                     size_bytes=item.size_bytes,
                     mime_type=item.mime_type,
                     sha256=item.sha256,
+                    onboarding_correlation_id=onboarding_correlation_id,
                 )
                 document.file.save(
                     item.original_name,
@@ -262,6 +289,7 @@ def create_knowledge_documents(*, workspace, user, uploaded_files):
                             'size_bytes': document.size_bytes,
                         },
                         request_id=request_id,
+                        **audit_kwargs,
                     ),
                 )
             AIAuditLog.objects.bulk_create(audit_logs)
@@ -284,7 +312,13 @@ def get_active_document(*, workspace, document_id, for_update=False):
     return queryset.filter(id=document_id).first()
 
 
-def retry_knowledge_document(*, workspace, user, document_id):
+def retry_knowledge_document(
+    *,
+    workspace,
+    user,
+    document_id,
+    audit_context=None,
+):
     with transaction.atomic():
         document = get_active_document(
             workspace=workspace,
@@ -308,12 +342,14 @@ def retry_knowledge_document(*, workspace, user, document_id):
         document.error_reason = ''
         document.processing_started_at = None
         document.processed_at = None
+        document.onboarding_correlation_id = _onboarding_correlation_id(audit_context)
         document.save(
             update_fields=(
                 'status',
                 'error_reason',
                 'processing_started_at',
                 'processed_at',
+                'onboarding_correlation_id',
                 'updated_at',
             ),
         )
@@ -327,12 +363,20 @@ def retry_knowledge_document(*, workspace, user, document_id):
                 'document_id': str(document.id),
                 'previous_error': old_error,
             },
+            request_id=_audit_request_id(audit_context),
+            **_audit_kwargs(audit_context),
         )
         broadcast_document_status(document)
     return document
 
 
-def delete_knowledge_document(*, workspace, user, document_id):
+def delete_knowledge_document(
+    *,
+    workspace,
+    user,
+    document_id,
+    audit_context=None,
+):
     with transaction.atomic():
         document = get_active_document(
             workspace=workspace,
@@ -365,6 +409,8 @@ def delete_knowledge_document(*, workspace, user, document_id):
                 'document_id': str(document.id),
                 'name': document.original_name,
             },
+            request_id=_audit_request_id(audit_context),
+            **_audit_kwargs(audit_context),
         )
         broadcast_document_status(
             document,
@@ -377,6 +423,7 @@ def delete_knowledge_document(*, workspace, user, document_id):
                     previous_has_ready=True,
                     current_has_ready=False,
                     user_id=user.id,
+                    correlation_id=_onboarding_correlation_id(audit_context) or None,
                     trigger_document_id=document.id,
                 ),
                 robust=True,

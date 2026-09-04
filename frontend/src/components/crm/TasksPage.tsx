@@ -654,6 +654,7 @@ function TaskCard({
   }
 
   const amount = formatTaskAmount(task)
+  const contactName = getTaskContactName(task)
 
   return (
     <article
@@ -725,9 +726,20 @@ function TaskCard({
           </div>
         </div>
 
-        <p className="tasks-card__contact" title={getTaskContactName(task)}>
-          {getTaskContactName(task)}
-        </p>
+        {task.contact?.id ? (
+          <a
+            className="tasks-card__contact"
+            href={`/app/contacts?contact_id=${encodeURIComponent(task.contact.id)}`}
+            title={contactName}
+            style={{ color: 'inherit', textDecoration: 'none' }}
+          >
+            {contactName}
+          </a>
+        ) : (
+          <p className="tasks-card__contact" title={contactName}>
+            {contactName}
+          </p>
+        )}
 
         <div className="tasks-card__meta">
           <span className={task.is_overdue ? 'is-overdue' : ''}>
@@ -739,7 +751,13 @@ function TaskCard({
 
           {task.deal && (
             <span title={task.deal.title}>
-              Связанный объект: {task.deal.title}
+              Связанный объект:{' '}
+              <a
+                href={`/app/deals?deal_id=${encodeURIComponent(task.deal.id)}`}
+                style={{ color: 'inherit', textDecoration: 'none' }}
+              >
+                Сделка «{task.deal.title}»
+              </a>
             </span>
           )}
 

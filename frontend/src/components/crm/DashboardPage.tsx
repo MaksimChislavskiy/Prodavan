@@ -1,512 +1,181 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  deleteTask,
-  getTasksDashboard,
-  type ApiDashboardTask,
-  type ApiTask,
-} from '../../shared/api/tasksApi'
-import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
-import { TaskFormModal } from './TaskFormModal'
-import { TaskViewModal } from './TaskViewModal'
-import './DashboardPage.css'
+  getAllOnboardingKnowledgeFiles,
+  getOnboardingStatus,
+  type ApiOnboardingStatus,
+} from '../../shared/api/onboardingApi'
+import {
+  CRM_REALTIME_EVENT,
+  CRM_REALTIME_RECONNECTED_EVENT,
+} from '../../shared/crmRealtime'
+import { showCrmToast } from '../../shared/crmToast'
+import { DashboardPage as MainDashboardPage } from './DashboardPageV2'
+import { OnboardingDashboard } from './OnboardingDashboard'
+import type { ApiKnowledgeDocument } from '../../shared/api/aiSettingsApi'
+import './OnboardingDashboard.css'
 
-type DashboardState = {
-  tasks: ApiDashboardTask[]
-  totalCount: number
-  isLoading: boolean
-  hasLoaded: boolean
-  error: string
+type DashboardPhase = 'loading' | 'onboarding' | 'completing' | 'dashboard' | 'error'
+type CompletionSource = 'initial' | 'onboarding' | null
+
+type DashboardPageProps = {
+  onShowAll: () => void
 }
 
-type DashboardDialog =
-  | { mode: 'view'; task: ApiDashboardTask }
-  | { mode: 'edit'; task: ApiDashboardTask }
+export function DashboardPage({ onShowAll }: DashboardPageProps) {
+  const statusRef = useRef<ApiOnboardingStatus | null>(null)
+  const completionTimerRef = useRef<number | null>(null)
+  const completionSourceRef = useRef<CompletionSource>(null)
+  const [phase, setPhase] = useState<DashboardPhase>('loading')
+  const [status, setStatus] = useState<ApiOnboardingStatus | null>(null)
+  const [initialFiles, setInitialFiles] = useState<ApiKnowledgeDocument[]>([])
 
-const DASHBOARD_LOAD_ERROR = 'Не удалось загрузить задачи. Обновите страницу.'
-const DASHBOARD_DELETE_ERROR = 'Не удалось удалить задачу. Попробуйте позже.'
-
-export function DashboardPage({ onShowAll }: { onShowAll: () => void }) {
-  const [state, setState] = useState<DashboardState>({
-    tasks: [],
-    totalCount: 0,
-    isLoading: true,
-    hasLoaded: false,
-    error: '',
-  })
-  const [reloadVersion, setReloadVersion] = useState(0)
-  const [dialog, setDialog] = useState<DashboardDialog | null>(null)
-  const [openMenuId, setOpenMenuId] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState<ApiDashboardTask | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [toast, setToast] = useState('')
-  const [workspaceTimezone, setWorkspaceTimezone] = useState('UTC')
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    async function loadDashboard() {
-      setState((current) => ({ ...current, isLoading: true, error: '' }))
-
-      try {
-        const [data, settings] = await Promise.all([
-          getTasksDashboard(controller.signal),
-          getWorkspaceSettings().catch(() => null),
-        ])
-
-        setWorkspaceTimezone(settings?.timezone || 'UTC')
-        setState({
-          tasks: data.tasks,
-          totalCount: data.total_count,
-          isLoading: false,
-          hasLoaded: true,
-          error: '',
-        })
-        setToast((current) =>
-          current === DASHBOARD_LOAD_ERROR ? '' : current,
-        )
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return
-        }
-
-        setState((current) => ({
-          ...current,
-          isLoading: false,
-          hasLoaded: true,
-          error: DASHBOARD_LOAD_ERROR,
-        }))
-        setToast(DASHBOARD_LOAD_ERROR)
-      }
+  const applyStatus = useCallback((next: ApiOnboardingStatus, initial = false) => {
+    const previous = statusRef.current
+    if (previous?.status === 'completed' && next.status !== 'completed') {
+      return
     }
 
-    void loadDashboard()
-    return () => controller.abort()
-  }, [reloadVersion])
+    statusRef.current = next
+    setStatus(next)
 
-  useEffect(() => {
-    const closeMenu = (event: PointerEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest('.dashboard-task-menu')
-      ) {
-        return
-      }
-      setOpenMenuId('')
+    if (next.status !== 'completed') {
+      completionSourceRef.current = null
+      setPhase('onboarding')
+      return
     }
 
-    document.addEventListener('pointerdown', closeMenu)
-    return () => document.removeEventListener('pointerdown', closeMenu)
+    if (previous?.status === 'completed') {
+      if (completionTimerRef.current === null) {
+        setPhase('dashboard')
+      }
+      return
+    }
+
+    if (completionTimerRef.current !== null) return
+    completionSourceRef.current = initial ? 'initial' : 'onboarding'
+    setPhase('completing')
+    showCrmToast('Онбординг завершён!')
+    completionTimerRef.current = window.setTimeout(() => {
+      completionTimerRef.current = null
+      completionSourceRef.current = null
+      setPhase('dashboard')
+    }, 1500)
   }, [])
 
   useEffect(() => {
-    if (!toast || toast === DASHBOARD_LOAD_ERROR) {
-      return
+    let disposed = false
+
+    void (async () => {
+      try {
+        const initialStatus = await getOnboardingStatus()
+        if (disposed) return
+
+        if (initialStatus.status === 'completed') {
+          applyStatus(initialStatus, true)
+          return
+        }
+
+        const files = await getAllOnboardingKnowledgeFiles()
+        if (disposed || statusRef.current?.status === 'completed') return
+        setInitialFiles(files)
+        statusRef.current = initialStatus
+        setStatus(initialStatus)
+        setPhase('onboarding')
+      } catch {
+        if (!disposed) setPhase('error')
+      }
+    })()
+
+    return () => {
+      disposed = true
+    }
+  }, [applyStatus])
+
+  useEffect(() => {
+    const syncStatus = async () => {
+      try {
+        applyStatus(await getOnboardingStatus())
+      } catch {
+        // Keep the last server-confirmed state; the next reconnect/event retries sync.
+      }
     }
 
-    const timeoutId = window.setTimeout(() => setToast(''), 5000)
-    return () => window.clearTimeout(timeoutId)
-  }, [toast])
+    const handleRealtime = (event: Event) => {
+      const payload = (event as CustomEvent<unknown>).detail
+      if (!payload || typeof payload !== 'object') return
+      const eventName = 'event' in payload ? (payload as { event?: unknown }).event : undefined
+      if (eventName !== 'onboarding_status_updated') return
+      const data = 'data' in payload ? (payload as { data?: unknown }).data : undefined
+      if (!isOnboardingStatus(data)) return
+      applyStatus(data)
+    }
 
-  const reload = () => {
-    setDialog(null)
-    setOpenMenuId('')
-    setReloadVersion((version) => version + 1)
+    const handleReconnect = () => {
+      void syncStatus()
+    }
+
+    window.addEventListener(CRM_REALTIME_EVENT, handleRealtime)
+    window.addEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    return () => {
+      window.removeEventListener(CRM_REALTIME_EVENT, handleRealtime)
+      window.removeEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    }
+  }, [applyStatus])
+
+  useEffect(() => () => {
+    if (completionTimerRef.current !== null) {
+      window.clearTimeout(completionTimerRef.current)
+    }
+  }, [])
+
+  if (phase === 'dashboard') {
+    return <MainDashboardPage onShowAll={onShowAll} />
   }
 
-  const confirmDelete = async () => {
-    if (!deleteTarget || isDeleting) {
-      return
-    }
+  if (phase === 'error') {
+    return (
+      <section className="onboarding-entry-error" role="alert">
+        Не удалось загрузить рабочий стол. Обновите страницу.
+      </section>
+    )
+  }
 
-    setIsDeleting(true)
-
-    try {
-      await deleteTask(deleteTarget.id)
-      setDeleteTarget(null)
-      reload()
-    } catch {
-      setDeleteTarget(null)
-      setToast(DASHBOARD_DELETE_ERROR)
-    } finally {
-      setIsDeleting(false)
-    }
+  if (
+    phase === 'loading'
+    || !status
+    || (phase === 'completing' && completionSourceRef.current === 'initial')
+  ) {
+    return <DashboardSkeleton />
   }
 
   return (
-    <>
-      <main className="dashboard-page">
-        <h1 className="dashboard-page__title">Рабочий стол</h1>
-
-        <section
-          className="dashboard-today"
-          aria-labelledby="dashboard-today-title"
-          aria-busy={state.isLoading}
-        >
-          <header className="dashboard-today__header">
-            <div className="dashboard-today__heading">
-              <h2 id="dashboard-today-title">Важное на сегодня</h2>
-              <span className="dashboard-hint">
-                <button
-                  type="button"
-                  aria-label="Подсказка о задачах на сегодня"
-                  aria-describedby="dashboard-today-tooltip"
-                >
-                  ⓘ
-                </button>
-                <span id="dashboard-today-tooltip" role="tooltip">
-                  План на сегодня: приоритеты и дедлайны
-                </span>
-              </span>
-            </div>
-
-            {state.totalCount > 10 && (
-              <button
-                className="dashboard-today__show-all"
-                type="button"
-                onClick={onShowAll}
-              >
-                Показать все
-              </button>
-            )}
-          </header>
-
-          {state.isLoading && !state.hasLoaded && <DashboardSkeleton />}
-
-          {state.hasLoaded && state.tasks.length === 0 && !state.error && (
-            <div className="dashboard-state dashboard-state--empty">
-              <span aria-hidden="true">✓</span>
-              <strong>На сегодня задач нет. Отличная работа!</strong>
-            </div>
-          )}
-
-          {state.hasLoaded && state.tasks.length > 0 && (
-            <div className="dashboard-task-grid">
-              {state.tasks.map((task) => (
-                <DashboardTaskCard
-                  key={task.id}
-                  task={task}
-                  timezone={workspaceTimezone}
-                  isMenuOpen={openMenuId === task.id}
-                  onOpen={() => setDialog({ mode: 'view', task })}
-                  onEdit={() => {
-                    setOpenMenuId('')
-                    setDialog({ mode: 'edit', task })
-                  }}
-                  onDelete={() => {
-                    setOpenMenuId('')
-                    setDeleteTarget(task)
-                  }}
-                  onToggleMenu={() =>
-                    setOpenMenuId((currentId) =>
-                      currentId === task.id ? '' : task.id,
-                    )
-                  }
-                />
-              ))}
-            </div>
-          )}
-
-          {state.isLoading && state.hasLoaded && (
-            <div className="dashboard-refreshing" role="status">
-              Обновляем задачи…
-            </div>
-          )}
-        </section>
-      </main>
-
-      {dialog?.mode === 'view' && (
-        <TaskViewModal
-          taskId={dialog.task.id}
-          taskTitle={dialog.task.title}
-          onClose={() => setDialog(null)}
-          onEdit={(task) => setDialog({ mode: 'edit', task })}
-          onDelete={(task) => {
-            setDialog(null)
-            setDeleteTarget(task)
-          }}
-          onNotFound={reload}
-        />
-      )}
-
-      {dialog?.mode === 'edit' && (
-        <TaskFormModal
-          mode="edit"
-          taskId={dialog.task.id}
-          taskTitle={dialog.task.title}
-          onClose={() => setDialog(null)}
-          onCreated={reload}
-          onUpdated={reload}
-          onDeleted={reload}
-          onNotFound={reload}
-        />
-      )}
-
-      {deleteTarget && (
-        <div className="dashboard-delete-overlay" role="presentation">
-          <div
-            className="dashboard-delete-modal"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="dashboard-delete-title"
-            aria-describedby="dashboard-delete-description"
-          >
-            <h2 id="dashboard-delete-title">Удалить задачу?</h2>
-            <p id="dashboard-delete-description">
-              Вы действительно хотите удалить задачу? Действие невозможно отменить.
-            </p>
-            <div>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => setDeleteTarget(null)}
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => void confirmDelete()}
-              >
-                {isDeleting ? 'Удаление…' : 'Удалить'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className="dashboard-toast" role="alert">
-          <span>{toast}</span>
-          {toast === DASHBOARD_LOAD_ERROR && (
-            <button type="button" onClick={reload}>
-              Повторить
-            </button>
-          )}
-          <button
-            className="dashboard-toast__close"
-            type="button"
-            aria-label="Закрыть уведомление"
-            onClick={() => setToast('')}
-          >
-            ×
-          </button>
-        </div>
-      )}
-    </>
-  )
-}
-
-function DashboardTaskCard({
-  task,
-  timezone,
-  isMenuOpen,
-  onOpen,
-  onEdit,
-  onDelete,
-  onToggleMenu,
-}: {
-  task: ApiDashboardTask
-  timezone: string
-  isMenuOpen: boolean
-  onOpen: () => void
-  onEdit: () => void
-  onDelete: () => void
-  onToggleMenu: () => void
-}) {
-  const handleClick = (event: MouseEvent<HTMLElement>) => {
-    if (
-      event.target instanceof Element &&
-      event.target.closest('button, a')
-    ) {
-      return
-    }
-    onOpen()
-  }
-
-  const contactName = getTaskClientName(task)
-  const amount = getTaskAmount(task)
-
-  return (
-    <article className="dashboard-task-card" onClick={handleClick}>
-      <div className="dashboard-task-card__top">
-        <h3 title={task.title}>{task.title}</h3>
-        <div className="dashboard-task-menu">
-          <button
-            type="button"
-            aria-label={`Действия с задачей ${task.title}`}
-            aria-haspopup="menu"
-            aria-expanded={isMenuOpen}
-            onClick={onToggleMenu}
-          >
-            ⋮
-          </button>
-          {isMenuOpen && (
-            <div className="dashboard-task-menu__popup" role="menu">
-              <button type="button" role="menuitem" onClick={onEdit}>
-                Редактировать
-              </button>
-              <button type="button" role="menuitem" onClick={onDelete}>
-                Удалить
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <dl>
-        <div>
-          <dt>Клиент:</dt>
-          <dd>
-            {task.contact?.id ? (
-              <a href={`/app/contacts?contact_id=${encodeURIComponent(task.contact.id)}`}>
-                {contactName}
-              </a>
-            ) : (
-              contactName
-            )}
-          </dd>
-        </div>
-
-        {amount && (
-          <div>
-            <dt>Сумма:</dt>
-            <dd>{amount}</dd>
-          </div>
-        )}
-
-        <div>
-          <dt>Дедлайн:</dt>
-          <dd>{getTaskDueText(task, timezone)}</dd>
-        </div>
-
-        {task.deal && (
-          <div>
-            <dt>Сделка:</dt>
-            <dd>
-              <a href={`/app/deals?deal_id=${encodeURIComponent(task.deal.id)}`}>
-                {task.deal.title}
-              </a>
-            </dd>
-          </div>
-        )}
-      </dl>
-
-      {task.is_overdue && task.status !== 'done' && (
-        <span className="dashboard-task-card__overdue">просрочено</span>
-      )}
-    </article>
+    <OnboardingDashboard
+      status={status}
+      initialFiles={initialFiles}
+      onStatusChange={(next) => applyStatus(next)}
+    />
   )
 }
 
 function DashboardSkeleton() {
   return (
-    <div
-      className="dashboard-task-grid"
-      aria-label="Загрузка задач"
-      aria-busy="true"
-    >
-      {[0, 1, 2, 3, 4].map((item) => (
-        <span className="dashboard-skeleton" key={item} />
-      ))}
+    <div className="onboarding-entry-skeleton" aria-label="Загрузка рабочего стола" aria-busy="true">
+      <span />
+      <span />
+      <span />
     </div>
   )
 }
 
-function getTaskClientName(task: ApiTask) {
-  if (!task.contact) {
-    return 'Не указан'
-  }
-
-  return task.contact.company || task.contact.name || 'Не указан'
-}
-
-function getTaskAmount(task: ApiTask) {
-  if (!task.deal || task.deal.amount === null) {
-    return ''
-  }
-
-  const amount = Number(task.deal.amount)
-  if (!Number.isFinite(amount)) {
-    return `${task.deal.amount} ${task.deal.currency || 'RUB'}`
-  }
-
-  const currency = task.deal.currency || 'RUB'
-  const symbol =
-    currency === 'RUB'
-      ? '₽'
-      : currency === 'USD'
-        ? '$'
-        : currency === 'EUR'
-          ? '€'
-          : currency
-
-  return `${new Intl.NumberFormat('ru-RU', {
-    maximumFractionDigits: 2,
-  }).format(amount)} ${symbol}`
-}
-
-function getTaskDueText(task: ApiTask, timezone: string) {
-  if (!task.due_date || task.due_date_type === 'none') {
-    return 'Без срока'
-  }
-
-  const dueDate = new Date(task.due_date)
-  if (Number.isNaN(dueDate.getTime())) {
-    return 'Срок указан'
-  }
-
-  const safeTimezone = isSupportedTimezone(timezone) ? timezone : 'UTC'
-  const todayKey = dateKey(new Date(), safeTimezone)
-  const dueKey = dateKey(dueDate, safeTimezone)
-  const isToday = todayKey === dueKey
-
-  if (task.due_date_type === 'date') {
-    if (isToday) {
-      return 'сегодня'
-    }
-
-    return new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      timeZone: safeTimezone,
-    }).format(dueDate)
-  }
-
-  const time = new Intl.DateTimeFormat('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: safeTimezone,
-  }).format(dueDate)
-
-  if (isToday) {
-    return `сегодня, ${time}`
-  }
-
-  const date = new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: safeTimezone,
-  }).format(dueDate)
-
-  return `${date}, ${time}`
-}
-
-function dateKey(date: Date, timezone: string) {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: timezone,
-  }).format(date)
-}
-
-function isSupportedTimezone(timezone: string) {
-  try {
-    new Intl.DateTimeFormat('ru-RU', { timeZone: timezone }).format()
-    return true
-  } catch {
-    return false
-  }
+function isOnboardingStatus(value: unknown): value is ApiOnboardingStatus {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<ApiOnboardingStatus>
+  if (
+    candidate.version !== 1
+    || !['not_started', 'in_progress', 'completed'].includes(candidate.status ?? '')
+    || !candidate.steps
+    || typeof candidate.steps.knowledge_base_completed !== 'boolean'
+    || typeof candidate.steps.materials_viewed !== 'boolean'
+  ) return false
+  return candidate.completed_at === null || typeof candidate.completed_at === 'string'
 }

@@ -38,7 +38,7 @@ class RegistrationRequestSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=255)
     password = serializers.CharField(
         min_length=8,
-        max_length=128,
+        max_length=255,
         trim_whitespace=False,
         write_only=True,
     )
@@ -64,7 +64,7 @@ class RegistrationConfirmSerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=255)
     password = serializers.CharField(
-        max_length=128,
+        max_length=255,
         trim_whitespace=False,
         write_only=True,
     )
@@ -95,7 +95,7 @@ class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=255)
     new_password = serializers.CharField(
         min_length=8,
-        max_length=128,
+        max_length=255,
         trim_whitespace=False,
         write_only=True,
         validators=[validate_secure_password],
