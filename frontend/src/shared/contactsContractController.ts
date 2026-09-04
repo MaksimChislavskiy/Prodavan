@@ -41,11 +41,10 @@ function normalizeContactsUi(root: ParentNode) {
   if (window.location.pathname !== '/app/contacts') return
 
   const title = findOne(root, '#contacts-page-title')
-  if (title?.textContent?.trim() === 'Все контакты') {
-    title.textContent = 'Контакты'
-  }
+  if (title?.textContent?.trim() === 'Все контакты') title.textContent = 'Контакты'
 
   normalizeSelectAll(root)
+  normalizeRows(root)
   normalizeMenu(root)
   normalizeBulkPanel(root)
   normalizeEmptyState(root)
@@ -57,8 +56,7 @@ function normalizeContactsUi(root: ParentNode) {
 }
 
 function normalizeSelectAll(root: ParentNode) {
-  const cells = findMany(root, 'th.contacts-table__select-cell')
-  cells.forEach((cell) => {
+  findMany(root, 'th.contacts-table__select-cell').forEach((cell) => {
     if (cell.querySelector('.contacts-contract-select-all')) return
     const checkbox = cell.querySelector<HTMLInputElement>('input[type="checkbox"]')
     if (!checkbox) return
@@ -69,6 +67,19 @@ function normalizeSelectAll(root: ParentNode) {
     button.textContent = 'Выделить все'
     button.addEventListener('click', () => checkbox.click())
     cell.append(button)
+  })
+}
+
+function normalizeRows(root: ParentNode) {
+  findMany(root, '.contacts-table tbody tr').forEach((row) => {
+    if (row.dataset.contactRowContract === '1') return
+    row.dataset.contactRowContract = '1'
+    row.classList.add('contacts-contract-row')
+    row.addEventListener('click', (event) => {
+      if (!(event.target instanceof Element)) return
+      if (event.target.closest('button, input, a, [role="menu"]')) return
+      row.querySelector<HTMLButtonElement>('.contacts-table__name-button')?.click()
+    })
   })
 }
 
@@ -117,6 +128,7 @@ function normalizeConfirmation(root: ParentNode) {
   findMany(root, '.contact-confirm').forEach((dialog) => {
     const heading = dialog.querySelector<HTMLElement>('h2')
     const description = dialog.querySelector<HTMLElement>('#contact-delete-description')
+    const error = dialog.querySelector<HTMLElement>('.contact-confirm__error')
     const text = heading?.textContent?.trim() ?? ''
 
     if (text === 'Удалить контакт?') {
@@ -131,6 +143,12 @@ function normalizeConfirmation(root: ParentNode) {
       heading!.textContent =
         `Вы действительно хотите удалить выбранные контакты (${bulk[1]} шт.)? Действие невозможно отменить. Все связанные сделки потеряют ссылку на контакт.`
       if (description) description.hidden = true
+      if (error) error.textContent = 'Не удалось удалить контакты. Попробуйте позже.'
+      return
+    }
+
+    if (text.includes('удалить выбранные контакты') && error) {
+      error.textContent = 'Не удалось удалить контакты. Попробуйте позже.'
     }
   })
 }
@@ -150,11 +168,39 @@ function normalizeToast(root: ParentNode) {
 
 function normalizeLoading(root: ParentNode) {
   findMany(root, '.contacts-page--loading').forEach((page) => {
+    const header = page.querySelector<HTMLElement>('.contacts-page__header')
     const buttonSkeleton = page.querySelector<HTMLElement>('.contacts-skeleton--button')
-    if (buttonSkeleton) {
-      buttonSkeleton.setAttribute('role', 'button')
-      buttonSkeleton.setAttribute('aria-disabled', 'true')
-      buttonSkeleton.setAttribute('aria-label', 'Добавить контакт')
+    if (buttonSkeleton) buttonSkeleton.hidden = true
+
+    if (header && !header.querySelector('.contacts-contract-loading-add')) {
+      const addButton = document.createElement('button')
+      addButton.type = 'button'
+      addButton.disabled = true
+      addButton.className = 'contacts-page__add-button contacts-contract-loading-add'
+      addButton.textContent = 'Добавить контакт'
+      header.append(addButton)
+    }
+
+    if (!page.querySelector('.contacts-contract-loading-pagination')) {
+      const pagination = document.createElement('nav')
+      pagination.className = 'contacts-pagination contacts-contract-loading-pagination'
+      pagination.setAttribute('aria-label', 'Пагинация контактов')
+
+      const previous = document.createElement('button')
+      previous.type = 'button'
+      previous.disabled = true
+      previous.textContent = 'Предыдущая страница'
+
+      const current = document.createElement('span')
+      current.textContent = 'Страница 1'
+
+      const next = document.createElement('button')
+      next.type = 'button'
+      next.disabled = true
+      next.textContent = 'Следующая страница'
+
+      pagination.append(previous, current, next)
+      page.append(pagination)
     }
   })
 }
