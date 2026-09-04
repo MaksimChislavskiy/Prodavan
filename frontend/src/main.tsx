@@ -12,6 +12,7 @@ import {
   CRM_REALTIME_RECONNECTED_EVENT,
   installCrmRealtime,
 } from './shared/crmRealtime'
+import { installDealsContractController } from './shared/dealsContractController'
 import { installDealsTouchDnd } from './shared/dealsTouchDnd'
 import { installNotificationDeepLinks } from './shared/notificationDeepLinks'
 import { installTasksTouchDnd } from './shared/tasksTouchDnd'
@@ -21,6 +22,7 @@ installAiSettingsFeedbackController()
 installCrmRealtime()
 installTasksTouchDnd()
 installDealsTouchDnd()
+installDealsContractController()
 
 const AI_SETTINGS_SPEC_PATH = '/settings/ai'
 const AI_SETTINGS_APP_PATH = '/app/settings/ai'
