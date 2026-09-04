@@ -1,0 +1,31 @@
+.contacts-table th.contacts-table__select-cell {
+  width: 132px;
+  min-width: 132px;
+}
+
+.contacts-table th.contacts-table__select-cell input[type='checkbox'] {
+  vertical-align: middle;
+}
+
+.contacts-contract-select-all {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.contacts-contract-select-all:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .contacts-table th.contacts-table__select-cell {
+    min-width: 120px;
+  }
+}
