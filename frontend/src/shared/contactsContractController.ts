@@ -21,6 +21,7 @@ export function installContactsContractController() {
           continue
         }
 
+        if (record.target instanceof Element) normalizeContactsUi(record.target)
         for (const node of record.addedNodes) {
           if (node instanceof Element) normalizeContactsUi(node)
         }
