@@ -26,12 +26,22 @@ export function installDealsContractController() {
     normalizeDealsUi(document)
     observer = new MutationObserver((records) => {
       for (const record of records) {
+        if (record.type === 'characterData') {
+          const parent = record.target.parentElement
+          if (parent) normalizeDealsUi(parent)
+          continue
+        }
+
         for (const node of record.addedNodes) {
           if (node instanceof Element) normalizeDealsUi(node)
         }
       }
     })
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    })
   }
 
   if (document.body) start()
