@@ -7,6 +7,7 @@ import { AccountDeletedNotice } from './components/AccountDeletedNotice'
 import { CrmToastController } from './components/crm/CrmToastController'
 import { CrmAppPage } from './pages/CrmAppPage'
 import { installAiSettingsFeedbackController } from './shared/aiSettingsFeedbackController'
+import { installContactsContractController } from './shared/contactsContractController'
 import {
   CRM_REALTIME_EVENT,
   CRM_REALTIME_RECONNECTED_EVENT,
@@ -23,6 +24,7 @@ installCrmRealtime()
 installTasksTouchDnd()
 installDealsTouchDnd()
 installDealsContractController()
+installContactsContractController()
 
 const AI_SETTINGS_SPEC_PATH = '/settings/ai'
 const AI_SETTINGS_APP_PATH = '/app/settings/ai'
