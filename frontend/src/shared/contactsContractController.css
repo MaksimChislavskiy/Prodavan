@@ -24,6 +24,19 @@
   text-decoration: underline;
 }
 
+.contacts-contract-row {
+  cursor: pointer;
+}
+
+.contacts-contract-row button,
+.contacts-contract-row input {
+  cursor: auto;
+}
+
+.contacts-contract-loading-add:disabled {
+  cursor: wait;
+}
+
 @media (max-width: 720px) {
   .contacts-table th.contacts-table__select-cell {
     min-width: 120px;
