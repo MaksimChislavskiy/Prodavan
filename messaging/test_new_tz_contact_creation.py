@@ -135,7 +135,7 @@ class NewTzContactCreationTests(TestCase):
             AutomationEventStatus.IGNORED,
         )
 
-    def test_soft_deleted_phone_match_does_not_block_new_contact(self):
+    def test_soft_deleted_phone_match_is_reused_for_telegram_without_restore(self):
         deleted = Contact.objects.create(
             workspace=self.user.workspace,
             name='Удалённый контакт',
@@ -153,24 +153,33 @@ class NewTzContactCreationTests(TestCase):
 
         deleted.refresh_from_db()
         self.assertTrue(deleted.is_deleted)
-        active = Contact.objects.get(
-            workspace=self.user.workspace,
-            is_deleted=False,
+        self.assertEqual(
+            Contact.objects.filter(workspace=self.user.workspace).count(),
+            1,
         )
-        self.assertNotEqual(active.id, deleted.id)
-        self.assertEqual(active.phone, '+79990003344')
-        self.assertEqual(active.name, 'Новый Клиент')
-        self.assertEqual(active.telegram, '@fresh_contact')
-        self.assertEqual(Message.objects.filter(chat__contact=active).count(), 1)
+        self.assertFalse(
+            Contact.objects.filter(
+                workspace=self.user.workspace,
+                is_deleted=False,
+            ).exists(),
+        )
+        self.assertEqual(deleted.phone, '+79990003344')
+        self.assertEqual(deleted.telegram_user_id, 88003)
+        self.assertEqual(deleted.telegram_chat_id, 88003)
+        self.assertEqual(deleted.telegram, '@fresh_contact')
+        self.assertEqual(
+            Message.objects.filter(chat__contact=deleted).count(),
+            1,
+        )
         self.assertFalse(
             Notification.objects.filter(
                 user=self.user,
                 content=DUPLICATE_WARNING,
             ).exists(),
         )
-        created_audit = ContactAuditLog.objects.get(
-            workspace=self.user.workspace,
-            contact_identifier=active.id,
-            action=ContactAuditAction.CREATED,
+        self.assertFalse(
+            ContactAuditLog.objects.filter(
+                workspace=self.user.workspace,
+                action=ContactAuditAction.CREATED,
+            ).exists(),
         )
-        self.assertEqual(created_audit.changes['source'], 'ai')
