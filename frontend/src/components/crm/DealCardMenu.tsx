@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { deleteDeal } from '../../shared/api/dealsApi'
 import { showCrmToast } from '../../shared/crmToast'
 import { DeleteDealConfirmModal } from './DeleteDealConfirmModal'
@@ -207,30 +208,33 @@ export function DealCardMenu({
         )}
       </div>
 
-      {isViewModalOpen && (
+      {isViewModalOpen && createPortal(
         <ViewDealModal
           dealId={dealId}
           dealName={dealName}
           onClose={() => setIsViewModalOpen(false)}
-        />
+        />,
+        document.body,
       )}
 
-      {isEditModalOpen && (
+      {isEditModalOpen && createPortal(
         <EditDealModal
           dealId={dealId}
           dealName={dealName}
           onClose={() => setIsEditModalOpen(false)}
-        />
+        />,
+        document.body,
       )}
 
-      {isDeleteConfirmOpen && (
+      {isDeleteConfirmOpen && createPortal(
         <DeleteDealConfirmModal
           dealName={dealName}
           isDeleting={isDeleting}
           error={deleteError}
           onCancel={closeDeleteConfirm}
           onConfirm={() => void confirmDelete()}
-        />
+        />,
+        document.body,
       )}
     </>
   )
