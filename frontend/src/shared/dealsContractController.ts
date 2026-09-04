@@ -4,6 +4,7 @@ const STALE_DEAL_CONFLICT =
   'Сделка была изменена другим пользователем. Данные обновлены.'
 const CURRENT_DEAL_CONFLICT =
   'Сделка была изменена другим пользователем. Обновите данные.'
+const CONTRACT_MESSENGER_ATTRIBUTE = 'data-deals-contract-messenger'
 
 type RealtimePayload = {
   event?: unknown
@@ -95,6 +96,66 @@ function normalizeDealsUi(root: ParentNode) {
       error.textContent = 'ФИО обязательно'
     }
   })
+
+  ensureMessengerActions(root)
+}
+
+function ensureMessengerActions(root: ParentNode) {
+  const createBlocks = root instanceof Element && root.matches('.create-deal-form__messenger-block')
+    ? [root]
+    : Array.from(root.querySelectorAll<HTMLElement>('.create-deal-form__messenger-block'))
+
+  createBlocks.forEach((block) => {
+    const injected = block.querySelector<HTMLButtonElement>(
+      `.create-deal-form__messenger-button[${CONTRACT_MESSENGER_ATTRIBUTE}]`,
+    )
+    const native = block.querySelector<HTMLButtonElement>(
+      `.create-deal-form__messenger-button:not([${CONTRACT_MESSENGER_ATTRIBUTE}])`,
+    )
+
+    if (native) {
+      injected?.remove()
+      return
+    }
+
+    if (!injected) {
+      block.prepend(createDisabledMessengerButton('create-deal-form__messenger-button'))
+    }
+  })
+
+  const dealContents = root instanceof Element && root.matches('.deal-detail-modal__content')
+    ? [root]
+    : Array.from(root.querySelectorAll<HTMLElement>('.deal-detail-modal__content'))
+
+  dealContents.forEach((content) => {
+    const injected = content.querySelector<HTMLButtonElement>(
+      `.deal-detail-modal__messenger[${CONTRACT_MESSENGER_ATTRIBUTE}]`,
+    )
+    const native = content.querySelector<HTMLButtonElement>(
+      `.deal-detail-modal__messenger:not([${CONTRACT_MESSENGER_ATTRIBUTE}])`,
+    )
+
+    if (native) {
+      injected?.remove()
+      return
+    }
+
+    if (injected) return
+
+    const divider = content.querySelector<HTMLElement>('.deal-detail-modal__divider')
+    if (!divider) return
+    divider.before(createDisabledMessengerButton('deal-detail-modal__messenger'))
+  })
+}
+
+function createDisabledMessengerButton(className: string) {
+  const button = document.createElement('button')
+  button.className = className
+  button.type = 'button'
+  button.disabled = true
+  button.textContent = 'Добавить мессенджер'
+  button.setAttribute(CONTRACT_MESSENGER_ATTRIBUTE, 'true')
+  return button
 }
 
 function handleRealtime(event: Event) {
