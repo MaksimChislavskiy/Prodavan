@@ -98,6 +98,9 @@ export async function getChatsPage(
   }
 
   if (!targetChatId) {
+    if (contactId) {
+      return { chats: [], page, limit, total: 0 }
+    }
     return requestChatsPage(page, limit, signal)
   }
 
