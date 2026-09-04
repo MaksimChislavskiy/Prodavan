@@ -108,10 +108,7 @@ def _message_contact_identifiers(text):
 
 
 def _find_contact(workspace, telegram_user_id, username, *, phone, email):
-    queryset = Contact.objects.select_for_update().filter(
-        workspace=workspace,
-        is_deleted=False,
-    )
+    queryset = Contact.objects.select_for_update().filter(workspace=workspace)
     contact = queryset.filter(telegram_user_id=telegram_user_id).first()
     if contact is not None:
         return contact, 'telegram_user_id'
@@ -119,13 +116,13 @@ def _find_contact(workspace, telegram_user_id, username, *, phone, email):
         contact = queryset.filter(
             Q(telegram_username__iexact=username)
             | Q(telegram__iexact=f'@{username}'),
-        ).order_by('created_at', 'id').first()
+        ).order_by('is_deleted', 'created_at', 'id').first()
         if contact is not None:
             return contact, 'telegram_username'
     if phone:
         contact = (
             queryset.filter(phone=phone)
-            .order_by('created_at', 'id')
+            .order_by('is_deleted', 'created_at', 'id')
             .first()
         )
         if contact is not None:
@@ -133,7 +130,7 @@ def _find_contact(workspace, telegram_user_id, username, *, phone, email):
     if email:
         contact = queryset.filter(
             email__iexact=email,
-        ).order_by('created_at', 'id').first()
+        ).order_by('is_deleted', 'created_at', 'id').first()
         if contact is not None:
             return contact, 'email'
     return None, None
@@ -209,7 +206,11 @@ def process_telegram_webhook_log(log_id):
             email=email,
         )
         contact_created = contact is None
-        duplicate_contact_detected = match_reason in {'phone', 'email'}
+        duplicate_contact_detected = (
+            contact is not None
+            and not contact.is_deleted
+            and match_reason in {'phone', 'email'}
+        )
         if contact_created:
             contact = create_contact(
                 workspace=webhook_log.workspace,
