@@ -179,3 +179,30 @@ class NewTzSection6RegressionTests(TestCase):
         self.assertEqual(batch[0]['data']['to_stage_id'], str(self.system_stage.id))
         self.assertTrue(batch[0].get('correlation_id'))
         self.assertEqual(batch[0]['correlation_id'], deleted[0]['correlation_id'])
+
+    def test_twenty_first_stage_is_rejected_with_exact_message(self):
+        for index in range(2, 21):
+            SalesStage.objects.create(
+                workspace=self.user.workspace,
+                name=f'Дополнительный этап {index:02d}',
+                order=index,
+            )
+
+        response = self.client.post(
+            '/api/crm/stages',
+            {'name': 'Лишний этап'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data['error']['message'],
+            'Достигнуто максимальное количество этапов',
+        )
+        self.assertEqual(
+            SalesStage.objects.filter(
+                workspace=self.user.workspace,
+                is_deleted=False,
+            ).count(),
+            20,
+        )
