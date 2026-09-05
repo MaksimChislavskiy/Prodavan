@@ -35,6 +35,15 @@ def normalize_due_date(value, *, workspace):
     return parsed.astimezone(datetime_timezone.utc)
 
 
+def infer_due_date_type(due_date, *, workspace):
+    if due_date is None:
+        return DueDateType.NONE
+    local_due_date = due_date.astimezone(workspace_timezone(workspace))
+    if local_due_date.timetz().replace(tzinfo=None) == time.min:
+        return DueDateType.DATE
+    return DueDateType.DATETIME
+
+
 def canonicalize_due_date(due_date_type, due_date, *, workspace):
     if due_date_type != DueDateType.DATE or due_date is None:
         return due_date

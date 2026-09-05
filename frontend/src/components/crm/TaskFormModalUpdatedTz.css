@@ -1,0 +1,120 @@
+.task-form-modal--view {
+  height: auto;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+
+.task-form-modal__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.task-form-modal__edit {
+  min-height: 34px;
+  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(11, 43, 85, 0.35);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #0b2b55;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.task-form-modal__edit:hover:not(:disabled) {
+  background: #fff;
+}
+
+.task-form__deadline-row--auto-type {
+  grid-template-columns: minmax(240px, 320px) 1fr !important;
+  align-items: end;
+}
+
+.task-form__deadline-hint {
+  margin: 0 0 8px;
+  color: #6d7e93;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.task-view {
+  box-sizing: border-box;
+  min-height: 420px;
+  padding: 28px 24px 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 16px 24px;
+}
+
+.task-view__notice {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid #e5b84a;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #6b520d;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.task-view__row {
+  min-width: 0;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid rgba(11, 43, 85, 0.14);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.task-view__row--multiline {
+  grid-column: 1 / -1;
+}
+
+.task-view__row > span {
+  color: #6d7e93;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.task-view__row > strong {
+  overflow-wrap: anywhere;
+  color: #0b2b55;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .task-form-modal--view {
+    max-height: calc(100vh - 36px);
+  }
+
+  .task-form-modal__edit {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .task-form__deadline-row--auto-type {
+    grid-template-columns: 1fr !important;
+  }
+
+  .task-view {
+    grid-template-columns: 1fr;
+    padding: 20px 18px;
+  }
+
+  .task-view__row--multiline,
+  .task-view__notice {
+    grid-column: auto;
+  }
+}
