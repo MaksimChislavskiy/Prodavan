@@ -9,6 +9,7 @@ from .models import Chat, Message, MessageAttachmentType
 
 
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
+MAX_MESSAGE_TEXT_LENGTH = 4096
 
 
 class ChatContactSerializer(serializers.ModelSerializer):
@@ -71,7 +72,6 @@ class OutgoingMessageSerializer(serializers.Serializer):
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        max_length=4096,
         trim_whitespace=False,
         default='',
     )
@@ -81,6 +81,10 @@ class OutgoingMessageSerializer(serializers.Serializer):
         stripped = value.strip()
         if value and not stripped:
             raise serializers.ValidationError('Сообщение не может быть пустым.')
+        if len(stripped) > MAX_MESSAGE_TEXT_LENGTH:
+            raise serializers.ValidationError(
+                f'Сообщение не должно превышать {MAX_MESSAGE_TEXT_LENGTH} символов.',
+            )
         return stripped
 
     def validate(self, attrs):
