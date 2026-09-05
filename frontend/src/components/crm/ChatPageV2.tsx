@@ -57,6 +57,7 @@ type PendingSend = {
 
 const CHAT_PAGE_SIZE = 20
 const MESSAGE_ID_CACHE_SIZE = 1000
+const MAX_MESSAGE_TEXT_LENGTH = 4096
 const reconnectDelays = [1000, 2000, 5000, 10000, 30000]
 const urlPattern = /(https?:\/\/[^\s]+)/g
 
@@ -666,7 +667,12 @@ export function ChatPage() {
 
   const handleDraftChange = (value: string) => {
     setDraft(value)
-    setSendError('')
+    const trimmedLength = value.trim().length
+    setSendError(
+      trimmedLength > MAX_MESSAGE_TEXT_LENGTH
+        ? `Сообщение не должно превышать ${MAX_MESSAGE_TEXT_LENGTH} символов.`
+        : '',
+    )
     const pending = pendingSendRef.current
     if (
       pending
@@ -714,7 +720,7 @@ export function ChatPage() {
     if (
       !chatId
       || (!text && !attachment)
-      || text.length > 4096
+      || text.length > MAX_MESSAGE_TEXT_LENGTH
       || isSending
     ) {
       return
@@ -1093,8 +1099,8 @@ export function ChatPage() {
                 ref={inputRef}
                 value={draft}
                 placeholder="Сообщение"
-                maxLength={4096}
                 disabled={isSending}
+                aria-invalid={draft.trim().length > MAX_MESSAGE_TEXT_LENGTH}
                 onChange={(event) => handleDraftChange(event.target.value)}
                 onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
@@ -1106,7 +1112,11 @@ export function ChatPage() {
               <button
                 type="button"
                 aria-label="Отправить сообщение"
-                disabled={(!draft.trim() && !attachment) || isSending}
+                disabled={
+                  (!draft.trim() && !attachment)
+                  || draft.trim().length > MAX_MESSAGE_TEXT_LENGTH
+                  || isSending
+                }
                 onClick={() => void submitMessage()}
               >
                 <SendIcon />
@@ -1525,7 +1535,7 @@ function formatChatDate(value: string | null) {
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
     month: '2-digit',
-    year: date.getFullYear() === today.getFullYear() ? undefined : '2-digit',
+    year: 'numeric',
   }).format(date)
 }
 
