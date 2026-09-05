@@ -90,7 +90,7 @@ class ChatContractTests(TestCase):
         self.assertEqual(foreign_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(deleted_response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_message_rate_limit_is_per_chat_not_per_workspace(self):
+    def test_message_rate_limit_applies_per_chat_and_workspace(self):
         self._connect_telegram()
         first_chat = self._chat(1)
         second_chat = self._chat(2)
@@ -115,11 +115,12 @@ class ChatContractTests(TestCase):
 
         other_chat = self.client.post(
             f'/api/chats/{second_chat.id}/messages',
-            {'text': 'Другой диалог не должен быть заблокирован'},
+            {'text': 'Глобальный лимит должен блокировать и другой чат'},
             format='json',
-            HTTP_IDEMPOTENCY_KEY='second-chat-allowed',
+            HTTP_IDEMPOTENCY_KEY='second-chat-over-workspace-limit',
         )
-        self.assertEqual(other_chat.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(other_chat.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(other_chat.data['error'], 'rate_limit_exceeded')
 
     @patch('messaging.telegram.broadcast_workspace_event')
     def test_new_chat_event_precedes_message_with_zero_unread(self, broadcast):

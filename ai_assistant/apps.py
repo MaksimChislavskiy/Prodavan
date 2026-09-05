@@ -8,3 +8,8 @@ class AiAssistantConfig(AppConfig):
 
     def ready(self):
         from . import automation_signals  # noqa: F401
+        from .autopilot import ESCALATION_SKIP_REASONS
+
+        # Updated TZ section 16.6.4: after three consecutive customer
+        # messages a low-confidence autopilot outcome is an escalation reason.
+        ESCALATION_SKIP_REASONS.add('low_confidence')
