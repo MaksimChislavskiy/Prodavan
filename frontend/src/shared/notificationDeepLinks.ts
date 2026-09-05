@@ -30,8 +30,12 @@ export function getInternalNotificationHref(
   search = '',
   hash = '',
 ) {
-  if (pathname === '/notifications' || pathname === '/notifications/') {
-    return `/app/notifications${search}${hash}`
+  if (
+    pathname === '/app/notifications'
+    || pathname === '/app/notifications/'
+    || pathname === '/notifications/'
+  ) {
+    return `/notifications${search}${hash}`
   }
 
   for (const route of canonicalObjectRoutes) {

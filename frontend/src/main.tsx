@@ -26,6 +26,7 @@ installDealsContractController()
 
 const AI_SETTINGS_SPEC_PATH = '/settings/ai'
 const AI_SETTINGS_APP_PATH = '/app/settings/ai'
+const CRM_ROOT_PATHS = new Set(['/profile', '/notifications'])
 
 if (window.location.pathname === AI_SETTINGS_SPEC_PATH) {
   window.history.replaceState(
@@ -41,7 +42,7 @@ let pendingRealtimeRefresh = false
 let pendingRefreshTimer: number | null = null
 
 function renderApplication() {
-  const rootPage = window.location.pathname === '/profile'
+  const rootPage = CRM_ROOT_PATHS.has(window.location.pathname)
     ? <CrmAppPage />
     : <App />
 

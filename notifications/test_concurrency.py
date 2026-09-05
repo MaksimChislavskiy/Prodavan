@@ -3,7 +3,11 @@ from threading import Barrier
 from unittest.mock import patch
 
 from django.db import close_old_connections, connection
-from django.test import TransactionTestCase, override_settings
+from django.test import (
+    TransactionTestCase,
+    override_settings,
+    skipUnlessDBFeature,
+)
 
 from users.models import User
 
@@ -41,6 +45,10 @@ class NotificationAggregationConcurrencyTests(TransactionTestCase):
         finally:
             connection.close()
 
+    # This test verifies the row-locking strategy used in production PostgreSQL.
+    # SQLite does not support SELECT ... FOR UPDATE and can only report table locks
+    # for this threaded scenario, so running the test there would be a false failure.
+    @skipUnlessDBFeature('has_select_for_update')
     @patch('notifications.services.broadcast_user_event')
     def test_concurrent_same_object_events_are_aggregated(self, broadcast):
         barrier = Barrier(2)

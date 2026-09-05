@@ -12,7 +12,7 @@ import { readNotificationPreferences } from '../../shared/notificationPreference
 import { FigmaNotificationsPage } from './FigmaNotificationsPage'
 import './FigmaNotificationsPage.css'
 
-const NOTIFICATIONS_PATH = '/app/notifications'
+const NOTIFICATIONS_PATH = '/notifications'
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000]
 const FALLBACK_POLL_INTERVAL_MS = 10_000
 
@@ -40,7 +40,11 @@ function normalizeNotificationNavigationHref(href: string) {
   }
 
   const target = new URL(href, window.location.origin)
-  if (target.pathname === '/notifications') {
+  if (
+    target.pathname === '/app/notifications'
+    || target.pathname === '/app/notifications/'
+    || target.pathname === '/notifications/'
+  ) {
     return `${NOTIFICATIONS_PATH}${target.search}${target.hash}`
   }
 
