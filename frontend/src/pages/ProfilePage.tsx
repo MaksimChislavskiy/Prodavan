@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from 'react'
 import { ProfileDeleteControl } from '../components/ProfileDeleteControl'
+import { ApiError } from '../shared/api/apiClient'
 import {
   deleteProfileAvatar,
   getProfile,
@@ -31,14 +32,21 @@ type AvatarPreview = {
   url: string
 }
 
+type PendingNavigation =
+  | { type: 'back' }
+  | { type: 'url'; href: string }
+
 const PROFILE_TEXT_PATTERN = /^[A-Za-zА-Яа-яЁё -]+$/
 const PHONE_PATTERN = /^[0-9+()\- ]+$/
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024
 const MIN_AVATAR_SIDE = 200
+const PROFILE_VERSION_CONFLICT_MESSAGE =
+  'Данные профиля были изменены другим процессом. Обновите страницу и повторите попытку.'
 
 export function ProfilePage() {
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const allowNavigationRef = useRef(false)
   const [profile, setProfile] = useState<ApiProfile | null>(null)
   const [initialForm, setInitialForm] = useState<ProfileForm | null>(null)
   const [form, setForm] = useState<ProfileForm>({
@@ -56,6 +64,7 @@ export function ProfilePage() {
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -113,7 +122,7 @@ export function ProfilePage() {
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges) {
+      if (!hasUnsavedChanges || allowNavigationRef.current) {
         return
       }
 
@@ -126,6 +135,51 @@ export function ProfilePage() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
+  }, [hasUnsavedChanges])
+
+  useEffect(() => {
+    const handleInternalLink = (event: MouseEvent) => {
+      if (
+        !hasUnsavedChanges
+        || allowNavigationRef.current
+        || event.button !== 0
+        || event.ctrlKey
+        || event.metaKey
+        || event.shiftKey
+        || event.altKey
+      ) {
+        return
+      }
+
+      const target = event.target
+      if (!(target instanceof Element)) {
+        return
+      }
+
+      const link = target.closest<HTMLAnchorElement>('a[href]')
+      if (
+        !link
+        || link.target === '_blank'
+        || link.hasAttribute('download')
+      ) {
+        return
+      }
+
+      const url = new URL(link.href, window.location.href)
+      if (
+        url.origin !== window.location.origin
+        || url.href === window.location.href
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      setPendingNavigation({ type: 'url', href: url.href })
+    }
+
+    document.addEventListener('click', handleInternalLink, true)
+    return () => document.removeEventListener('click', handleInternalLink, true)
   }, [hasUnsavedChanges])
 
   useEffect(() => {
@@ -146,20 +200,39 @@ export function ProfilePage() {
     setSuccessMessage('')
   }
 
-  const handleBack = () => {
-    if (
-      hasUnsavedChanges &&
-      !window.confirm('У вас есть несохранённые изменения. Покинуть страницу без сохранения?')
-    ) {
-      return
-    }
-
+  const navigateBack = () => {
     if (window.history.length > 1) {
       window.history.back()
       return
     }
 
     window.location.href = '/app'
+  }
+
+  const handleBack = () => {
+    if (hasUnsavedChanges) {
+      setPendingNavigation({ type: 'back' })
+      return
+    }
+
+    navigateBack()
+  }
+
+  const leaveWithUnsavedChanges = () => {
+    if (!pendingNavigation) {
+      return
+    }
+
+    const navigation = pendingNavigation
+    allowNavigationRef.current = true
+    setPendingNavigation(null)
+
+    if (navigation.type === 'back') {
+      navigateBack()
+      return
+    }
+
+    window.location.href = navigation.href
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -190,9 +263,11 @@ export function ProfilePage() {
       notifyProfileUpdated(updatedProfile)
     } catch (error) {
       setSaveError(
-        error instanceof Error
-          ? error.message
-          : 'Не удалось сохранить изменения. Попробуйте позже.',
+        isProfileVersionConflict(error)
+          ? PROFILE_VERSION_CONFLICT_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : 'Не удалось сохранить изменения. Попробуйте позже.',
       )
     } finally {
       setIsSaving(false)
@@ -263,7 +338,7 @@ export function ProfilePage() {
       notifyProfileUpdated(updatedProfile)
     } catch (error) {
       setAvatarError(
-        error instanceof Error ? error.message : 'Не удалось загрузить аватар. Попробуйте позже.',
+        error instanceof Error ? error.message : 'Не удалось загрузить изображение. Попробуйте позже.',
       )
     } finally {
       setIsAvatarUploading(false)
@@ -427,7 +502,7 @@ export function ProfilePage() {
               label="E-mail"
               value={form.email}
               type="email"
-              placeholder="Введите e-mail"
+              placeholder="Введите email"
               disabled={isSaving || isAvatarBusy}
               error={errors.email}
               onChange={(value) => updateField('email', value)}
@@ -488,6 +563,45 @@ export function ProfilePage() {
                 onClick={() => void handleAvatarUpload()}
               >
                 {isAvatarUploading ? 'Загрузка...' : 'Сохранить'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {pendingNavigation && (
+        <div
+          className="profile-avatar-modal__backdrop"
+          role="presentation"
+          onMouseDown={() => setPendingNavigation(null)}
+        >
+          <section
+            className="profile-avatar-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="profile-unsaved-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 className="profile-avatar-modal__title" id="profile-unsaved-modal-title">
+              Несохранённые изменения
+            </h2>
+            <p className="profile-avatar-modal__text">
+              У вас есть несохранённые изменения. Покинуть страницу без сохранения?
+            </p>
+            <div className="profile-avatar-modal__actions">
+              <button
+                className="profile-avatar-modal__button profile-avatar-modal__button--secondary"
+                type="button"
+                onClick={() => setPendingNavigation(null)}
+              >
+                Остаться
+              </button>
+              <button
+                className="profile-avatar-modal__button profile-avatar-modal__button--primary"
+                type="button"
+                onClick={leaveWithUnsavedChanges}
+              >
+                Покинуть страницу
               </button>
             </div>
           </section>
@@ -603,6 +717,18 @@ function validateProfileForm(form: ProfileForm): ProfileErrors {
   }
 
   return errors
+}
+
+function isProfileVersionConflict(error: unknown) {
+  if (!(error instanceof ApiError) || error.status !== 409) {
+    return false
+  }
+
+  if (!error.data || typeof error.data !== 'object') {
+    return false
+  }
+
+  return 'error' in error.data && error.data.error === 'version_conflict'
 }
 
 function getImageDimensions(url: string) {

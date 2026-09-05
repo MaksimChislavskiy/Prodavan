@@ -191,8 +191,9 @@ export function UserMenu() {
     try {
       await logoutSession()
       clearAccessToken()
-      sessionStorage.removeItem('pending_ai_query')
-      window.location.href = '/'
+      localStorage.removeItem('pending_ai_query')
+      sessionStorage.clear()
+      window.location.replace('/')
     } catch (error) {
       setLogoutError(error instanceof Error ? error.message : 'Не удалось выйти из системы.')
       setIsLoggingOut(false)
