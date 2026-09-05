@@ -45,6 +45,9 @@ class NotificationAggregationConcurrencyTests(TransactionTestCase):
         finally:
             connection.close()
 
+    # This test verifies the row-locking strategy used in production PostgreSQL.
+    # SQLite does not support SELECT ... FOR UPDATE and can only report table locks
+    # for this threaded scenario, so running the test there would be a false failure.
     @skipUnlessDBFeature('has_select_for_update')
     @patch('notifications.services.broadcast_user_event')
     def test_concurrent_same_object_events_are_aggregated(self, broadcast):
