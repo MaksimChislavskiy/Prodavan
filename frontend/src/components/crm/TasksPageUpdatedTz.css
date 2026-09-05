@@ -1,0 +1,25 @@
+.tasks-card__overdue-text {
+  color: #c70f0f;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.tasks-card {
+  touch-action: pan-y;
+}
+
+.tasks-card--moving {
+  opacity: 0.65;
+}
+
+.tasks-column--drop-target {
+  outline: 2px dashed #6366ff;
+  outline-offset: -6px;
+}
+
+@media (pointer: coarse) {
+  .tasks-card {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}

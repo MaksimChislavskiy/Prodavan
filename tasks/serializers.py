@@ -3,7 +3,7 @@ from rest_framework import serializers
 from contacts.models import Contact
 from deals.models import Deal
 
-from .dates import is_task_overdue, normalize_due_date
+from .dates import infer_due_date_type, is_task_overdue, normalize_due_date
 from .models import DueDateType, Task, TaskHistory, TaskStatus
 
 
@@ -103,6 +103,12 @@ class TaskValidationMixin:
     def validate_comment(self, value):
         return nullable_trimmed(value)
 
+    def infer_due_type(self, due_date):
+        return infer_due_date_type(
+            due_date,
+            workspace=self.context['workspace'],
+        )
+
 
 class TaskCreateSerializer(TaskValidationMixin, StrictSerializer):
     title = serializers.CharField(max_length=255)
@@ -116,7 +122,6 @@ class TaskCreateSerializer(TaskValidationMixin, StrictSerializer):
     due_date_type = serializers.ChoiceField(
         choices=DueDateType.choices,
         required=False,
-        default=DueDateType.NONE,
     )
     contact_id = serializers.UUIDField(required=False, allow_null=True)
     deal_id = serializers.UUIDField(required=False, allow_null=True)
@@ -128,15 +133,35 @@ class TaskCreateSerializer(TaskValidationMixin, StrictSerializer):
     )
 
     def validate(self, attrs):
-        due_type = attrs.get('due_date_type', DueDateType.NONE)
+        due_date_present = 'due_date' in attrs
+        due_type_present = 'due_date_type' in attrs
         due_date = attrs.get('due_date')
-        if due_type == DueDateType.NONE and due_date is not None:
+        due_type = attrs.get('due_date_type')
+
+        if not due_date_present:
+            if due_type_present and due_type != DueDateType.NONE:
+                raise serializers.ValidationError({
+                    'due_date': 'Дата выполнения обязательна для выбранного типа срока.',
+                })
+            attrs['due_date'] = None
+            attrs['due_date_type'] = DueDateType.NONE
+            return attrs
+
+        if due_date is None:
+            if due_type_present and due_type != DueDateType.NONE:
+                raise serializers.ValidationError({
+                    'due_date_type': 'Для due_date=null укажите due_date_type=none.',
+                })
+            attrs['due_date_type'] = DueDateType.NONE
+            return attrs
+
+        if not due_type_present:
+            attrs['due_date_type'] = self.infer_due_type(due_date)
+            return attrs
+
+        if due_type == DueDateType.NONE:
             raise serializers.ValidationError({
                 'due_date': 'Для задачи без срока due_date должен быть null.',
-            })
-        if due_type != DueDateType.NONE and due_date is None:
-            raise serializers.ValidationError({
-                'due_date': 'Дата выполнения обязательна для выбранного типа срока.',
             })
         return attrs
 
@@ -165,16 +190,30 @@ class TaskUpdateSerializer(TaskValidationMixin, StrictSerializer):
     )
 
     def validate(self, attrs):
-        if attrs.get('due_date') is None and 'due_date' in attrs:
-            if attrs.get('due_date_type') != DueDateType.NONE:
+        due_date_present = 'due_date' in attrs
+        due_type_present = 'due_date_type' in attrs
+
+        if not due_date_present:
+            return attrs
+
+        due_date = attrs.get('due_date')
+        due_type = attrs.get('due_date_type')
+
+        if due_date is None:
+            if not due_type_present or due_type != DueDateType.NONE:
                 raise serializers.ValidationError({
                     'due_date_type': 'При очистке срока укажите due_date_type=none.',
                 })
-        if attrs.get('due_date_type') == DueDateType.NONE:
-            if attrs.get('due_date', object()) is not None:
-                raise serializers.ValidationError({
-                    'due_date': 'Для задачи без срока передайте due_date=null.',
-                })
+            return attrs
+
+        if not due_type_present:
+            attrs['due_date_type'] = self.infer_due_type(due_date)
+            return attrs
+
+        if due_type == DueDateType.NONE:
+            raise serializers.ValidationError({
+                'due_date': 'Для задачи без срока передайте due_date=null.',
+            })
         return attrs
 
 

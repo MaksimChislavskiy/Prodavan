@@ -5,6 +5,7 @@ import {
   useState,
   type DragEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { ApiError } from '../../shared/api/apiClient'
 import {
@@ -18,28 +19,21 @@ import {
   type TasksKanbanResponse,
 } from '../../shared/api/tasksApi'
 import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
+import {
+  CRM_REALTIME_EVENT,
+  CRM_REALTIME_RECONNECTED_EVENT,
+} from '../../shared/crmRealtime'
 import { formatTaskDueDateForDisplay } from '../../shared/taskDateTime'
 import { TaskFormModal } from './TaskFormModal'
 import './TasksPage.css'
+import './TasksPageUpdatedTz.css'
 
 const taskStatuses: TaskStatus[] = ['new', 'in_progress', 'done']
 
-const taskStatusLabels: Record<
-  TaskStatus,
-  { title: string; shortTitle: string }
-> = {
-  new: {
-    title: 'Новая',
-    shortTitle: 'Новая',
-  },
-  in_progress: {
-    title: 'В работе',
-    shortTitle: 'В работе',
-  },
-  done: {
-    title: 'Выполнена',
-    shortTitle: 'Выполнена',
-  },
+const taskStatusLabels: Record<TaskStatus, { title: string; shortTitle: string }> = {
+  new: { title: 'Новые задачи', shortTitle: 'Новые задачи' },
+  in_progress: { title: 'В работе', shortTitle: 'В работе' },
+  done: { title: 'Завершенные задачи', shortTitle: 'Завершенные задачи' },
 }
 
 type TasksBoardState = {
@@ -50,7 +44,7 @@ type TasksBoardState = {
 
 type TaskDialog =
   | { mode: 'create' }
-  | { mode: 'edit'; taskId: string; taskTitle: string }
+  | { mode: 'view' | 'edit'; taskId: string; taskTitle: string }
 
 type DeleteRequest =
   | { kind: 'single'; tasks: ApiTask[] }
@@ -59,6 +53,16 @@ type DeleteRequest =
 type DraggedTask = {
   task: ApiTask
   sourceStatus: TaskStatus
+}
+
+type TouchDragState = DraggedTask & {
+  startX: number
+  startY: number
+  moved: boolean
+}
+
+type RealtimePayload = {
+  event?: string
 }
 
 export function TasksPage() {
@@ -78,39 +82,28 @@ export function TasksPage() {
   const [draggedTask, setDraggedTask] = useState<DraggedTask | null>(null)
   const [dropTargetStatus, setDropTargetStatus] = useState<TaskStatus | null>(null)
   const [movingTaskId, setMovingTaskId] = useState('')
-  const [loadingMoreStatus, setLoadingMoreStatus] =
-    useState<TaskStatus | null>(null)
+  const [loadingMoreStatus, setLoadingMoreStatus] = useState<TaskStatus | null>(null)
   const [workspaceTimezone, setWorkspaceTimezone] = useState('UTC')
+  const touchDragRef = useRef<TouchDragState | null>(null)
+  const ignoreClickTaskIdRef = useRef('')
 
   useEffect(() => {
     const controller = new AbortController()
 
     async function loadBoard() {
-      setState((currentState) => ({
-        ...currentState,
-        isLoading: true,
-        error: '',
-      }))
-
+      setState((current) => ({ ...current, isLoading: true, error: '' }))
       try {
         const [data, workspaceSettings] = await Promise.all([
           getTasksKanban(50, controller.signal),
           getWorkspaceSettings(controller.signal),
         ])
         setWorkspaceTimezone(workspaceSettings.timezone || 'UTC')
-        setState({
-          data,
-          isLoading: false,
-          error: '',
-        })
+        setState({ data, isLoading: false, error: '' })
         setSelectedIds(new Set())
       } catch (error) {
-        if (isAbortError(error)) {
-          return
-        }
-
-        setState((currentState) => ({
-          ...currentState,
+        if (isAbortError(error)) return
+        setState((current) => ({
+          ...current,
           isLoading: false,
           error:
             error instanceof Error
@@ -125,10 +118,29 @@ export function TasksPage() {
   }, [requestVersion])
 
   useEffect(() => {
-    if (!toast) {
-      return
+    const handleRealtime = (event: Event) => {
+      const payload = (event as CustomEvent<RealtimePayload>).detail
+      if (
+        payload?.event === 'task_created' ||
+        payload?.event === 'task_updated' ||
+        payload?.event === 'task_deleted' ||
+        payload?.event === 'tasks_bulk_deleted'
+      ) {
+        setRequestVersion((value) => value + 1)
+      }
     }
+    const handleReconnect = () => setRequestVersion((value) => value + 1)
 
+    window.addEventListener(CRM_REALTIME_EVENT, handleRealtime as EventListener)
+    window.addEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    return () => {
+      window.removeEventListener(CRM_REALTIME_EVENT, handleRealtime as EventListener)
+      window.removeEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!toast) return
     const timeoutId = window.setTimeout(() => setToast(''), 5000)
     return () => window.clearTimeout(timeoutId)
   }, [toast])
@@ -138,18 +150,12 @@ export function TasksPage() {
       if (
         event.target instanceof Element &&
         event.target.closest('.tasks-card-menu')
-      ) {
-        return
-      }
+      ) return
       setOpenMenuId('')
     }
-
     const closeMenuByKeyboard = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenMenuId('')
-      }
+      if (event.key === 'Escape') setOpenMenuId('')
     }
-
     document.addEventListener('pointerdown', closeMenu)
     document.addEventListener('keydown', closeMenuByKeyboard)
     return () => {
@@ -171,19 +177,14 @@ export function TasksPage() {
     [allTasks, selectedIds],
   )
 
-  const reloadBoard = () => {
-    setRequestVersion((currentVersion) => currentVersion + 1)
-  }
+  const reloadBoard = () => setRequestVersion((value) => value + 1)
 
   const toggleTask = (taskId: string) => {
-    setSelectedIds((currentIds) => {
-      const nextIds = new Set(currentIds)
-      if (nextIds.has(taskId)) {
-        nextIds.delete(taskId)
-      } else {
-        nextIds.add(taskId)
-      }
-      return nextIds
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
     })
   }
 
@@ -194,18 +195,13 @@ export function TasksPage() {
   }
 
   const closeDeleteConfirmation = () => {
-    if (isDeleting) {
-      return
-    }
+    if (isDeleting) return
     setDeleteRequest(null)
     setDeleteError('')
   }
 
   const confirmDelete = async () => {
-    if (!deleteRequest || isDeleting) {
-      return
-    }
-
+    if (!deleteRequest || isDeleting) return
     setIsDeleting(true)
     setDeleteError('')
 
@@ -217,12 +213,10 @@ export function TasksPage() {
         const result = await bulkDeleteTasks(
           deleteRequest.tasks.map((task) => task.id),
         )
-        const skippedCount = result.skipped_ids.length
         setToast(
-          `Удалено задач: ${result.deleted_count}. Пропущено: ${skippedCount}.`,
+          `Удалено задач: ${result.deleted_count}. Пропущено: ${result.skipped_ids.length}.`,
         )
       }
-
       setDeleteRequest(null)
       setDialog(null)
       reloadBoard()
@@ -239,26 +233,21 @@ export function TasksPage() {
 
   const loadMore = async (status: TaskStatus) => {
     const column = state.data?.[status]
-    if (!column?.next_cursor || loadingMoreStatus) {
-      return
-    }
+    if (!column?.next_cursor || loadingMoreStatus) return
 
     setLoadingMoreStatus(status)
     try {
       const response = await getTasksPage(status, 50, column.next_cursor)
-      setState((currentState) => {
-        if (!currentState.data) {
-          return currentState
-        }
-
-        const currentTasks = currentState.data[status].tasks
+      setState((current) => {
+        if (!current.data) return current
+        const currentTasks = current.data[status].tasks
         const knownIds = new Set(currentTasks.map((task) => task.id))
         return {
-          ...currentState,
+          ...current,
           data: {
-            ...currentState.data,
+            ...current.data,
             [status]: {
-              ...currentState.data[status],
+              ...current.data[status],
               tasks: [
                 ...currentTasks,
                 ...response.tasks.filter((task) => !knownIds.has(task.id)),
@@ -279,90 +268,16 @@ export function TasksPage() {
     }
   }
 
-  const handleDragStart = (
-    event: DragEvent<HTMLElement>,
+  const moveTask = async (
     task: ApiTask,
     sourceStatus: TaskStatus,
+    targetStatus: TaskStatus,
   ) => {
-    if (movingTaskId) {
-      event.preventDefault()
-      return
-    }
-
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', task.id)
-    setDraggedTask({ task, sourceStatus })
-    setDropTargetStatus(null)
-    setOpenMenuId('')
-  }
-
-  const handleDragEnd = () => {
-    setDraggedTask(null)
-    setDropTargetStatus(null)
-  }
-
-  const handleColumnDragOver = (
-    event: DragEvent<HTMLElement>,
-    status: TaskStatus,
-  ) => {
-    if (
-      !draggedTask ||
-      movingTaskId ||
-      draggedTask.sourceStatus === status
-    ) {
-      return
-    }
-
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    setDropTargetStatus(status)
-  }
-
-  const handleColumnDragLeave = (
-    event: DragEvent<HTMLElement>,
-    status: TaskStatus,
-  ) => {
-    const relatedTarget = event.relatedTarget
-    if (
-      dropTargetStatus === status &&
-      (!(relatedTarget instanceof Node) ||
-        !event.currentTarget.contains(relatedTarget))
-    ) {
-      setDropTargetStatus(null)
-    }
-  }
-
-  const handleColumnDrop = (
-    event: DragEvent<HTMLElement>,
-    status: TaskStatus,
-  ) => {
-    event.preventDefault()
-    void moveTask(status)
-  }
-
-  const moveTask = async (status: TaskStatus) => {
-    const currentDraggedTask = draggedTask
-    setDraggedTask(null)
-    setDropTargetStatus(null)
-
-    if (
-      !currentDraggedTask ||
-      currentDraggedTask.sourceStatus === status ||
-      movingTaskId
-    ) {
-      return
-    }
-
-    setMovingTaskId(currentDraggedTask.task.id)
+    if (sourceStatus === targetStatus || movingTaskId) return
+    setMovingTaskId(task.id)
     try {
-      await updateTaskStatus(
-        currentDraggedTask.task.id,
-        status,
-        currentDraggedTask.task.version,
-      )
-      setToast(
-        `Задача перенесена в колонку «${taskStatusLabels[status].shortTitle}».`,
-      )
+      await updateTaskStatus(task.id, targetStatus, task.version)
+      setToast(`Задача перенесена в колонку «${taskStatusLabels[targetStatus].shortTitle}».`)
       reloadBoard()
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -382,6 +297,111 @@ export function TasksPage() {
     }
   }
 
+  const handleDragStart = (
+    event: DragEvent<HTMLElement>,
+    task: ApiTask,
+    sourceStatus: TaskStatus,
+  ) => {
+    if (movingTaskId) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', task.id)
+    setDraggedTask({ task, sourceStatus })
+    setDropTargetStatus(null)
+    setOpenMenuId('')
+  }
+
+  const handleDragEnd = () => {
+    setDraggedTask(null)
+    setDropTargetStatus(null)
+  }
+
+  const handleColumnDragOver = (
+    event: DragEvent<HTMLElement>,
+    status: TaskStatus,
+  ) => {
+    if (!draggedTask || movingTaskId || draggedTask.sourceStatus === status) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDropTargetStatus(status)
+  }
+
+  const handleColumnDrop = (
+    event: DragEvent<HTMLElement>,
+    status: TaskStatus,
+  ) => {
+    event.preventDefault()
+    const current = draggedTask
+    setDraggedTask(null)
+    setDropTargetStatus(null)
+    if (current) void moveTask(current.task, current.sourceStatus, status)
+  }
+
+  const handleTouchPointerDown = (
+    event: ReactPointerEvent<HTMLElement>,
+    task: ApiTask,
+    sourceStatus: TaskStatus,
+  ) => {
+    if (event.pointerType !== 'touch' || movingTaskId) return
+    touchDragRef.current = {
+      task,
+      sourceStatus,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    }
+  }
+
+  const handleTouchPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const current = touchDragRef.current
+    if (!current || event.pointerType !== 'touch') return
+    const distance = Math.hypot(
+      event.clientX - current.startX,
+      event.clientY - current.startY,
+    )
+    if (!current.moved && distance < 10) return
+    current.moved = true
+    event.preventDefault()
+    setDraggedTask({ task: current.task, sourceStatus: current.sourceStatus })
+
+    const target = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>('[data-task-status]')
+    const nextStatus = target?.dataset.taskStatus as TaskStatus | undefined
+    if (
+      nextStatus &&
+      taskStatuses.includes(nextStatus) &&
+      nextStatus !== current.sourceStatus
+    ) {
+      setDropTargetStatus(nextStatus)
+    } else {
+      setDropTargetStatus(null)
+    }
+  }
+
+  const handleTouchPointerEnd = (event: ReactPointerEvent<HTMLElement>) => {
+    const current = touchDragRef.current
+    if (!current || event.pointerType !== 'touch') return
+    const targetStatus = dropTargetStatus
+    touchDragRef.current = null
+    setDraggedTask(null)
+    setDropTargetStatus(null)
+
+    if (current.moved) {
+      ignoreClickTaskIdRef.current = current.task.id
+      window.setTimeout(() => {
+        if (ignoreClickTaskIdRef.current === current.task.id) {
+          ignoreClickTaskIdRef.current = ''
+        }
+      }, 350)
+      if (targetStatus && targetStatus !== current.sourceStatus) {
+        void moveTask(current.task, current.sourceStatus, targetStatus)
+      }
+    }
+  }
+
   const handleTaskSaved = (message: string) => {
     setDialog(null)
     setToast(message)
@@ -394,18 +414,14 @@ export function TasksPage() {
     reloadBoard()
   }
 
-  if (state.isLoading && !state.data) {
-    return <TasksSkeleton />
-  }
+  if (state.isLoading && !state.data) return <TasksSkeleton />
 
   if (state.error || !state.data) {
     return (
       <section className="tasks-state-card" aria-live="polite">
         <h1>Не удалось загрузить задачи</h1>
         <p>{state.error || 'Попробуйте повторить запрос.'}</p>
-        <button type="button" onClick={reloadBoard}>
-          Повторить
-        </button>
+        <button type="button" onClick={reloadBoard}>Повторить</button>
       </section>
     )
   }
@@ -416,47 +432,33 @@ export function TasksPage() {
     <>
       <section className="tasks-page" aria-label="Задачи">
         <div className="tasks-page__utility-row">
-          <div>
-            {selectedTasks.length > 0 ? (
-              <div className="tasks-bulk-panel" aria-live="polite">
-                <span>
-                  <span aria-hidden="true">⌫</span>
-                  Выбрано: {selectedTasks.length}
-                </span>
-                <button
-                  type="button"
-                  disabled={selectedTasks.length > 100}
-                  title={
-                    selectedTasks.length > 100
-                      ? 'Можно удалить не более 100 задач за раз'
-                      : undefined
-                  }
-                  onClick={() =>
-                    openDeleteConfirmation({
-                      kind: 'bulk',
-                      tasks: selectedTasks,
-                    })
-                  }
-                >
-                  Удалить выбранные
-                </button>
-              </div>
-            ) : (
-              <p className="tasks-page__selection-hint">
-                <span aria-hidden="true">⌑</span>
-                Выберите задачи для массовых действий
-              </p>
-            )}
-          </div>
-
-          <button
-            className="tasks-page__create-button"
-            type="button"
-            onClick={() => setDialog({ mode: 'create' })}
-          >
-            <span aria-hidden="true">+</span>
-            Создать задачу
-          </button>
+          {selectedTasks.length > 0 ? (
+            <div className="tasks-bulk-panel" aria-live="polite">
+              <span>
+                <span aria-hidden="true">⌫</span>
+                Выбрано: {selectedTasks.length}
+              </span>
+              <button
+                type="button"
+                disabled={selectedTasks.length > 100}
+                title={
+                  selectedTasks.length > 100
+                    ? 'Можно удалить не более 100 задач за раз'
+                    : undefined
+                }
+                onClick={() =>
+                  openDeleteConfirmation({ kind: 'bulk', tasks: selectedTasks })
+                }
+              >
+                Удалить выбранные
+              </button>
+            </div>
+          ) : (
+            <p className="tasks-page__selection-hint">
+              <span aria-hidden="true">⌑</span>
+              Выберите задачи для массовых действий
+            </p>
+          )}
         </div>
 
         {state.isLoading && (
@@ -476,12 +478,10 @@ export function TasksPage() {
                   'tasks-column',
                   `tasks-column--${status}`,
                   isDropTarget ? 'tasks-column--drop-target' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
+                ].filter(Boolean).join(' ')}
                 key={status}
+                data-task-status={status}
                 onDragOver={(event) => handleColumnDragOver(event, status)}
-                onDragLeave={(event) => handleColumnDragLeave(event, status)}
                 onDrop={(event) => handleColumnDrop(event, status)}
               >
                 <header className="tasks-column__header">
@@ -489,7 +489,6 @@ export function TasksPage() {
                     <h2>{taskStatusLabels[status].title}</h2>
                     <span>{column.count}</span>
                   </div>
-
                   {status === 'new' && (
                     <button
                       type="button"
@@ -503,47 +502,44 @@ export function TasksPage() {
                 </header>
 
                 <div className="tasks-column__cards">
-                  {column.tasks.length === 0 ? (
-                    <div className="tasks-column__empty">
-                      <span aria-hidden="true">✓</span>
-                      <p>Нет задач</p>
-                    </div>
-                  ) : (
-                    column.tasks.map((task) => (
-                      <TaskCard
-                        task={task}
-                        workspaceTimezone={workspaceTimezone}
-                        isSelected={selectedIds.has(task.id)}
-                        isMoving={movingTaskId === task.id}
-                        isMenuOpen={openMenuId === task.id}
-                        key={task.id}
-                        onSelect={() => toggleTask(task.id)}
-                        onEdit={() => {
-                          setOpenMenuId('')
-                          setDialog({
-                            mode: 'edit',
-                            taskId: task.id,
-                            taskTitle: task.title,
-                          })
-                        }}
-                        onDelete={() =>
-                          openDeleteConfirmation({
-                            kind: 'single',
-                            tasks: [task],
-                          })
-                        }
-                        onToggleMenu={() =>
-                          setOpenMenuId((currentId) =>
-                            currentId === task.id ? '' : task.id,
-                          )
-                        }
-                        onDragStart={(event) =>
-                          handleDragStart(event, task, status)
-                        }
-                        onDragEnd={handleDragEnd}
-                      />
-                    ))
-                  )}
+                  {column.tasks.map((task) => (
+                    <TaskCard
+                      task={task}
+                      workspaceTimezone={workspaceTimezone}
+                      isSelected={selectedIds.has(task.id)}
+                      isMoving={movingTaskId === task.id}
+                      isMenuOpen={openMenuId === task.id}
+                      key={task.id}
+                      onSelect={() => toggleTask(task.id)}
+                      onOpen={() => {
+                        if (ignoreClickTaskIdRef.current === task.id) return
+                        setDialog({
+                          mode: 'view',
+                          taskId: task.id,
+                          taskTitle: task.title,
+                        })
+                      }}
+                      onEdit={() => {
+                        setOpenMenuId('')
+                        setDialog({
+                          mode: 'edit',
+                          taskId: task.id,
+                          taskTitle: task.title,
+                        })
+                      }}
+                      onDelete={() =>
+                        openDeleteConfirmation({ kind: 'single', tasks: [task] })
+                      }
+                      onToggleMenu={() =>
+                        setOpenMenuId((current) => current === task.id ? '' : task.id)
+                      }
+                      onDragStart={(event) => handleDragStart(event, task, status)}
+                      onDragEnd={handleDragEnd}
+                      onPointerDown={(event) => handleTouchPointerDown(event, task, status)}
+                      onPointerMove={handleTouchPointerMove}
+                      onPointerEnd={handleTouchPointerEnd}
+                    />
+                  ))}
 
                   {column.next_cursor && (
                     <button
@@ -554,10 +550,7 @@ export function TasksPage() {
                     >
                       {loadingMoreStatus === status
                         ? 'Загрузка…'
-                        : `Показать ещё (${Math.max(
-                            0,
-                            column.count - column.tasks.length,
-                          )})`}
+                        : `Показать ещё (${Math.max(0, column.count - column.tasks.length)})`}
                     </button>
                   )}
                 </div>
@@ -578,9 +571,9 @@ export function TasksPage() {
         />
       )}
 
-      {dialog?.mode === 'edit' && (
+      {(dialog?.mode === 'view' || dialog?.mode === 'edit') && (
         <TaskFormModal
-          mode="edit"
+          mode={dialog.mode}
           taskId={dialog.taskId}
           taskTitle={dialog.taskTitle}
           onClose={() => setDialog(null)}
@@ -625,11 +618,15 @@ function TaskCard({
   isMoving,
   isMenuOpen,
   onSelect,
+  onOpen,
   onEdit,
   onDelete,
   onToggleMenu,
   onDragStart,
   onDragEnd,
+  onPointerDown,
+  onPointerMove,
+  onPointerEnd,
 }: {
   task: ApiTask
   workspaceTimezone: string
@@ -637,43 +634,46 @@ function TaskCard({
   isMoving: boolean
   isMenuOpen: boolean
   onSelect: () => void
+  onOpen: () => void
   onEdit: () => void
   onDelete: () => void
   onToggleMenu: () => void
   onDragStart: (event: DragEvent<HTMLElement>) => void
   onDragEnd: () => void
+  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
+  onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void
+  onPointerEnd: (event: ReactPointerEvent<HTMLElement>) => void
 }) {
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
     if (
       event.target instanceof Element &&
       event.target.closest('button, input, a')
-    ) {
-      return
-    }
-    onEdit()
+    ) return
+    onOpen()
   }
 
   const amount = formatTaskAmount(task)
   const contactName = getTaskContactName(task)
+  const overdue = task.is_overdue && task.status !== 'done'
 
   return (
     <article
       className={[
         'tasks-card',
         `tasks-card--${task.status}`,
-        task.is_overdue && task.status !== 'done'
-          ? 'tasks-card--overdue'
-          : '',
+        overdue ? 'tasks-card--overdue' : '',
         isSelected ? 'tasks-card--selected' : '',
         isMoving ? 'tasks-card--moving' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      ].filter(Boolean).join(' ')}
       draggable={!isMoving}
       aria-label={`${task.title}. ${taskStatusLabels[task.status].shortTitle}`}
       onClick={handleCardClick}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
     >
       <input
         className="tasks-card__checkbox"
@@ -687,9 +687,7 @@ function TaskCard({
         <div className="tasks-card__heading">
           <div>
             <h3 title={task.title}>{task.title}</h3>
-            {task.created_by_ai && (
-              <span className="tasks-card__ai-badge">AI</span>
-            )}
+            {task.created_by_ai && <span className="tasks-card__ai-badge">AI</span>}
           </div>
 
           <div className="tasks-card-menu">
@@ -736,16 +734,11 @@ function TaskCard({
             {contactName}
           </a>
         ) : (
-          <p className="tasks-card__contact" title={contactName}>
-            {contactName}
-          </p>
+          <p className="tasks-card__contact" title={contactName}>{contactName}</p>
         )}
 
         <div className="tasks-card__meta">
-          <span className={task.is_overdue ? 'is-overdue' : ''}>
-            {task.is_overdue && task.status !== 'done' && (
-              <b aria-label="Просрочено" title="Просрочено">!</b>
-            )}
+          <span className={overdue ? 'is-overdue' : ''}>
             {formatTaskDueDateForDisplay(task, workspaceTimezone)}
           </span>
 
@@ -762,6 +755,7 @@ function TaskCard({
           )}
 
           {amount && <strong>{amount}</strong>}
+          {overdue && <strong className="tasks-card__overdue-text">Просрочено</strong>}
         </div>
       </div>
     </article>
@@ -781,20 +775,17 @@ function TaskDeleteConfirmModal({
   onCancel: () => void
   onConfirm: () => void
 }) {
-  const modalRef = useRef<HTMLDivElement>(null)
   const cancelButtonRef = useRef<HTMLButtonElement>(null)
   const count = request.tasks.length
 
   useEffect(() => {
     cancelButtonRef.current?.focus()
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !isDeleting) {
         event.preventDefault()
         onCancel()
       }
     }
-
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isDeleting, onCancel])
@@ -803,15 +794,12 @@ function TaskDeleteConfirmModal({
     <div className="tasks-delete-overlay" role="presentation">
       <div
         className="tasks-delete-modal"
-        ref={modalRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="tasks-delete-title"
         aria-describedby="tasks-delete-text"
       >
-        <span className="tasks-delete-modal__icon" aria-hidden="true">
-          !
-        </span>
+        <span className="tasks-delete-modal__icon" aria-hidden="true">!</span>
         <h2 id="tasks-delete-title">
           {request.kind === 'single'
             ? 'Удалить задачу?'
@@ -823,9 +811,7 @@ function TaskDeleteConfirmModal({
             : 'Все выбранные задачи исчезнут из канбана.'}{' '}
           Действие невозможно отменить.
         </p>
-
         {error && <p className="tasks-delete-modal__error">{error}</p>}
-
         <div className="tasks-delete-modal__actions">
           <button
             ref={cancelButtonRef}
@@ -864,10 +850,7 @@ function TasksSkeleton() {
           <article className="tasks-column" key={status}>
             <span className="tasks-skeleton tasks-skeleton--header" />
             {Array.from({ length: 3 }, (_, index) => (
-              <span
-                className="tasks-skeleton tasks-skeleton--card"
-                key={index}
-              />
+              <span className="tasks-skeleton tasks-skeleton--card" key={index} />
             ))}
           </article>
         ))}
@@ -877,22 +860,14 @@ function TasksSkeleton() {
 }
 
 function getTaskContactName(task: ApiTask) {
-  if (!task.contact) {
-    return 'Не указан'
-  }
+  if (!task.contact) return 'Не указан'
   return task.contact.company || task.contact.name
 }
 
 function formatTaskAmount(task: ApiTask) {
-  if (!task.deal || task.deal.amount == null) {
-    return ''
-  }
-
+  if (!task.deal || task.deal.amount == null) return ''
   const amount = Number(task.deal.amount)
-  if (!Number.isFinite(amount)) {
-    return `${task.deal.amount} ${task.deal.currency}`
-  }
-
+  if (!Number.isFinite(amount)) return `${task.deal.amount} ${task.deal.currency}`
   const formattedAmount = new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(amount)
@@ -901,8 +876,7 @@ function formatTaskAmount(task: ApiTask) {
     USD: '$',
     EUR: '€',
   }
-  const currency = currencySymbols[task.deal.currency] ?? task.deal.currency
-  return `${formattedAmount} ${currency}`
+  return `${formattedAmount} ${currencySymbols[task.deal.currency] ?? task.deal.currency}`
 }
 
 function isAbortError(error: unknown) {

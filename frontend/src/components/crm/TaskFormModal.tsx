@@ -25,19 +25,25 @@ import {
   deleteTask,
   getTask,
   updateTask,
-  updateTaskStatus,
   type ApiTaskDetail,
   type CreateTaskRequest,
-  type TaskDueDateType,
-  type TaskStatus,
   type UpdateTaskRequest,
 } from '../../shared/api/tasksApi'
 import { getWorkspaceSettings } from '../../shared/api/workspaceSettingsApi'
-import { formatTaskDueDateForInput } from '../../shared/taskDateTime'
+import {
+  CRM_REALTIME_EVENT,
+  CRM_REALTIME_RECONNECTED_EVENT,
+} from '../../shared/crmRealtime'
+import {
+  formatTaskDueDateForDisplay,
+  formatTaskDueDateForInput,
+} from '../../shared/taskDateTime'
 import './TaskFormModal.css'
 import './TaskFormModalTzFixes.css'
+import './TaskFormModalUpdatedTz.css'
 
-type TaskFormMode = 'create' | 'edit'
+type TaskFormMode = 'create' | 'view' | 'edit'
+type TaskPanelMode = 'view' | 'edit'
 
 type TaskContactOption = Pick<
   ApiContactAutocomplete,
@@ -46,13 +52,11 @@ type TaskContactOption = Pick<
 
 type TaskDraft = {
   title: string
-  dueDateType: TaskDueDateType
   dueDate: string
   description: string
   contactId: string
   dealId: string
   comment: string
-  status: TaskStatus
 }
 
 type TaskFormModalProps = {
@@ -66,15 +70,19 @@ type TaskFormModalProps = {
   onNotFound: () => void
 }
 
+type RealtimePayload = {
+  event?: string
+  task?: { id?: string }
+  task_id?: string
+}
+
 const emptyTaskDraft: TaskDraft = {
   title: '',
-  dueDateType: 'none',
   dueDate: '',
   description: '',
   contactId: '',
   dealId: '',
   comment: '',
-  status: 'new',
 }
 
 export function TaskFormModal({
@@ -95,6 +103,10 @@ export function TaskFormModal({
     payload: '',
   })
 
+  const [panelMode, setPanelMode] = useState<TaskPanelMode>(
+    mode === 'view' ? 'view' : 'edit',
+  )
+  const [task, setTask] = useState<ApiTaskDetail | null>(null)
   const [draft, setDraft] = useState<TaskDraft>(emptyTaskDraft)
   const [deals, setDeals] = useState<ApiKanbanDeal[]>([])
   const [selectedContact, setSelectedContact] =
@@ -108,40 +120,30 @@ export function TaskFormModal({
   const [version, setVersion] = useState<number | null>(
     mode === 'create' ? 0 : null,
   )
+  const [workspaceTimezone, setWorkspaceTimezone] = useState('UTC')
   const [initialDraft, setInitialDraft] = useState('')
-  const [initialFields, setInitialFields] = useState('')
-  const [initialStatus, setInitialStatus] = useState<TaskStatus>('new')
   const [isLoading, setIsLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [requestError, setRequestError] = useState('')
+  const [externalNotice, setExternalNotice] = useState('')
   const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false)
   const [isConflictConfirmOpen, setIsConflictConfirmOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
-
-  const filteredDeals = useMemo(() => {
-    if (draft.contactId) {
-      return deals.filter((deal) => deal.contact?.id === draft.contactId)
-    }
-
-    if (draft.dealId) {
-      return deals.filter((deal) => deal.id === draft.dealId)
-    }
-
-    return []
-  }, [deals, draft.contactId, draft.dealId])
 
   const selectedDeal = useMemo(
     () => deals.find((deal) => deal.id === draft.dealId) ?? null,
     [deals, draft.dealId],
   )
 
+  const filteredDeals = useMemo(() => {
+    if (!draft.contactId) return []
+    return deals.filter((deal) => deal.contact?.id === draft.contactId)
+  }, [deals, draft.contactId])
+
   const serializedDraft = serializeTaskDraft(draft)
   const isDirty = initialDraft !== '' && serializedDraft !== initialDraft
-  const fieldsChanged =
-    initialFields !== '' && serializeTaskFields(draft) !== initialFields
-  const statusChanged = mode === 'edit' && draft.status !== initialStatus
   const validation = validateTaskDraft(draft)
   const canSubmit =
     validation.isValid &&
@@ -165,33 +167,33 @@ export function TaskFormModal({
 
     try {
       const dealsPromise = loadAllDeals(controller.signal)
+      const settingsPromise = getWorkspaceSettings(controller.signal)
       const taskPromise =
-        mode === 'edit' && taskId
+        mode !== 'create' && taskId
           ? getTask(taskId, controller.signal)
           : Promise.resolve(null)
-      const settingsPromise =
-        mode === 'edit'
-          ? getWorkspaceSettings(controller.signal)
-          : Promise.resolve(null)
-      const [loadedDeals, task, workspaceSettings] = await Promise.all([
+
+      const [loadedDeals, workspaceSettings, loadedTask] = await Promise.all([
         dealsPromise,
-        taskPromise,
         settingsPromise,
+        taskPromise,
       ])
 
-      setDeals(loadedDeals)
-
-      const nextDraft = task
-        ? taskToDraft(task, workspaceSettings?.timezone || 'UTC')
+      const timezone = workspaceSettings.timezone || 'UTC'
+      const nextDraft = loadedTask
+        ? taskToDraft(loadedTask, timezone)
         : emptyTaskDraft
-      const nextContact = task?.contact
+      const nextContact = loadedTask?.contact
         ? {
-            id: task.contact.id,
-            name: task.contact.name,
-            company: task.contact.company,
+            id: loadedTask.contact.id,
+            name: loadedTask.contact.name,
+            company: loadedTask.contact.company,
           }
         : null
 
+      setDeals(loadedDeals)
+      setWorkspaceTimezone(timezone)
+      setTask(loadedTask)
       setDraft(nextDraft)
       setSelectedContact(nextContact)
       setContactQuery(nextContact ? formatContactOption(nextContact) : '')
@@ -200,25 +202,22 @@ export function TaskFormModal({
       setIsContactSearchOpen(false)
       setContactSearchError('')
       setInitialDraft(serializeTaskDraft(nextDraft))
-      setInitialFields(serializeTaskFields(nextDraft))
-      setInitialStatus(nextDraft.status)
-      setVersion(task?.version ?? 0)
+      setVersion(loadedTask?.version ?? 0)
       setIsInitialized(true)
-      window.setTimeout(() => titleInputRef.current?.focus(), 0)
-    } catch (error) {
-      if (isAbortError(error)) {
-        return
-      }
 
+      if (mode === 'create' || panelMode === 'edit') {
+        window.setTimeout(() => titleInputRef.current?.focus(), 0)
+      }
+    } catch (error) {
+      if (isAbortError(error)) return
       if (
-        mode === 'edit' &&
+        mode !== 'create' &&
         error instanceof ApiError &&
         error.status === 404
       ) {
         onNotFound()
         return
       }
-
       setRequestError(
         error instanceof Error
           ? error.message
@@ -230,38 +229,57 @@ export function TaskFormModal({
       }
       setIsLoading(false)
     }
-  }, [mode, onNotFound, stopCurrentRequest, taskId])
-
-  const requestClose = useCallback(() => {
-    if (isSaving || isDeleting) {
-      return
-    }
-
-    if (isDirty) {
-      setIsCloseConfirmOpen(true)
-    } else {
-      onClose()
-    }
-  }, [isDeleting, isDirty, isSaving, onClose])
+  }, [mode, onNotFound, panelMode, stopCurrentRequest, taskId])
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const setupTimeoutId = window.setTimeout(() => {
-      void loadForm()
-    }, 0)
+    const timeoutId = window.setTimeout(() => void loadForm(), 0)
 
     return () => {
       document.body.style.overflow = originalOverflow
-      window.clearTimeout(setupTimeoutId)
+      window.clearTimeout(timeoutId)
       stopCurrentRequest()
     }
   }, [loadForm, stopCurrentRequest])
 
   useEffect(() => {
-    if (!isInitialized) {
-      return
+    if (mode === 'create' || !taskId) return
+
+    const handleRealtime = (event: Event) => {
+      const payload = (event as CustomEvent<RealtimePayload>).detail
+      if (!payload?.event) return
+      const changedTaskId = payload.task?.id || payload.task_id
+      if (changedTaskId !== taskId) return
+
+      if (payload.event === 'task_deleted') {
+        onNotFound()
+        return
+      }
+
+      if (payload.event === 'task_updated') {
+        if (panelMode === 'edit') {
+          setPanelMode('view')
+          setExternalNotice(
+            'Задача была изменена в другой вкладке или другим пользователем. Несохранённые изменения сброшены.',
+          )
+        }
+        void loadForm()
+      }
     }
+
+    const handleReconnect = () => void loadForm()
+
+    window.addEventListener(CRM_REALTIME_EVENT, handleRealtime as EventListener)
+    window.addEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    return () => {
+      window.removeEventListener(CRM_REALTIME_EVENT, handleRealtime as EventListener)
+      window.removeEventListener(CRM_REALTIME_RECONNECTED_EVENT, handleReconnect)
+    }
+  }, [loadForm, mode, onNotFound, panelMode, taskId])
+
+  useEffect(() => {
+    if (!isInitialized || panelMode !== 'edit') return
 
     const query = contactQuery.trim()
     const selectedLabel = selectedContact
@@ -288,29 +306,19 @@ export function TaskFormModal({
     const timeoutId = window.setTimeout(async () => {
       setIsContactSearching(true)
       setContactSearchError('')
-
       try {
         const results = await searchContacts(query, 5, controller.signal)
-
-        if (controller.signal.aborted) {
-          return
-        }
-
+        if (controller.signal.aborted) return
         setContactOptions(results)
         setContactActiveIndex(0)
         setIsContactSearchOpen(results.length > 0)
       } catch (error) {
-        if (isAbortError(error)) {
-          return
-        }
-
+        if (isAbortError(error)) return
         setContactOptions([])
         setContactSearchError('Не удалось найти контакты.')
         setIsContactSearchOpen(true)
       } finally {
-        if (!controller.signal.aborted) {
-          setIsContactSearching(false)
-        }
+        if (!controller.signal.aborted) setIsContactSearching(false)
       }
     }, 300)
 
@@ -318,7 +326,16 @@ export function TaskFormModal({
       window.clearTimeout(timeoutId)
       controller.abort()
     }
-  }, [contactQuery, isInitialized, selectedContact])
+  }, [contactQuery, isInitialized, panelMode, selectedContact])
+
+  const requestClose = useCallback(() => {
+    if (isSaving || isDeleting) return
+    if ((mode === 'create' || panelMode === 'edit') && isDirty) {
+      setIsCloseConfirmOpen(true)
+      return
+    }
+    onClose()
+  }, [isDeleting, isDirty, isSaving, mode, onClose, panelMode])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -326,44 +343,33 @@ export function TaskFormModal({
         isCloseConfirmOpen ||
         isConflictConfirmOpen ||
         isDeleteConfirmOpen
-      ) {
-        return
-      }
+      ) return
 
       if (event.key === 'Escape') {
         if (isContactSearchOpen) {
           setIsContactSearchOpen(false)
           return
         }
-
         event.preventDefault()
         requestClose()
         return
       }
 
-      if (event.key !== 'Tab' || !modalRef.current) {
-        return
-      }
-
-      const focusableElements = Array.from(
+      if (event.key !== 'Tab' || !modalRef.current) return
+      const elements = Array.from(
         modalRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
         ),
       )
-
-      if (focusableElements.length === 0) {
-        return
-      }
-
-      const firstElement = focusableElements[0]
-      const lastElement = focusableElements[focusableElements.length - 1]
-
-      if (event.shiftKey && document.activeElement === firstElement) {
+      if (elements.length === 0) return
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
-        lastElement.focus()
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault()
-        firstElement.focus()
+        first.focus()
       }
     }
 
@@ -384,72 +390,40 @@ export function TaskFormModal({
         HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       >,
     ) => {
-      const value = event.target.value
-      setDraft((currentDraft) => ({
-        ...currentDraft,
-        [field]: value,
-      }))
+      setDraft((current) => ({ ...current, [field]: event.target.value }))
       setRequestError('')
     }
 
-  const updateDueDateType = (event: ChangeEvent<HTMLSelectElement>) => {
-    const dueDateType = event.target.value as TaskDueDateType
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      dueDateType,
-      dueDate:
-        dueDateType === 'none' || currentDraft.dueDateType !== dueDateType
-          ? ''
-          : currentDraft.dueDate,
-    }))
-    setRequestError('')
-  }
-
-  const updateDueDate = (event: ChangeEvent<HTMLInputElement>) => {
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      dueDate: event.target.value,
-    }))
-    setRequestError('')
-  }
-
   const updateContactQuery = (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value
-
     setContactQuery(value)
     setSelectedContact(null)
     setContactOptions([])
     setContactActiveIndex(0)
     setContactSearchError('')
     setIsContactSearchOpen(value.trim().length >= 2)
-    setDraft((currentDraft) => ({
-      ...currentDraft,
+    setDraft((current) => ({
+      ...current,
       contactId: '',
-      dealId: currentDraft.contactId ? '' : currentDraft.dealId,
+      dealId: '',
     }))
     setRequestError('')
   }
 
   const selectContact = (contact: TaskContactOption) => {
-    const label = formatContactOption(contact)
-
     setSelectedContact(contact)
-    setContactQuery(label)
+    setContactQuery(formatContactOption(contact))
     setContactOptions([])
     setContactActiveIndex(0)
     setIsContactSearchOpen(false)
     setContactSearchError('')
-    setDraft((currentDraft) => {
-      const selectedTaskDeal = deals.find(
-        (deal) => deal.id === currentDraft.dealId,
-      )
-      const canKeepDeal =
-        selectedTaskDeal?.contact?.id === contact.id
-
+    setDraft((current) => {
+      const currentDeal = deals.find((deal) => deal.id === current.dealId)
       return {
-        ...currentDraft,
+        ...current,
         contactId: contact.id,
-        dealId: canKeepDeal ? currentDraft.dealId : '',
+        dealId:
+          currentDeal?.contact?.id === contact.id ? current.dealId : '',
       }
     })
     setRequestError('')
@@ -462,11 +436,7 @@ export function TaskFormModal({
     setContactActiveIndex(0)
     setIsContactSearchOpen(false)
     setContactSearchError('')
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      contactId: '',
-      dealId: currentDraft.contactId ? '' : currentDraft.dealId,
-    }))
+    setDraft((current) => ({ ...current, contactId: '', dealId: '' }))
     setRequestError('')
   }
 
@@ -479,50 +449,32 @@ export function TaskFormModal({
       setIsContactSearchOpen(false)
       return
     }
-
-    if (contactOptions.length === 0) {
-      return
-    }
+    if (contactOptions.length === 0) return
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      event.stopPropagation()
       setIsContactSearchOpen(true)
-      setContactActiveIndex((currentIndex) =>
-        Math.min(currentIndex + 1, contactOptions.length - 1),
+      setContactActiveIndex((index) =>
+        Math.min(index + 1, contactOptions.length - 1),
       )
-      return
-    }
-
-    if (event.key === 'ArrowUp') {
+    } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      event.stopPropagation()
       setIsContactSearchOpen(true)
-      setContactActiveIndex((currentIndex) => Math.max(currentIndex - 1, 0))
-      return
-    }
-
-    if (event.key === 'Enter' && isContactSearchOpen) {
-      const activeContact = contactOptions[contactActiveIndex]
-
-      if (activeContact) {
+      setContactActiveIndex((index) => Math.max(index - 1, 0))
+    } else if (event.key === 'Enter' && isContactSearchOpen) {
+      const active = contactOptions[contactActiveIndex]
+      if (active) {
         event.preventDefault()
-        event.stopPropagation()
-        selectContact(activeContact)
+        selectContact(active)
       }
     }
   }
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    if (!canSubmit) {
-      return
-    }
-
-    if (mode === 'edit' && (!taskId || version === null)) {
+  const submitDraft = async () => {
+    if (!canSubmit) return false
+    if (mode !== 'create' && (!taskId || version === null)) {
       setRequestError('Не удалось определить версию задачи. Обновите данные.')
-      return
+      return false
     }
 
     stopCurrentRequest()
@@ -532,80 +484,57 @@ export function TaskFormModal({
     setRequestError('')
 
     try {
-      const payload = buildTaskPayload(draft)
-
       if (mode === 'create') {
+        const payload = buildCreatePayload(draft)
         const serializedPayload = JSON.stringify(payload)
-
         if (idempotencyRef.current.payload !== serializedPayload) {
           idempotencyRef.current = {
             key: createTaskIdempotencyKey(),
             payload: serializedPayload,
           }
         }
-
         await createTask(
           payload,
           idempotencyRef.current.key,
           controller.signal,
         )
         onCreated()
-        return
+        return true
       }
 
-      let currentVersion = version as number
-
-      if (fieldsChanged) {
-        const request: UpdateTaskRequest = {
-          version: currentVersion,
-          ...payload,
-        }
-        const updatedTask = await updateTask(
-          taskId as string,
-          request,
-          controller.signal,
-        )
-        currentVersion = updatedTask.version
-      }
-
-      if (statusChanged) {
-        const updatedTask = await updateTaskStatus(
-          taskId as string,
-          draft.status,
-          currentVersion,
-          controller.signal,
-        )
-        currentVersion = updatedTask.version
-      }
-
-      setVersion(currentVersion)
+      const payload = buildUpdatePayload(draft, version as number)
+      const updated = await updateTask(
+        taskId as string,
+        payload,
+        controller.signal,
+      )
+      setVersion(updated.version)
       onUpdated()
+      return true
     } catch (error) {
-      if (isAbortError(error)) {
-        return
-      }
-
+      if (isAbortError(error)) return false
       if (
-        mode === 'edit' &&
+        mode !== 'create' &&
         error instanceof ApiError &&
         error.status === 409
       ) {
         setIsConflictConfirmOpen(true)
       } else if (
-        mode === 'edit' &&
+        mode !== 'create' &&
         error instanceof ApiError &&
         error.status === 404
       ) {
         onNotFound()
       } else {
         setRequestError(
-          mode === 'edit'
-            ? 'Не удалось сохранить изменения. Попробуйте позже.'
-            : error instanceof Error
+          mode === 'create'
+            ? error instanceof Error
               ? error.message
-              : 'Не удалось создать задачу.',
+              : 'Не удалось создать задачу.'
+            : 'Не удалось сохранить изменения. Попробуйте позже.',
         )
       }
+      return false
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null
@@ -614,11 +543,13 @@ export function TaskFormModal({
     }
   }
 
-  const confirmDelete = async () => {
-    if (mode !== 'edit' || !taskId || isDeleting) {
-      return
-    }
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void submitDraft()
+  }
 
+  const confirmDelete = async () => {
+    if (mode === 'create' || !taskId || isDeleting) return
     stopCurrentRequest()
     const controller = new AbortController()
     requestControllerRef.current = controller
@@ -629,10 +560,7 @@ export function TaskFormModal({
       await deleteTask(taskId, controller.signal)
       onDeleted()
     } catch (error) {
-      if (isAbortError(error)) {
-        return
-      }
-
+      if (isAbortError(error)) return
       if (error instanceof ApiError && error.status === 404) {
         onNotFound()
       } else {
@@ -647,16 +575,28 @@ export function TaskFormModal({
     }
   }
 
+  const switchToEdit = () => {
+    setPanelMode('edit')
+    setExternalNotice('')
+    setInitialDraft(serializeTaskDraft(draft))
+    window.setTimeout(() => titleInputRef.current?.focus(), 0)
+  }
+
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
-      requestClose()
-    }
+    if (event.target === event.currentTarget) requestClose()
   }
 
   const isReady =
     !isLoading &&
     isInitialized &&
-    (mode === 'create' || version !== null)
+    (mode === 'create' || (task !== null && version !== null))
+
+  const modalTitle =
+    mode === 'create'
+      ? 'Создание задачи'
+      : panelMode === 'view'
+        ? 'Просмотр задачи'
+        : 'Редактирование задачи'
 
   return (
     <div
@@ -665,7 +605,7 @@ export function TaskFormModal({
       onMouseDown={handleOverlayMouseDown}
     >
       <div
-        className={`task-form-modal task-form-modal--${mode}`}
+        className={`task-form-modal task-form-modal--${mode === 'create' ? 'create' : panelMode}`}
         ref={modalRef}
         role="dialog"
         aria-modal="true"
@@ -673,18 +613,29 @@ export function TaskFormModal({
         aria-busy={isLoading || isSaving || isDeleting}
       >
         <header className="task-form-modal__header">
-          <h2 id="task-form-title">
-            {mode === 'create' ? 'Создание задачи' : 'Редактирование задачи'}
-          </h2>
-          <button
-            className="task-form-modal__close"
-            type="button"
-            aria-label="Закрыть"
-            disabled={isSaving || isDeleting}
-            onClick={requestClose}
-          >
-            <span aria-hidden="true" />
-          </button>
+          <h2 id="task-form-title">{modalTitle}</h2>
+          <div className="task-form-modal__header-actions">
+            {mode !== 'create' && panelMode === 'view' && (
+              <button
+                className="task-form-modal__edit"
+                type="button"
+                disabled={isLoading}
+                onClick={switchToEdit}
+              >
+                <span aria-hidden="true">✎</span>
+                Редактировать
+              </button>
+            )}
+            <button
+              className="task-form-modal__close"
+              type="button"
+              aria-label="Закрыть"
+              disabled={isSaving || isDeleting}
+              onClick={requestClose}
+            >
+              <span aria-hidden="true" />
+            </button>
+          </div>
         </header>
 
         {!isReady ? (
@@ -703,11 +654,17 @@ export function TaskFormModal({
               </>
             )}
           </div>
+        ) : panelMode === 'view' && task ? (
+          <TaskView
+            task={task}
+            workspaceTimezone={workspaceTimezone}
+            externalNotice={externalNotice}
+          />
         ) : (
           <form
-            className={`task-form task-form--${mode}`}
+            className={`task-form task-form--${mode === 'create' ? 'create' : 'edit'}`}
             noValidate
-            onSubmit={(event) => void handleSubmit(event)}
+            onSubmit={handleSubmit}
           >
             <label className="task-form__field task-form__field--title">
               <span className="task-form__visually-hidden">Название</span>
@@ -722,65 +679,22 @@ export function TaskFormModal({
                 aria-invalid={Boolean(validation.titleError)}
                 onChange={updateField('title')}
               />
-              {validation.titleError && (
-                <em role="alert">{validation.titleError}</em>
-              )}
+              {validation.titleError && <em role="alert">{validation.titleError}</em>}
             </label>
 
-            <div className="task-form__deadline-row">
-              <label className="task-form__field task-form__field--due-type">
-                <span>Тип срока</span>
-                <select
-                  value={draft.dueDateType}
-                  disabled={isSaving || isDeleting}
-                  onChange={updateDueDateType}
-                >
-                  <option value="none">Без срока</option>
-                  <option value="date">Дата</option>
-                  <option value="datetime">Дата и время</option>
-                </select>
-              </label>
-
+            <div className="task-form__deadline-row task-form__deadline-row--auto-type">
               <label className="task-form__due">
                 <span>Дата выполнения</span>
-                {draft.dueDateType === 'none' ? (
-                  <input
-                    type="text"
-                    value="Без срока"
-                    disabled
-                    readOnly
-                    aria-label="Дата выполнения: без срока"
-                  />
-                ) : (
-                  <input
-                    type={
-                      draft.dueDateType === 'date' ? 'date' : 'datetime-local'
-                    }
-                    value={draft.dueDate}
-                    disabled={isSaving || isDeleting}
-                    aria-invalid={Boolean(validation.dueDateError)}
-                    onChange={updateDueDate}
-                  />
-                )}
-                {validation.dueDateError && (
-                  <em role="alert">{validation.dueDateError}</em>
-                )}
+                <input
+                  type="datetime-local"
+                  value={draft.dueDate}
+                  disabled={isSaving || isDeleting}
+                  onChange={updateField('dueDate')}
+                />
               </label>
-
-              {mode === 'edit' && (
-                <label className="task-form__field task-form__field--status">
-                  <span>Статус</span>
-                  <select
-                    value={draft.status}
-                    disabled={isSaving || isDeleting}
-                    onChange={updateField('status')}
-                  >
-                    <option value="new">Новая</option>
-                    <option value="in_progress">В работе</option>
-                    <option value="done">Выполнена</option>
-                  </select>
-                </label>
-              )}
+              <p className="task-form__deadline-hint">
+                Если срок не нужен, оставьте поле пустым.
+              </p>
             </div>
 
             <label className="task-form__field task-form__field--description">
@@ -797,10 +711,7 @@ export function TaskFormModal({
 
             <div className="task-form__relations">
               <div className="task-form__field task-form__field--contact">
-                <span
-                  className="task-form__visually-hidden"
-                  id="task-contact-label"
-                >
+                <span className="task-form__visually-hidden" id="task-contact-label">
                   Клиент
                 </span>
                 <div className="task-form__contact-combobox">
@@ -864,12 +775,10 @@ export function TaskFormModal({
                   >
                     {contactSearchError ? (
                       <p role="alert">{contactSearchError}</p>
-                    ) : contactOptions.length > 0 ? (
+                    ) : (
                       contactOptions.map((contact, index) => (
                         <button
-                          className={
-                            index === contactActiveIndex ? 'is-active' : ''
-                          }
+                          className={index === contactActiveIndex ? 'is-active' : ''}
                           id={`task-contact-option-${contact.id}`}
                           type="button"
                           role="option"
@@ -883,7 +792,7 @@ export function TaskFormModal({
                           {contact.company && <span>{contact.company}</span>}
                         </button>
                       ))
-                    ) : null}
+                    )}
                   </div>
                 )}
               </div>
@@ -892,11 +801,7 @@ export function TaskFormModal({
                 <span className="task-form__visually-hidden">Сделка</span>
                 <select
                   value={draft.dealId}
-                  disabled={
-                    isSaving ||
-                    isDeleting ||
-                    (!draft.contactId && !draft.dealId)
-                  }
+                  disabled={isSaving || isDeleting || !draft.contactId}
                   onChange={updateField('dealId')}
                 >
                   <option value="">Сделка не выбрана</option>
@@ -908,11 +813,9 @@ export function TaskFormModal({
                 </select>
               </label>
 
-              {mode === 'edit' && (
-                <output className="task-form__amount" aria-live="polite">
-                  {formatDealAmount(selectedDeal) || '—'}
-                </output>
-              )}
+              <output className="task-form__amount" aria-live="polite">
+                {formatDealAmount(selectedDeal) || '—'}
+              </output>
             </div>
 
             <label className="task-form__field task-form__field--comment">
@@ -927,15 +830,15 @@ export function TaskFormModal({
               />
             </label>
 
-            {requestError && (
+            {(externalNotice || requestError) && (
               <p className="task-form__request-error" role="alert">
-                {requestError}
+                {requestError || externalNotice}
               </p>
             )}
 
             <footer className="task-form__actions">
               <div>
-                {mode === 'edit' && (
+                {mode !== 'create' && (
                   <button
                     className="task-form__button task-form__button--danger"
                     type="button"
@@ -973,14 +876,20 @@ export function TaskFormModal({
 
         {isCloseConfirmOpen && (
           <TaskDecisionDialog
-            title="Закрыть окно?"
-            text="Все несохранённые изменения будут потеряны."
-            primaryLabel="Закрыть"
-            secondaryLabel="Остаться"
-            danger
+            title={mode === 'create' ? 'Закрыть окно?' : 'Сохранить изменения?'}
+            text={
+              mode === 'create'
+                ? 'Введённые данные будут потеряны.'
+                : 'В задаче есть несохранённые изменения.'
+            }
+            primaryLabel={mode === 'create' ? 'Продолжить закрытие' : 'Сохранить'}
+            secondaryLabel={mode === 'create' ? 'Остаться' : 'Отмена'}
+            danger={mode === 'create'}
+            disabled={isSaving}
             onPrimary={() => {
               setIsCloseConfirmOpen(false)
-              onClose()
+              if (mode === 'create') onClose()
+              else void submitDraft()
             }}
             onSecondary={() => setIsCloseConfirmOpen(false)}
           />
@@ -994,6 +903,7 @@ export function TaskFormModal({
             secondaryLabel="Остаться"
             onPrimary={() => {
               setIsConflictConfirmOpen(false)
+              setPanelMode('view')
               void loadForm()
             }}
             onSecondary={() => setIsConflictConfirmOpen(false)}
@@ -1003,7 +913,7 @@ export function TaskFormModal({
         {isDeleteConfirmOpen && (
           <TaskDecisionDialog
             title="Удалить задачу?"
-            text={`Вы действительно хотите удалить задачу «${taskTitle || draft.title}»? Действие невозможно отменить.`}
+            text={`Вы действительно хотите удалить задачу «${taskTitle || task?.title || draft.title}»? Действие невозможно отменить.`}
             primaryLabel={isDeleting ? 'Удаление…' : 'Удалить'}
             secondaryLabel="Отмена"
             danger
@@ -1013,6 +923,69 @@ export function TaskFormModal({
           />
         )}
       </div>
+    </div>
+  )
+}
+
+function TaskView({
+  task,
+  workspaceTimezone,
+  externalNotice,
+}: {
+  task: ApiTaskDetail
+  workspaceTimezone: string
+  externalNotice: string
+}) {
+  return (
+    <div className="task-view">
+      {externalNotice && (
+        <p className="task-view__notice" role="status">{externalNotice}</p>
+      )}
+      <TaskViewRow label="Название" value={task.title} />
+      <TaskViewRow
+        label="Дата выполнения"
+        value={
+          task.due_date
+            ? formatTaskDueDateForDisplay(task, workspaceTimezone)
+            : 'Не указана'
+        }
+      />
+      <TaskViewRow label="Описание" value={task.description || 'Не указано'} multiline />
+      <TaskViewRow
+        label="Клиент"
+        value={
+          task.contact
+            ? task.contact.company
+              ? `${task.contact.name} · ${task.contact.company}`
+              : task.contact.name
+            : 'Не указан'
+        }
+      />
+      <TaskViewRow
+        label="Сделка"
+        value={task.deal ? task.deal.title : 'Не указана'}
+      />
+      {task.deal?.amount != null && (
+        <TaskViewRow label="Сумма сделки" value={formatApiDealAmount(task)} />
+      )}
+      <TaskViewRow label="Комментарий" value={task.comment || 'Не указан'} multiline />
+    </div>
+  )
+}
+
+function TaskViewRow({
+  label,
+  value,
+  multiline = false,
+}: {
+  label: string
+  value: string
+  multiline?: boolean
+}) {
+  return (
+    <div className={`task-view__row${multiline ? ' task-view__row--multiline' : ''}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   )
 }
@@ -1040,14 +1013,12 @@ function TaskDecisionDialog({
 
   useEffect(() => {
     secondaryButtonRef.current?.focus()
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !disabled) {
         event.preventDefault()
         onSecondary()
       }
     }
-
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [disabled, onSecondary])
@@ -1090,101 +1061,98 @@ async function loadAllDeals(signal: AbortSignal) {
   const kanban = await getKanban(signal)
   const stageDeals = await Promise.all(
     kanban.stages.map(async (stage) => {
-      const stageDeals: ApiKanbanDeal[] = []
+      const items: ApiKanbanDeal[] = []
       let cursor: string | null = null
       let hasMore = true
-
       while (hasMore) {
-        const response = await getDealsPage(
-          stage.id,
-          100,
-          cursor,
-          signal,
-        )
-        stageDeals.push(...response.deals)
+        const response = await getDealsPage(stage.id, 100, cursor, signal)
+        items.push(...response.deals)
         cursor = response.next_cursor
         hasMore = response.has_more && Boolean(cursor)
       }
-
-      return stageDeals
+      return items
     }),
   )
 
   return stageDeals
     .flat()
-    .sort((firstDeal, secondDeal) =>
-      firstDeal.name.localeCompare(secondDeal.name, 'ru'),
-    )
+    .sort((first, second) => first.name.localeCompare(second.name, 'ru'))
 }
 
 function taskToDraft(
   task: ApiTaskDetail,
   workspaceTimezone: string,
 ): TaskDraft {
+  const dueDate = formatTaskDueDateForInput(task, workspaceTimezone)
   return {
     title: task.title,
-    dueDateType: task.due_date_type,
-    dueDate: formatTaskDueDateForInput(task, workspaceTimezone),
+    dueDate:
+      task.due_date_type === 'date' && dueDate ? `${dueDate}T00:00` : dueDate,
     description: task.description ?? '',
     contactId: task.contact?.id ?? '',
     dealId: task.deal?.id ?? '',
     comment: task.comment ?? '',
-    status: task.status,
   }
 }
 
 function validateTaskDraft(draft: TaskDraft) {
   const title = draft.title.trim()
   let titleError = ''
-  let dueDateError = ''
-
-  if (!title) {
-    titleError = 'Заполните название задачи.'
-  } else if (title.length > 255) {
+  if (!title) titleError = 'Заполните название задачи.'
+  else if (title.length > 255) {
     titleError = 'Название должно содержать не больше 255 символов.'
-  }
-
-  if (draft.dueDateType !== 'none' && !draft.dueDate) {
-    dueDateError = 'Укажите дату выполнения.'
   }
 
   return {
     isValid:
       !titleError &&
-      !dueDateError &&
       draft.description.length <= 1000 &&
       draft.comment.length <= 500,
     titleError,
-    dueDateError,
   }
 }
 
-function buildTaskPayload(draft: TaskDraft): CreateTaskRequest {
+function buildCreatePayload(draft: TaskDraft): CreateTaskRequest {
   return {
     title: draft.title.trim(),
     description: normalizeNullableText(draft.description),
-    due_date: draft.dueDateType === 'none' ? null : draft.dueDate,
-    due_date_type: draft.dueDateType,
+    due_date: draft.dueDate || null,
     contact_id: draft.contactId || null,
     deal_id: draft.dealId || null,
     comment: normalizeNullableText(draft.comment),
   }
 }
 
-function serializeTaskFields(draft: TaskDraft) {
-  return JSON.stringify(buildTaskPayload(draft))
+function buildUpdatePayload(
+  draft: TaskDraft,
+  version: number,
+): UpdateTaskRequest {
+  return {
+    version,
+    title: draft.title.trim(),
+    description: normalizeNullableText(draft.description),
+    due_date: draft.dueDate || null,
+    ...(draft.dueDate ? {} : { due_date_type: 'none' as const }),
+    contact_id: draft.contactId || null,
+    deal_id: draft.dealId || null,
+    comment: normalizeNullableText(draft.comment),
+  }
 }
 
 function serializeTaskDraft(draft: TaskDraft) {
   return JSON.stringify({
-    ...buildTaskPayload(draft),
-    status: draft.status,
+    title: draft.title.trim(),
+    description: normalizeNullableText(draft.description),
+    due_date: draft.dueDate || null,
+    contact_id: draft.contactId || null,
+    deal_id: draft.dealId || null,
+    comment: normalizeNullableText(draft.comment),
   })
 }
 
 function normalizeNullableText(value: string) {
-  const normalizedValue = value.trim()
-  return normalizedValue || null
+  const normalized = value.trim()
+  return normalized || null
 }
 
 function formatContactOption(contact: TaskContactOption) {
@@ -1194,26 +1162,23 @@ function formatContactOption(contact: TaskContactOption) {
 }
 
 function formatDealAmount(deal: ApiKanbanDeal | null) {
-  if (!deal || deal.amount == null) {
-    return ''
-  }
+  if (!deal || deal.amount == null) return ''
+  return formatMoney(deal.amount, deal.currency)
+}
 
-  const amount = Number(deal.amount)
+function formatApiDealAmount(task: ApiTaskDetail) {
+  if (!task.deal || task.deal.amount == null) return ''
+  return formatMoney(task.deal.amount, task.deal.currency)
+}
 
-  if (!Number.isFinite(amount)) {
-    return `${deal.amount} ${deal.currency}`
-  }
-
-  const formattedAmount = new Intl.NumberFormat('ru-RU', {
+function formatMoney(amountValue: string | number, currencyCode: string) {
+  const amount = Number(amountValue)
+  if (!Number.isFinite(amount)) return `${amountValue} ${currencyCode}`
+  const formatted = new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(amount)
-  const currencySymbols: Record<string, string> = {
-    RUB: '₽',
-    USD: '$',
-    EUR: '€',
-  }
-
-  return `${formattedAmount} ${currencySymbols[deal.currency] ?? deal.currency}`
+  const symbols: Record<string, string> = { RUB: '₽', USD: '$', EUR: '€' }
+  return `${formatted} ${symbols[currencyCode] ?? currencyCode}`
 }
 
 function isAbortError(error: unknown) {

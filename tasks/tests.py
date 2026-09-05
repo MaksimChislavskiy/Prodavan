@@ -94,7 +94,8 @@ class TaskApiTests(TestCase):
         mismatch = self.create_task(contact_id=str(other_contact.id))
 
         self.assertEqual(missing_date.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(date_without_type.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(date_without_type.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(date_without_type.data['due_date_type'], 'date')
         self.assertEqual(mismatch.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_date_only_is_normalized_in_workspace_timezone(self):
