@@ -6,6 +6,7 @@ import './PasswordResetModal.mobile.css'
 import { AccountDeletedNotice } from './components/AccountDeletedNotice'
 import { CrmToastController } from './components/crm/CrmToastController'
 import { CrmAppPage } from './pages/CrmAppPage'
+import { installAiChatContractController } from './shared/aiChatContractController'
 import { installAiSettingsFeedbackController } from './shared/aiSettingsFeedbackController'
 import {
   CRM_REALTIME_EVENT,
@@ -15,9 +16,12 @@ import {
 import { installDealsContractController } from './shared/dealsContractController'
 import { installDealsTouchDnd } from './shared/dealsTouchDnd'
 import { installNotificationDeepLinks } from './shared/notificationDeepLinks'
+import { installPendingAiQueryController } from './shared/pendingAiQuery'
 import { installTasksTouchDnd } from './shared/tasksTouchDnd'
 
 installNotificationDeepLinks()
+installAiChatContractController()
+installPendingAiQueryController()
 installAiSettingsFeedbackController()
 installCrmRealtime()
 installTasksTouchDnd()
