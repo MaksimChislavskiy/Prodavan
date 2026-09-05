@@ -1,3 +1,4 @@
+import { clearPendingAiQuery, rememberPendingAiQuery } from '../pendingAiQuery'
 import { ApiError, apiRequest } from './apiClient'
 import { getCurrentChatContextId } from './chatApi'
 
@@ -53,19 +54,27 @@ export type ApiAiChatMessageStatusResponse = {
   content: string
 }
 
+const OFFLINE_MESSAGE = 'Отсутствует подключение к интернету.'
+const API_NETWORK_MESSAGE = 'Проверьте подключение к интернету'
+
 let currentAiChatSessionId: string | null = null
 const rememberedAiMessages = new Map<string, ApiAiChatMessage>()
 
 export async function createAiChatSession(context: AiChatContext) {
-  const response = await apiRequest<ApiAiChatSessionResponse>('/api/ai/chat/session', {
-    method: 'POST',
-    body: {
-      context: resolveAiContext(context),
-    },
-  })
+  try {
+    const response = await apiRequest<ApiAiChatSessionResponse>('/api/ai/chat/session', {
+      method: 'POST',
+      body: {
+        context: resolveAiContext(context),
+      },
+      suppressGlobalErrorToast: true,
+    })
 
-  currentAiChatSessionId = response.session_id
-  return response
+    currentAiChatSessionId = response.session_id
+    return response
+  } catch (error) {
+    throw normalizeNetworkError(error)
+  }
 }
 
 export function getCurrentAiChatSessionId() {
@@ -112,12 +121,34 @@ export async function sendAiChatMessage(params: {
   context: AiChatContext
   clientMessageId?: string
 }) {
-  return requestAiChatMessage('/api/ai/chat', {
-    client_message_id: params.clientMessageId ?? crypto.randomUUID(),
+  const clientMessageId = params.clientMessageId ?? crypto.randomUUID()
+  const request = (sessionId: string) => requestAiChatMessage('/api/ai/chat', {
+    client_message_id: clientMessageId,
     message: params.message,
     context: resolveAiContext(params.context),
-    session_id: params.sessionId,
+    session_id: sessionId,
   })
+
+  const initialSessionId = currentAiChatSessionId ?? params.sessionId
+
+  try {
+    const response = await request(initialSessionId)
+    clearPendingAiQuery(params.message)
+    return response
+  } catch (error) {
+    if (isSessionClosedError(error)) {
+      try {
+        const session = await createAiChatSession(params.context)
+        const response = await request(session.session_id)
+        clearPendingAiQuery(params.message)
+        return response
+      } catch (retryError) {
+        throw handleSendFailure(retryError, params.message)
+      }
+    }
+
+    throw handleSendFailure(error, params.message)
+  }
 }
 
 export async function retryAiChatMessage(messageId: string) {
@@ -153,6 +184,7 @@ async function requestAiChatMessage(path: string, body: unknown) {
     const response = await apiRequest<ApiAiChatResponse>(path, {
       method: 'POST',
       body,
+      suppressGlobalErrorToast: true,
     })
     rememberAiMessage(response.message)
     return response
@@ -182,6 +214,47 @@ function extractAiMessageFromError(error: unknown) {
   }
 
   return isApiAiChatMessage(data.message) ? data.message : null
+}
+
+function isSessionClosedError(error: unknown) {
+  if (!(error instanceof ApiError) || error.status !== 403) {
+    return false
+  }
+
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('error' in data)) {
+    return false
+  }
+
+  const payload = data.error
+  return Boolean(
+    payload
+    && typeof payload === 'object'
+    && 'code' in payload
+    && payload.code === 'SESSION_CLOSED',
+  )
+}
+
+function handleSendFailure(error: unknown, message: string) {
+  const normalizedError = normalizeNetworkError(error)
+  if (normalizedError instanceof Error && normalizedError.message === OFFLINE_MESSAGE) {
+    rememberPendingAiQuery(message)
+  }
+  return normalizedError
+}
+
+function normalizeNetworkError(error: unknown) {
+  if (
+    error instanceof Error
+    && (
+      error.message === API_NETWORK_MESSAGE
+      || (typeof navigator !== 'undefined' && navigator.onLine === false)
+    )
+  ) {
+    return new Error(OFFLINE_MESSAGE)
+  }
+
+  return error
 }
 
 function isApiAiChatMessage(value: unknown): value is ApiAiChatMessage {
