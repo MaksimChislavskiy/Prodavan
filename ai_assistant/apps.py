@@ -7,6 +7,7 @@ class AiAssistantConfig(AppConfig):
     verbose_name = 'AI-помощник'
 
     def ready(self):
+        from . import audit_signals  # noqa: F401
         from . import automation_signals  # noqa: F401
         from .autopilot import ESCALATION_SKIP_REASONS
 
